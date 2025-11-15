@@ -1,4 +1,3 @@
-
 name: Build ImmortalWrt SL-3000 Firmware
 
 on:
@@ -9,7 +8,7 @@ env:
   DEVICE_NAME: sl-3000-emmc
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: master
-  RELEASE_TAG: sl3000-${{ github.run_id }}  
+  RELEASE_TAG: sl3000-${{ github.run_id }}
 
 jobs:
   build:
@@ -90,10 +89,10 @@ TARGET_DEVICES += ${{ env.DEVICE_NAME }}' >> target/linux/mediatek/image/mt7981.
 
       - name: 🚀 Create GitHub Release
         uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: SL-3000 Build ${{ env.RELEASE_TAG }}
-          body: "✅ 自动编译完成，构建编号：${{ env.RELEASE_TAG }}，设备：${{ env.DEVICE_NAME }}"
+          body: "✅ 自动编译完成，构建编号: ${{ env.RELEASE_TAG }}，设备: ${{ env.DEVICE_NAME }}"
           files: openwrt/bin/targets/**/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
