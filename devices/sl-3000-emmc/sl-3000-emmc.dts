@@ -1,33 +1,101 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 /dts-v1/;
 
-/ {
-    compatible = "mediatek,mt7981";
-    model = "SL-3000-EMMC";
+#include "mt7981.dtsi"
+#include "mt7981a-emmc-rfb.dtsi"
 
-    memory@40000000 {
-        device_type = "memory";
-        reg = <0x40000000 0x10000000>; // 256MB RAM
+/ {
+    compatible = "silicon,sl-3000", "mediatek,mt7981";
+    model = "Silicon SL-3000 (eMMC)";
+
+    aliases {
+        led-boot = &led_power;
+        led-failsafe = &led_status;
+        led-running = &led_power;
+        led-upgrade = &led_status;
+        label-mac-device = &gmac0;
     };
 
     chosen {
-        bootargs = "console=ttyS0,115200";  
+        bootargs = "console=ttyS0,115200n8";
     };
 
-    soc {
-        uart@11002000 {
-            status = "okay";
+    memory@40000000 {
+        device_type = "memory";
+        reg = <0x40000000 0x40000000>; // 1GB RAM
+    };
+
+    leds {
+        compatible = "gpio-leds";
+
+        led_power: power {
+            label = "sl-3000:green:power";
+            gpios = <&gpio 45 GPIO_ACTIVE_HIGH>;
+            default-state = "on";
         };
 
-        ethernet@15100000 {
-            status = "okay";
-        };
-
-        mmc@11230000 {
-            status = "okay";
-        };
-
-        gpio@10005000 {
-            status = "okay";
+        led_status: status {
+            label = "sl-3000:red:status";
+            gpios = <&gpio 46 GPIO_ACTIVE_HIGH>;
+            default-state = "off";
         };
     };
+
+    keys {
+        compatible = "gpio-keys";
+
+        reset {
+            label = "reset";
+            gpios = <&gpio 47 GPIO_ACTIVE_LOW>;
+            linux,code = <KEY_RESTART>;
+            debounce-interval = <60>;
+        };
+    };
+};
+
+&uart0 {
+    status = "okay";
+};
+
+&mmc0 {
+    status = "okay"; // eMMC
+    bus-width = <8>;
+    cap-mmc-highspeed;
+    mmc-hs200-1_8v;
+    non-removable;
+};
+
+&spi0 {
+    status = "okay"; // SPI-NOR
+};
+
+&xhci {
+    status = "okay"; // USB 3.0
+};
+
+&eth {
+    status = "okay";
+    mediatek,eth-wan = "lan4";
+};
+
+&gmac0 {
+    status = "okay";
+    phy-mode = "2500base-x";
+    phy-handle = <&phy0>;
+};
+
+&mdio_bus {
+    phy0: ethernet-phy@0 {
+        reg = <0>;
+        compatible = "ethernet-phy-ieee802.3-c45";
+    };
+};
+
+&switch {
+    status = "okay";
+    mediatek,portmap = "llllw"; // LAN1–LAN4 + WAN
+};
+
+&wifi {
+    status = "okay";
 };
