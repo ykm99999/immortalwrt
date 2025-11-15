@@ -13,25 +13,24 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: 🧹 Clean disk space
+      - name: Clean disk space
         run: |
           sudo rm -rf /opt/ghc /opt/hostedtoolcache /usr/local/lib/android
           sudo docker image prune -a -f
           df -h
 
-      - name: 📥 Checkout current repo
+      - name: Checkout
         uses: actions/checkout@v3
 
-      - name: 🛠️ Install dependencies
+      - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison g++ gawk \
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
             python3 python3-pip python3-venv rsync unzip zlib1g-dev file wget
 
-      - name: 💾 Cache build dependencies
+      - name: Cache build
         uses: actions/cache@v3
         with:
           path: |
@@ -41,22 +40,51 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-immortalwrt-
 
-      - name: 📦 Clone ImmortalWrt
+      - name: Clone ImmortalWrt
         run: |
-          git clone --depth=1 $REPO_URL -b $REPO_BRANCH openwrt
+          git clone --depth=1 "$REPO_URL" -b "$REPO_BRANCH" openwrt
 
-      - name: 🔧 Inject SL-3000 device support
+      - name: Inject SL-3000 device
         run: |
           cd openwrt
           mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek
           cp -v ../devices/${{ env.DEVICE_NAME }}/${{ env.DEVICE_NAME }}.dts target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
-          echo -e '\n\
-define Device/${{ env.DEVICE_NAME }}\n\
-  DEVICE_VENDOR := Silicon\n\
-  DEVICE_MODEL := SL-3000\n\
-  DEVICE_DTS := ${{ env.DEVICE_NAME }}\n\
-  DEVICE_PACKAGES := kmod-usb3 kmod-mmc kmod-leds-gpio kmod-gpio-button\n\
-endef\n\
-TARGET_DEVICES += ${{ env.DEVICE_NAME }}' >> target/linux/mediatek/image/mt7981.mk
+          printf "\ndefine Device/${{ env.DEVICE_NAME }}\n  DEVICE_VENDOR := Silicon\n  DEVICE_MODEL := SL-3000\n  DEVICE_DTS := ${{ env.DEVICE_NAME }}\n  DEVICE_PACKAGES := kmod-usb3 kmod-mmc kmod-leds-gpio kmod-gpio-button\nendef\nTARGET_DEVICES += ${{ env.DEVICE_NAME }}\n" >> target/linux/mediatek/image/mt7981.mk
 
-     
+      - name: Update feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Load config
+        run: |
+          cp devices/${{ env.DEVICE_NAME }}/.config openwrt/.config
+
+      - name: Configure build
+        run: |
+          cd openwrt
+          echo "CONFIG_CCACHE=y" >> .config
+          make defconfig
+
+      - name: Build firmware
+        run: |
+          cd openwrt
+          make download -j"$(nproc)" || make download -j1 V=s
+          make -j"$(nproc)" || make -j1 V=s
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DEVICE_NAME }}-firmware
+          path: openwrt/bin/targets/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: SL-3000 Build ${{ env.RELEASE_TAG }}
+          body: "Auto build complete. Tag: ${{ env.RELEASE_TAG }}, Device: ${{ env.DEVICE_NAME }}"
+          files: openwrt/bin/targets/**/*
