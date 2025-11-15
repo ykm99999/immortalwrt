@@ -1,0 +1,33 @@
+/dts-v1/;
+
+/ {
+    compatible = "mediatek,mt7981";
+    model = "SL-3000-EMMC";
+
+    memory@40000000 {
+        device_type = "memory";
+        reg = <0x40000000 0x10000000>; // 256MB RAM
+    };
+
+    chosen {
+        bootargs = "console=ttyS0,115200";  
+    };
+
+    soc {
+        uart@11002000 {
+            status = "okay";
+        };
+
+        ethernet@15100000 {
+            status = "okay";
+        };
+
+        mmc@11230000 {
+            status = "okay";
+        };
+
+        gpio@10005000 {
+            status = "okay";
+        };
+    };
+};
