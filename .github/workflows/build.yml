@@ -94,8 +94,5 @@ TARGET_DEVICES += ${{ env.DEVICE_NAME }}' >> target/linux/mediatek/image/mt7981.
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: SL-3000 Build ${{ env.RELEASE_TAG }}
-          body: >
-            ✅ 自动编译完成  
-            📅 构建编号：${{ env.RELEASE_TAG }}  
-            📦 设备：${{ env.DEVICE_NAME }}
+          body: "✅ 自动编译完成，构建编号：${{ env.RELEASE_TAG }}，设备：${{ env.DEVICE_NAME }}"
           files: openwrt/bin/targets/**/*
