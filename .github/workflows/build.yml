@@ -8,6 +8,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: 🧹 清理空间（移除预装软件）
+        run: |
+          sudo rm -rf /opt/ghc /opt/hostedtoolcache /usr/local/lib/android
+          sudo docker image prune -a -f
+          df -h
+
       - name: Checkout source
         uses: actions/checkout@v3
 
@@ -32,6 +38,11 @@ jobs:
       - name: Load custom config
         run: |
           cp devices/sl-3000-emmc/.config .config
+
+      - name: Clean build cache
+        run: |
+          make distclean || true
+          rm -rf tmp build_dir staging_dir dl
 
       - name: Start build
         run: |
