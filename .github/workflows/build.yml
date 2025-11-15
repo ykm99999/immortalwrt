@@ -1,0 +1,44 @@
+name: Build sl-3000-emmc firmware
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Set up build environment
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-distutils rsync unzip zlib1g-dev file wget python3
+
+      - name: Clone feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Add custom device support
+        run: |
+          mkdir -p target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek
+          cp -r devices/sl-3000-emmc/sl-3000-emmc.dts target/linux/mediatek/files-5.15/arch/arm64/boot/dts/mediatek/
+          echo 'define Device/sl-3000-emmc\n  DEVICE_VENDOR := Custom\n  DEVICE_MODEL := SL-3000-EMMC\n  DEVICE_DTS := sl-3000-emmc\n  IMAGE_SIZE := 16000k\nendef\nTARGET_DEVICES += sl-3000-emmc' >> target/linux/mediatek/image/mt7981.mk
+
+      - name: Load custom config
+        run: |
+          cp devices/sl-3000-emmc/.config .config
+
+      - name: Start build
+        run: |
+          make defconfig
+          make -j$(nproc)
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: sl-3000-emmc-firmware
+          path: bin/targets/
