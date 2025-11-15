@@ -8,7 +8,6 @@ env:
   DEVICE_NAME: sl-3000-emmc
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: master
-  BUILD_DATE: ${{ github.run_id }}
   RELEASE_TAG: sl3000-${{ github.run_id }}
 
 jobs:
@@ -68,7 +67,7 @@ TARGET_DEVICES += ${{ env.DEVICE_NAME }}' >> target/linux/mediatek/image/mt7981.
 
       - name: 📄 Load custom config
         run: |
-          cp ../devices/${{ env.DEVICE_NAME }}/.config openwrt/.config
+          cp devices/${{ env.DEVICE_NAME }}/.config openwrt/.config
 
       - name: ⚙️ Configure build
         run: |
@@ -76,14 +75,11 @@ TARGET_DEVICES += ${{ env.DEVICE_NAME }}' >> target/linux/mediatek/image/mt7981.
           echo "CONFIG_CCACHE=y" >> .config
           make defconfig
 
-      - name: 🧱 Build firmware
+      - name: 🚀 Build firmware
         run: |
           cd openwrt
-          START_TIME=$(date +%s)
           make download -j$(nproc) || make download -j1 V=s
           make -j$(nproc) || make -j1 V=s
-          END_TIME=$(date +%s)
-          echo "⏱️ 编译耗时：$((END_TIME - START_TIME)) 秒"
 
       - name: 📤 Upload firmware artifact
         uses: actions/upload-artifact@v4
@@ -100,14 +96,6 @@ TARGET_DEVICES += ${{ env.DEVICE_NAME }}' >> target/linux/mediatek/image/mt7981.
             ✅ 自动编译完成
             📅 构建编号：${{ env.RELEASE_TAG }}
             📦 设备：${{ env.DEVICE_NAME }}
+          files: openwrt/bin/targets/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: openwrt/bin/targets/**/*
-
-      - name: 🧩 Upload build logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: openwrt/logs/
