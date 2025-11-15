@@ -16,8 +16,11 @@ jobs:
     steps:
       - name: Clean disk space
         run: |
-          sudo rm -rf /opt/ghc /opt/hostedtoolcache /usr/local/lib/android
+          echo "Cleaning disk space..."
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           sudo docker image prune -a -f
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
           df -h
 
       - name: Checkout
@@ -73,11 +76,34 @@ jobs:
           make download -j"$(nproc)" || make download -j1 V=s
           make -j"$(nproc)" || make -j1 V=s
 
-      - name: Upload artifacts
+      - name: Package firmware into zip
+        run: |
+          cd openwrt/bin/targets
+          DEVICE_DIR=$(find . -type d -name "${DEVICE_NAME}" | head -n 1)
+          cd $DEVICE_DIR
+          zip -r ../../../../${DEVICE_NAME}-firmware.zip *factory*.bin *sysupgrade*.bin *.itb sha256sums
+
+      - name: Generate release notes
+        run: |
+          cd openwrt/bin/targets
+          DEVICE_DIR=$(find . -type d -name "${DEVICE_NAME}" | head -n 1)
+          cd $DEVICE_DIR
+          echo "### 固件文件列表" > ../../../../release_notes.md
+          echo "" >> ../../../../release_notes.md
+          for f in *factory*.bin *sysupgrade*.bin *.itb; do
+            if [ -f "$f" ]; then
+              SUM=$(sha256sum "$f" | awk '{print $1}')
+              echo "- $f (sha256: $SUM)" >> ../../../../release_notes.md
+            fi
+          done
+          echo "" >> ../../../../release_notes.md
+          echo "编译时间: $(date '+%Y-%m-%d %H:%M:%S')" >> ../../../../release_notes.md
+
+      - name: Upload firmware zip
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.DEVICE_NAME }}-firmware
-          path: openwrt/bin/targets/
+          path: ${{ env.DEVICE_NAME }}-firmware.zip
 
       - name: Create release
         uses: softprops/action-gh-release@v1
@@ -86,5 +112,13 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: SL-3000 Build ${{ env.RELEASE_TAG }}
-          body: "Auto build complete. Tag: ${{ env.RELEASE_TAG }}, Device: ${{ env.DEVICE_NAME }}"
-          files: openwrt/bin/targets/**/*
+          body_path: release_notes.md
+          files: ${{ env.DEVICE_NAME }}-firmware.zip
+
+      - name: Delete old releases
+        uses: dev-drprasad/delete-older-releases@v0.3.3
+        with:
+          keep_latest: 3   # 保留最近 3 个 Release
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
