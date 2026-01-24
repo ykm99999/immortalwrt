@@ -1,9 +1,8 @@
 #!/bin/sh
 set -e
 
-echo "=== 🔍 profiles.json 设备注册检查 ==="
+echo "=== 🔍 profiles.json 设备注册检查（25.12 / 6.12） ==="
 
-# 查找 profiles.json 文件
 profile=$(find openwrt/bin/targets -name profiles.json | head -n 1)
 
 if [ -z "$profile" ]; then
@@ -13,11 +12,10 @@ fi
 
 echo "✔ profiles.json 存在: $profile"
 
-# 检查设备 ID 是否注册
-if grep -q '"id": "sl-3000-emmc"' "$profile"; then
-    echo "✔ 设备已注册 (sl-3000-emmc)"
+if grep -q '"id": "mt7981b-sl-3000-emmc"' "$profile"; then
+    echo "✔ 设备已注册 (mt7981b-sl-3000-emmc)"
 else
-    echo "❌ 设备未注册 (sl-3000-emmc)"
+    echo "❌ 设备未注册 (mt7981b-sl-3000-emmc)"
     exit 1
 fi
 
