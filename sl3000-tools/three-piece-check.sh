@@ -1,12 +1,12 @@
 #!/bin/sh
 set -e
 
-echo "=== 🔍 三件套校验开始 ==="
+echo "=== 🔍 三件套校验（25.12 / Linux 6.12） ==="
 
-DTS="target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts"
+DTS="target/linux/mediatek/files-6.12/dts/mt7981b-sl-3000-emmc.dts"
 MK="target/linux/mediatek/image/filogic.mk"
 CONF=".config"
-DEV="sl-3000-emmc"
+DEV="mt7981b-sl-3000-emmc"
 
 # 文件存在性
 [ -f "$DTS" ] || { echo "❌ DTS 缺失"; exit 1; }
@@ -21,7 +21,7 @@ grep -q "$DEV" "$CONF" || { echo "❌ CONFIG 未启用设备"; exit 1; }
 echo "✔ 设备一致性通过"
 
 # CONFIG 内核版本
-grep -q "CONFIG_LINUX_6_6=y" "$CONF" || { echo "❌ CONFIG 未启用内核 6.6"; exit 1; }
+grep -q "CONFIG_LINUX_6_12=y" "$CONF" || { echo "❌ CONFIG 未启用内核 6.12"; exit 1; }
 echo "✔ CONFIG 内核检查通过"
 
 # 隐藏字符检查
