@@ -15,7 +15,7 @@ jobs:
       # 2. 优化磁盘空间
       - name: Optimize disk space
         run: |
-          sudo apt-get remove -y --purge azure-cli google-cloud-sdk dotnet* powershell mono* mysql* php* android* || true
+          sudo apt-get remove -y --purge azure-cli google-cloud-sdk dotnet powershell mono mysql php android* || true
           sudo apt-get autoremove -y
           sudo apt-get clean
 
@@ -57,13 +57,13 @@ jobs:
           chmod +x sl3000-tools/three-piece-check.sh
           ./sl3000-tools/three-piece-check.sh
 
-      # 8. ⭐ 将三件套同步到官方源码目录（关键步骤）
+      # 8. ⭐ 将三件套同步到官方源码目录（files-6.12）
       - name: Sync Three-Piece into official source
         run: |
-          # DTS → 官方 files-6.6（你确认的真实路径）
-          mkdir -p openwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek
-          cp target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/*.dts \
-             openwrt/target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/
+          # DTS → 官方 files-6.12
+          mkdir -p openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek
+          cp target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/*.dts \
+             openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
 
           # MK → 官方 image/
           cp target/linux/mediatek/image/filogic.mk openwrt/target/linux/mediatek/image/
