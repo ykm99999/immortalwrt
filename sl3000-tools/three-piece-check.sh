@@ -3,12 +3,10 @@ set -e
 
 echo "=== 🔍 三件套校验（25.12 / Linux 6.12） ==="
 
-# 正确的 6.12 DTS 路径（你确认的）
+# 你确认的 6.12 DTS 路径
 DTS="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
 MK="target/linux/mediatek/image/filogic.mk"
 CONF=".config"
-
-# 正确设备名（你最终确认）
 DEV="mt7981b-sl3000-emmc"
 
 #########################################
@@ -42,4 +40,8 @@ echo "✔ CONFIG 内核检查通过"
 
 for f in "$DTS" "$MK" "$CONF"; do
     grep -q $'\xEF\xBB\xBF' "$f" && { echo "❌ $f 含 BOM"; exit 1; }
-    grep -q $'\r' "$f"        && { echo "❌ $f 含 CRLF"; exit
+    grep -q $'\r' "$f"        && { echo "❌ $f 含 CRLF"; exit 1; }
+done
+
+echo "✔ 隐藏字符检查通过"
+echo "=== ✅ 三件套校验全部通过 ==="
