@@ -12,7 +12,8 @@ fi
 
 echo "✔ profiles.json 存在: $profile"
 
-DEVICE_ID="mt7981b-sl-3000-emmc"
+# 正确设备名（你最终确认的）
+DEVICE_ID="mt7981b-sl3000-emmc"
 
 if grep -q "\"id\": \"$DEVICE_ID\"" "$profile"; then
     echo "✔ 设备已注册 ($DEVICE_ID)"
