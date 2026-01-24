@@ -45,72 +45,73 @@ jobs:
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
           echo "已克隆官方 ImmortalWrt 25.12 源码"
 
-      # 6. 运行三件套生成器（生成模板）
+      # 6. ⭐ 智能对比上游平台变化
+      - name: Smart Compare with Upstream
+        run: |
+          chmod +x sl3000-tools/compare-with-upstream-smart.sh
+          ./sl3000-tools/compare-with-upstream-smart.sh
+
+      # 7. 运行三件套生成器（生成模板）
       - name: Generate SL3000 Three-Piece Set
         run: |
           chmod +x sl3000-tools/generate-three-piece.sh
           ./sl3000-tools/generate-three-piece.sh
 
-      # 7. 校验三件套
+      # 8. 校验三件套
       - name: Validate Three-Piece Set
         run: |
           chmod +x sl3000-tools/three-piece-check.sh
           ./sl3000-tools/three-piece-check.sh
 
-      # 8. ⭐ 将三件套同步到官方源码目录（files-6.12）
+      # 9. ⭐ 将三件套同步到官方源码目录（files-6.12）
       - name: Sync Three-Piece into official source
         run: |
-          # DTS → 官方 files-6.12
           mkdir -p openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek
           cp target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/*.dts \
              openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
-
-          # MK → 官方 image/
           cp target/linux/mediatek/image/filogic.mk openwrt/target/linux/mediatek/image/
-
-          # CONFIG → 官方源码根目录
           cp .config openwrt/.config
 
-      # 9. 更新 feeds
+      # 10. 更新 feeds
       - name: Update feeds
         run: |
           cd openwrt
           ./scripts/feeds update -a || true
           ./scripts/feeds install -a
 
-      # 10. 规范化配置
+      # 11. 规范化配置
       - name: Normalize config
         run: |
           cd openwrt
           make defconfig
 
-      # 11. 构建工具链
+      # 12. 构建工具链
       - name: Build toolchain
         run: |
           cd openwrt
           make toolchain/install -j$(nproc) V=s
 
-      # 12. 构建固件
+      # 13. 构建固件
       - name: Build firmware
         run: |
           cd openwrt
           make -j$(nproc) V=s | tee build.log
 
-      # 13. 上传构建日志
+      # 14. 上传构建日志
       - name: Upload build log
         uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: openwrt/build.log
 
-      # 14. 上传固件产物
+      # 15. 上传固件产物
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-sl3000-emmc
           path: openwrt/bin/targets/mediatek/filogic/
 
-      # 15. 自动发布固件
+      # 16. 自动发布固件
       - name: Release firmware
         uses: softprops/action-gh-release@v1
         with:
