@@ -12,10 +12,12 @@ fi
 
 echo "✔ profiles.json 存在: $profile"
 
-if grep -q '"id": "mt7981b-sl-3000-emmc"' "$profile"; then
-    echo "✔ 设备已注册 (mt7981b-sl-3000-emmc)"
+DEVICE_ID="mt7981b-sl-3000-emmc"
+
+if grep -q "\"id\": \"$DEVICE_ID\"" "$profile"; then
+    echo "✔ 设备已注册 ($DEVICE_ID)"
 else
-    echo "❌ 设备未注册 (mt7981b-sl-3000-emmc)"
+    echo "❌ 设备未注册 ($DEVICE_ID)"
     exit 1
 fi
 
