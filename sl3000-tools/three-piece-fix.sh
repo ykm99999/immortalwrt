@@ -3,7 +3,8 @@ set -e
 
 echo "=== 🔧 自动修复 SL3000 三件套（25.12 / 6.12） ==="
 
-DTS="target/linux/mediatek/files-6.12/dts/mt7981b-sl-3000-emmc.dts"
+# 你确认的 DTS 路径（files-6.6）
+DTS="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981b-sl-3000-emmc.dts"
 MK="target/linux/mediatek/image/filogic.mk"
 CONF=".config"
 DEV="mt7981b-sl-3000-emmc"
@@ -17,6 +18,7 @@ if ! grep -q "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${DEV}=y" "$CONF"; th
     echo "CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_${DEV}=y" >> "$CONF"
 fi
 
+# 你脚本标题写 6.12，但 DTS 在 6.6，我保持你的逻辑不改标题
 if ! grep -q "CONFIG_LINUX_6_12=y" "$CONF"; then
     echo "⚠ 修复 CONFIG：补齐 Linux 6.12"
     echo "CONFIG_LINUX_6_12=y" >> "$CONF"
