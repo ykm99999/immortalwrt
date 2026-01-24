@@ -1,14 +1,14 @@
 #!/bin/sh
 set -e
 
-echo "=== 🛠 生成 SL‑3000 eMMC 三件套（25.12 / Linux 6.12） ==="
+echo "=== 🏆 生成 SL3000 eMMC 官方工程旗舰版三件套（25.12 / Linux 6.12） ==="
 
 #########################################
-# 1. DTS（保持 24.10 目录结构）
+# 1. DTS（官方 25.12 / files-6.12 结构）
 #########################################
 
-DTS="dts/mt7981b-sl3000-emmc.dts"
-mkdir -p dts
+DTS="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
+mkdir -p target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek
 
 cat > "$DTS" << 'EOF'
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
@@ -19,7 +19,7 @@ cat > "$DTS" << 'EOF'
 #include <dt-bindings/input/input.h>
 
 / {
-	model = "SL 3000 eMMC Router";
+	model = "SL3000 eMMC Router";
 	compatible = "sl,sl3000-emmc", "mediatek,mt7981";
 
 	#address-cells = <2>;
@@ -210,7 +210,7 @@ EOF
 echo "✔ DTS 生成完成"
 
 #########################################
-# 2. MK（保持 24.10 目录结构）
+# 2. MK（官方 25.12 结构）
 #########################################
 
 MK="target/linux/mediatek/image/filogic.mk"
@@ -222,9 +222,9 @@ cat > "$MK" << 'EOF'
 define Device/mt7981b-sl3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000
-  DEVICE_VARIANT := eMMC bootstrap
+  DEVICE_VARIANT := eMMC
   DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_DTS_DIR := dts
+  DEVICE_DTS_DIR := ../files-6.12/arch/arm64/boot/dts/mediatek
 
   DEVICE_PACKAGES := kmod-usb3 kmod-mt7981-firmware mt7981-wo-firmware \
 	f2fsck mkf2fs automount
@@ -234,9 +234,6 @@ define Device/mt7981b-sl3000-emmc
   KERNEL := kernel-bin | lzma | \
 	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
 
-  KERNEL_INITRAMFS := kernel-bin | lzma | \
-	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
-
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += mt7981b-sl3000-emmc
@@ -245,7 +242,7 @@ EOF
 echo "✔ MK 生成完成"
 
 #########################################
-# 3. CONFIG（25.12 使用 Linux 6.12）
+# 3. CONFIG（25.12 / Linux 6.12）
 #########################################
 
 CONF=".config"
@@ -259,4 +256,4 @@ CONFIG_LINUX_6_12=y
 EOF
 
 echo "✔ CONFIG 生成完成"
-echo "=== 🎉 三件套生成完成（25.12 / Linux 6.12） ==="
+echo "=== 🎉 官方工程旗舰版三件套生成完成（25.12 / Linux 6.12） ==="
