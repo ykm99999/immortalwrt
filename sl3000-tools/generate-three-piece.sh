@@ -7,8 +7,8 @@ echo "=== 🛠 生成 SL‑3000 eMMC 三件套（25.12 / Linux 6.12） ==="
 # 1. DTS（保持 24.10 目录结构）
 #########################################
 
-DTS="target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts"
-mkdir -p target/linux/mediatek/dts
+DTS="dts/mt7981b-sl3000-emmc.dts"
+mkdir -p dts
 
 cat > "$DTS" << 'EOF'
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
@@ -20,7 +20,7 @@ cat > "$DTS" << 'EOF'
 
 / {
 	model = "SL 3000 eMMC Router";
-	compatible = "sl-3000-emmc", "mediatek,mt7981";
+	compatible = "sl,sl3000-emmc", "mediatek,mt7981";
 
 	#address-cells = <2>;
 	#size-cells = <2>;
@@ -219,16 +219,12 @@ mkdir -p target/linux/mediatek/image
 cat > "$MK" << 'EOF'
 # SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 
-###########################################################
-#  ONLY YOUR DEVICE BELOW
-###########################################################
-
-define Device/mt7981b-sl-3000-emmc
+define Device/mt7981b-sl3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000
   DEVICE_VARIANT := eMMC bootstrap
-  DEVICE_DTS := mt7981b-sl-3000-emmc
-  DEVICE_DTS_DIR := ../dts
+  DEVICE_DTS := mt7981b-sl3000-emmc
+  DEVICE_DTS_DIR := dts
 
   DEVICE_PACKAGES := kmod-usb3 kmod-mt7981-firmware mt7981-wo-firmware \
 	f2fsck mkf2fs automount
@@ -243,7 +239,7 @@ define Device/mt7981b-sl-3000-emmc
 
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
-TARGET_DEVICES += mt7981b-sl-3000-emmc
+TARGET_DEVICES += mt7981b-sl3000-emmc
 EOF
 
 echo "✔ MK 生成完成"
@@ -257,8 +253,8 @@ CONF=".config"
 cat > "$CONF" << 'EOF'
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981b-sl-3000-emmc=y
-CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_mt7981b-sl-3000-emmc=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981b-sl3000-emmc=y
+CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_mt7981b-sl3000-emmc=y
 CONFIG_LINUX_6_12=y
 EOF
 
