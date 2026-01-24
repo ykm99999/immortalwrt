@@ -1,14 +1,14 @@
 #!/bin/sh
 set -e
 
-echo "=== 🛠 生成 SL‑3000 eMMC 三件套（DTS + MK + CONFIG） ==="
+echo "=== 🛠 生成 SL‑3000 eMMC 三件套（25.12 / Linux 6.12） ==="
 
 #########################################
-# 1. DTS
+# 1. DTS（25.12 使用 files-6.12）
 #########################################
 
-DTS="target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts"
-mkdir -p target/linux/mediatek/dts
+DTS="target/linux/mediatek/files-6.12/dts/mt7981b-sl-3000-emmc.dts"
+mkdir -p target/linux/mediatek/files-6.12/dts
 
 cat > "$DTS" << 'EOF'
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
@@ -211,7 +211,7 @@ echo "✔ DTS 生成完成"
 
 
 #########################################
-# 2. MK
+# 2. MK（25.12 设备名必须带 mt7981b 前缀）
 #########################################
 
 MK="target/linux/mediatek/image/filogic.mk"
@@ -220,31 +220,16 @@ mkdir -p target/linux/mediatek/image
 cat > "$MK" << 'EOF'
 # SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 
-DTS_DIR := $(DTS_DIR)/mediatek
-
-define Image/Prepare
-	rm -f $(KDIR)/ubi_mark
-	echo -ne '\xde\xad\xc0\xde' > $(KDIR)/ubi_mark
-endef
-
-define Build/mt7981-bl2
-	cat $(STAGING_DIR_IMAGE)/mt7981-$1-bl2.img >> $@
-endef
-
-define Build/mt7981-bl31-uboot
-	cat $(STAGING_DIR_IMAGE)/mt7981_$1-u-boot.fip >> $@
-endef
-
 ###########################################################
 #  ONLY YOUR DEVICE BELOW
 ###########################################################
 
-define Device/sl-3000-emmc
+define Device/mt7981b-sl-3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000
   DEVICE_VARIANT := eMMC bootstrap
   DEVICE_DTS := mt7981b-sl-3000-emmc
-  DEVICE_DTS_DIR := ../dts
+  DEVICE_DTS_DIR := ../files-6.12/dts
 
   DEVICE_PACKAGES := kmod-usb3 kmod-mt7981-firmware mt7981-wo-firmware \
 	f2fsck mkf2fs automount
@@ -259,14 +244,14 @@ define Device/sl-3000-emmc
 
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
-TARGET_DEVICES += sl-3000-emmc
+TARGET_DEVICES += mt7981b-sl-3000-emmc
 EOF
 
 echo "✔ MK 生成完成"
 
 
 #########################################
-# 3. CONFIG
+# 3. CONFIG（25.12 使用 Linux 6.12）
 #########################################
 
 CONF=".config"
@@ -274,10 +259,10 @@ CONF=".config"
 cat > "$CONF" << 'EOF'
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_mediatek_filogic_DEVICE_sl-3000-emmc=y
-CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_sl-3000-emmc=y
-CONFIG_LINUX_6_6=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981b-sl-3000-emmc=y
+CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_mt7981b-sl-3000-emmc=y
+CONFIG_LINUX_6_12=y
 EOF
 
 echo "✔ CONFIG 生成完成"
-echo "=== 🎉 三件套生成完成 ==="
+echo "=== 🎉 三件套生成完成（25.12 / Linux 6.12） ==="
