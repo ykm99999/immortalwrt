@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-echo "=== 🛠 生成 SL3000 eMMC 三件套（25.12 / Linux 6.12） ==="
+echo "=== 🛠 生成 SL3000 eMMC 三件套（25.12 / Linux 6.12 / 工程级旗舰版） ==="
 
 #########################################
 # 1. DTS（完整工程级版本）
@@ -20,8 +20,8 @@ cat > "$DTS" << 'EOF'
 #include "mt7981.dtsi"
 
 / {
-	model = "SL3000 eMMC Flagship";
-	compatible = "sl,sl3000-emmc", "mediatek,mt7981";
+	model = "mt7981b-sl3000-emmc";
+	compatible = "sl,mt7981b-sl3000-emmc", "mediatek,mt7981";
 
 	aliases {
 		serial0 = &uart0;
@@ -181,4 +181,4 @@ CONFIG_PACKAGE_kmod-nf-nat=y
 EOF
 
 echo "✔ CONFIG 生成完成"
-echo "=== 🎉 三件套生成完成（25.12 / Linux 6.12 / 工程级旗舰版 + Passwall2 + Docker） ==="
+echo "=== 🎉 三件套生成完成（25.12 / Linux 6.12 / 工程级旗舰版） ==="
