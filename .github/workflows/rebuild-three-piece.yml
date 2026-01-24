@@ -1,10 +1,10 @@
-name: Rebuild SL3000 Three-Piece
+name: Build SL3000 ImmortalWrt 25.12
 
 on:
   workflow_dispatch:
 
 jobs:
-  rebuild:
+  build:
     runs-on: ubuntu-22.04
 
     steps:
@@ -12,7 +12,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 设置执行权限（新的 5 个脚本）
+      # 2. 安装构建依赖
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses5-dev \
+            libssl-dev python3 python3-distutils rsync unzip zlib1g-dev \
+            file wget
+
+      # 3. 设置脚本权限
       - name: Make scripts executable
         run: |
           chmod +x sl3000-tools/generate-three-piece.sh
@@ -21,29 +30,72 @@ jobs:
           chmod +x sl3000-tools/three-piece-rebuild.sh
           chmod +x sl3000-tools/profiles-check.sh
 
-      # 3. 运行三件套重建脚本（关键：必须在仓库根目录执行）
-      - name: Run three-piece rebuild
+      # 4. 生成三件套（25.12 / Linux 6.12）
+      - name: Generate three-piece
         run: |
-          cd $GITHUB_WORKSPACE
-          ./sl3000-tools/three-piece-rebuild.sh
+          ./sl3000-tools/generate-three-piece.sh
 
-      # 4. 保存生成的三件套作为构建产物
-      - name: Upload three-piece artifacts
+      # 5. 校验三件套
+      - name: Check three-piece
+        run: |
+          ./sl3000-tools/three-piece-check.sh
+
+      # 6. 自动修复三件套（如有必要）
+      - name: Auto fix three-piece
+        run: |
+          ./sl3000-tools/three-piece-fix.sh
+
+      # 7. 再次校验
+      - name: Re-check three-piece
+        run: |
+          ./sl3000-tools/three-piece-check.sh
+
+      # 8. 更新 feeds
+      - name: Update feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # 9. 下载依赖
+      - name: Download sources
+        run: |
+          make defconfig
+          make download -j8
+
+      # 10. 构建固件
+      - name: Build firmware
+        run: |
+          make -j$(nproc) || make -j1 V=s
+
+      # 11. 校验 profiles.json（确认设备注册成功）
+      - name: Check profiles.json
+        run: |
+          ./sl3000-tools/profiles-check.sh
+
+      # 12. 上传固件产物
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: sl3000-firmware
+          path: bin/targets/**/**
+
+      # 13. 上传三件套产物
+      - name: Upload three-piece
         uses: actions/upload-artifact@v4
         with:
           name: sl3000-three-piece
           path: |
-            target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts
+            target/linux/mediatek/files-6.12/dts/mt7981b-sl-3000-emmc.dts
             target/linux/mediatek/image/filogic.mk
             .config
 
-      # 5. 推送生成的三件套到仓库
+      # 14. 提交三件套更新
       - name: Commit and push changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts
+          git add target/linux/mediatek/files-6.12/dts/mt7981b-sl-3000-emmc.dts
           git add target/linux/mediatek/image/filogic.mk
           git add .config
-          git commit -m "ci: auto rebuild SL3000 three-piece" || echo "No changes to commit"
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm888/immortalwrt-sl3000.git main
+          git commit -m "ci: auto update SL3000 three-piece (25.12 / Linux 6.12)" || echo "No changes"
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/ykm99999/immortalwrt.git main
