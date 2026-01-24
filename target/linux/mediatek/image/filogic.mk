@@ -3,9 +3,9 @@
 define Device/mt7981b-sl3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000
-  DEVICE_VARIANT := eMMC bootstrap
+  DEVICE_VARIANT := eMMC
   DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_DTS_DIR := dts
+  DEVICE_DTS_DIR := ../files-6.12/arch/arm64/boot/dts/mediatek
 
   DEVICE_PACKAGES := kmod-usb3 kmod-mt7981-firmware mt7981-wo-firmware \
 	f2fsck mkf2fs automount
@@ -14,9 +14,6 @@ define Device/mt7981b-sl3000-emmc
 
   KERNEL := kernel-bin | lzma | \
 	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
-
-  KERNEL_INITRAMFS := kernel-bin | lzma | \
-	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
 
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
