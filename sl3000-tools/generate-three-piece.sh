@@ -4,11 +4,11 @@ set -e
 echo "=== 🛠 生成 SL‑3000 eMMC 三件套（25.12 / Linux 6.12） ==="
 
 #########################################
-# 1. DTS（25.12 使用 files-6.12）
+# 1. DTS（保持 24.10 目录结构）
 #########################################
 
-DTS="target/linux/mediatek/files-6.12/dts/mt7981b-sl-3000-emmc.dts"
-mkdir -p target/linux/mediatek/files-6.12/dts
+DTS="target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts"
+mkdir -p target/linux/mediatek/dts
 
 cat > "$DTS" << 'EOF'
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
@@ -209,9 +209,8 @@ EOF
 
 echo "✔ DTS 生成完成"
 
-
 #########################################
-# 2. MK（25.12 设备名必须带 mt7981b 前缀）
+# 2. MK（保持 24.10 目录结构）
 #########################################
 
 MK="target/linux/mediatek/image/filogic.mk"
@@ -229,7 +228,7 @@ define Device/mt7981b-sl-3000-emmc
   DEVICE_MODEL := 3000
   DEVICE_VARIANT := eMMC bootstrap
   DEVICE_DTS := mt7981b-sl-3000-emmc
-  DEVICE_DTS_DIR := ../files-6.12/dts
+  DEVICE_DTS_DIR := ../dts
 
   DEVICE_PACKAGES := kmod-usb3 kmod-mt7981-firmware mt7981-wo-firmware \
 	f2fsck mkf2fs automount
@@ -248,7 +247,6 @@ TARGET_DEVICES += mt7981b-sl-3000-emmc
 EOF
 
 echo "✔ MK 生成完成"
-
 
 #########################################
 # 3. CONFIG（25.12 使用 Linux 6.12）
