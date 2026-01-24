@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      # 1. 检出仓库（包含 sl3000-tools）
+      # 1. 检出仓库（包含 sl3000-tools 和三件套模板）
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -45,24 +45,30 @@ jobs:
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
           echo "已克隆官方 ImmortalWrt 25.12 源码"
 
-      # 6. 使用根目录 .config
-      - name: Use root .config
-        run: |
-          cp .config openwrt/.config
-
-      # 7. 运行三件套生成器（脚本在仓库根目录/sl3000-tools）
+      # 6. 运行三件套生成器（生成模板）
       - name: Generate SL3000 Three-Piece Set
         run: |
-          cd openwrt
-          chmod +x ../sl3000-tools/generate-three-piece.sh
-          ../sl3000-tools/generate-three-piece.sh
+          chmod +x sl3000-tools/generate-three-piece.sh
+          ./sl3000-tools/generate-three-piece.sh
 
-      # 8. 三件套校验
+      # 7. 校验三件套
       - name: Validate Three-Piece Set
         run: |
-          cd openwrt
-          chmod +x ../sl3000-tools/three-piece-check.sh
-          ../sl3000-tools/three-piece-check.sh
+          chmod +x sl3000-tools/three-piece-check.sh
+          ./sl3000-tools/three-piece-check.sh
+
+      # 8. ⭐ 将三件套同步到官方源码目录（关键步骤）
+      - name: Sync Three-Piece into official source
+        run: |
+          # DTS → 官方 files-6.12
+          mkdir -p openwrt/target/linux/mediatek/files-6.12/dts
+          cp target/linux/mediatek/dts/*.dts openwrt/target/linux/mediatek/files-6.12/dts/
+
+          # MK → 官方 image/
+          cp target/linux/mediatek/image/filogic.mk openwrt/target/linux/mediatek/image/
+
+          # CONFIG → 官方源码根目录
+          cp .config openwrt/.config
 
       # 9. 更新 feeds
       - name: Update feeds
@@ -111,8 +117,8 @@ jobs:
           name: "SL3000 eMMC Firmware Build #${{ github.run_number }}"
           body: |
             自动构建的 SL3000 eMMC 固件 (ImmortalWrt 25.12 / Linux 6.12)
-            - 三件套按旧目录结构生成
-            - 三件套检测通过
+            - 三件套模板生成成功
+            - 三件套已同步到官方源码
             - 工具链构建完成
             - 固件构建完成
           files: |
