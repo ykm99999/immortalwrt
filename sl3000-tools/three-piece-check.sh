@@ -3,11 +3,13 @@ set -e
 
 echo "=== 🔍 三件套校验（25.12 / Linux 6.12） ==="
 
-# 你确认的 6.12 DTS 路径
-DTS="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl-3000-emmc.dts"
+# 正确的 6.12 DTS 路径（你确认的）
+DTS="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
 MK="target/linux/mediatek/image/filogic.mk"
 CONF=".config"
-DEV="mt7981b-sl-3000-emmc"
+
+# 正确设备名（你最终确认）
+DEV="mt7981b-sl3000-emmc"
 
 #########################################
 # 1. 文件存在性
@@ -22,9 +24,9 @@ echo "✔ 文件存在性通过"
 # 2. 设备一致性
 #########################################
 
-grep -q "$DEV" "$DTS"  || { echo "❌ DTS 未包含设备名"; exit 1; }
-grep -q "$DEV" "$MK"   || { echo "❌ MK 未包含设备名"; exit 1; }
-grep -q "$DEV" "$CONF" || { echo "❌ CONFIG 未启用设备"; exit 1; }
+grep -q "$DEV" "$DTS"  || { echo "❌ DTS 未包含设备名 ($DEV)"; exit 1; }
+grep -q "$DEV" "$MK"   || { echo "❌ MK 未包含设备名 ($DEV)"; exit 1; }
+grep -q "$DEV" "$CONF" || { echo "❌ CONFIG 未启用设备 ($DEV)"; exit 1; }
 echo "✔ 设备一致性通过"
 
 #########################################
@@ -40,8 +42,4 @@ echo "✔ CONFIG 内核检查通过"
 
 for f in "$DTS" "$MK" "$CONF"; do
     grep -q $'\xEF\xBB\xBF' "$f" && { echo "❌ $f 含 BOM"; exit 1; }
-    grep -q $'\r' "$f"        && { echo "❌ $f 含 CRLF"; exit 1; }
-done
-
-echo "✔ 隐藏字符检查通过"
-echo "=== ✅ 三件套校验全部通过 ==="
+    grep -q $'\r' "$f"        && { echo "❌ $f 含 CRLF"; exit
