@@ -1,100 +1,185 @@
 #!/bin/bash
 set -e
 
-#########################################
-# SL3000 三件套生成脚本（25.12 / 6.12 旗舰版）
-#########################################
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$REPO_ROOT"
+LOG_FILE="$SCRIPT_DIR/sl3000-three-piece-generate.log"
+> "$LOG_FILE"
+exec > >(tee -a "$LOG_FILE") 2>&1
 
-DTS_OUT="$REPO_ROOT/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
-MK_OUT="$REPO_ROOT/target/linux/mediatek/image/filogic.mk"
-CFG_OUT="$REPO_ROOT/.config"
+DTS_DIR="$REPO_ROOT/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
+DTS_FILE="$DTS_DIR/mt7981b-sl3000-emmc.dts"
+MK_FILE="$REPO_ROOT/target/linux/mediatek/image/filogic.mk"
+CFG_FILE="$REPO_ROOT/.config"
 
-mkdir -p "$(dirname "$DTS_OUT")"
-mkdir -p "$(dirname "$MK_OUT")"
+mkdir -p "$DTS_DIR"
 
-#########################################
-# 工程级清理函数
-#########################################
-clean_file() {
-    local f="$1"
-    [ -f "$f" ] || return 0
-
-    sed -i 's/\r$//' "$f"
-    sed -i '1s/^\xEF\xBB\xBF//' "$f"
-    sed -i 's/\xC2\xA0//g' "$f"
-    sed -i 's/\xE2\x80\x8B//g' "$f"
-    sed -i 's/\xE2\x80\x8C//g' "$f"
-    sed -i 's/\xE2\x80\x8D//g' "$f"
-
-    tr -d '\000-\011\013\014\016-\037\177' < "$f" > "$f.clean"
-    mv "$f.clean" "$f"
+safe_clean() {
+    local FILE="$1"
+    [ ! -f "$FILE" ] && return 0
+    sed -i 's/\r$//' "$FILE"
+    sed -i 's/[[:cntrl:]]//g' "$FILE"
 }
 
-#########################################
-# 生成 DTS（25.12 官方风格）
-#########################################
-printf '%s\n' \
-'// SPDX-License-Identifier: GPL-2.0-or-later OR MIT' \
-'/dts-v1/;' \
-'' \
-'#include "mt7981.dtsi"' \
-'#include <dt-bindings/gpio/gpio.h>' \
-'#include <dt-bindings/input/input.h>' \
-'#include <dt-bindings/leds/common.h>' \
-'' \
-'/ {' \
-'    model = "SL3000 eMMC Flagship";' \
-'    compatible = "sl,sl3000-emmc", "mediatek,mt7981b";' \
-'' \
-'    aliases {' \
-'        serial0 = &uart0;' \
-'        led-boot = &led_status;' \
-'        led-failsafe = &led_status;' \
-'        led-running = &led_status;' \
-'        led-upgrade = &led_status;' \
-'    };' \
-'' \
-'    chosen {' \
-'        stdout-path = "serial0:115200n8";' \
-'    };' \
-'};' \
-> "$DTS_OUT"
-clean_file "$DTS_OUT"
+cat > "$DTS_FILE" << 'EOF'
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+/dts-v1/;
 
-#########################################
-# 生成 MK（25.12 结构）
-#########################################
-printf '%s\n' \
-'define Device/mt7981b-sl3000-emmc' \
-'  DEVICE_VENDOR := SL' \
-'  DEVICE_MODEL := SL3000 eMMC Flagship' \
-'  DEVICE_PACKAGES := kmod-usb3 kmod-mt7981-firmware \' \
-'        luci-app-passwall2 docker dockerd luci-app-dockerman' \
-'  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata' \
-'endef' \
-'' \
-'TARGET_DEVICES += mt7981b-sl3000-emmc' \
-> "$MK_OUT"
-clean_file "$MK_OUT"
+#include "mt7981.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 
-#########################################
-# 生成 CONFIG（6.12 内核）
-#########################################
-printf '%s\n' \
-'CONFIG_TARGET_mediatek=y' \
-'CONFIG_TARGET_mediatek_filogic=y' \
-'CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981b-sl3000-emmc=y' \
-'CONFIG_LINUX_6_12=y' \
-'' \
-'CONFIG_PACKAGE_luci-app-passwall2=y' \
-'CONFIG_PACKAGE_docker=y' \
-'CONFIG_PACKAGE_dockerd=y' \
-'CONFIG_PACKAGE_luci-app-dockerman=y' \
-> "$CFG_OUT"
-clean_file "$CFG_OUT"
+/ {
+    model = "SL3000 eMMC Engineering Flagship";
+    compatible = "sl,sl3000-emmc", "mediatek,mt7981b";
 
-echo "✔ 三件套生成完成（25.12 / 6.12）"
+    aliases {
+        serial0 = &uart0;
+        led-boot = &led_status;
+        led-failsafe = &led_status;
+        led-running = &led_status;
+        led-upgrade = &led_status;
+    };
+
+    chosen {
+        stdout-path = "serial0:115200n8";
+    };
+
+    leds {
+        compatible = "gpio-leds";
+        status: led-0 {
+            label = "sl:blue:status";
+            gpios = <&pio 12 GPIO_ACTIVE_LOW>;
+            linux,default-trigger = "heartbeat";
+            default-state = "on";
+        };
+    };
+
+    keys {
+        compatible = "gpio-keys";
+        reset {
+            label = "reset";
+            gpios = <&pio 18 GPIO_ACTIVE_LOW>;
+            linux,code = <KEY_RESTART>;
+            debounce-interval = <60>;
+        };
+    };
+};
+
+&uart0 { status = "okay"; };
+
+&mmc {
+    status = "okay";
+    bus-width = <8>;
+    mmc-hs200-1_8v;
+    non-removable;
+    cap-mmc-hw-reset;
+};
+
+&gmac0 {
+    status = "okay";
+    phy-mode = "2500base-x";
+    phy-handle = <&phy0>;
+};
+
+&switch {
+    status = "okay";
+};
+
+&pcie { status = "okay"; };
+EOF
+
+safe_clean "$DTS_FILE"
+
+if grep -q "^define Device/mt7981b-sl3000-emmc$" "$MK_FILE"; then
+    sed -i '/^define Device\/mt7981b-sl3000-emmc$/,/^endef$/d' "$MK_FILE"
+fi
+
+cat >> "$MK_FILE" << 'EOF'
+
+define Device/mt7981b-sl3000-emmc
+  DEVICE_VENDOR := SL
+  DEVICE_MODEL := SL3000 eMMC Engineering Flagship
+  DEVICE_DTS := mt7981b-sl3000-emmc
+  DEVICE_PACKAGES := kmod-mt7981-firmware kmod-fs-ext4 block-mount
+  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
+endef
+TARGET_DEVICES += mt7981b-sl3000-emmc
+
+EOF
+
+safe_clean "$MK_FILE"
+
+cat > "$CFG_FILE" << 'EOF'
+CONFIG_TARGET_mediatek=y
+CONFIG_TARGET_mediatek_filogic=y
+CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981b-sl3000-emmc=y
+
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-base=y
+CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+
+CONFIG_PACKAGE_luci-app-passwall2=y
+CONFIG_PACKAGE_luci-app-ssr-plus=y
+CONFIG_PACKAGE_xray-core=y
+CONFIG_PACKAGE_v2ray-core=y
+CONFIG_PACKAGE_hysteria2=y
+CONFIG_PACKAGE_ipset=y
+CONFIG_PACKAGE_iptables-mod-tproxy=y
+CONFIG_PACKAGE_iptables-mod-nat-extra=y
+CONFIG_PACKAGE_ip6tables-mod-nat=y
+CONFIG_PACKAGE_iproute2=y
+
+CONFIG_PACKAGE_docker=y
+CONFIG_PACKAGE_dockerd=y
+CONFIG_PACKAGE_luci-app-dockerman=y
+CONFIG_PACKAGE_docker-compose=y
+CONFIG_PACKAGE_containerd=y
+CONFIG_PACKAGE_runc=y
+
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-btrfs=y
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_f2fs-tools=y
+CONFIG_PACKAGE_blkid=y
+CONFIG_PACKAGE_losetup=y
+CONFIG_PACKAGE_parted=y
+CONFIG_PACKAGE_fdisk=y
+
+CONFIG_DEVEL=y
+CONFIG_CCACHE=y
+CONFIG_CCACHE_SIZE="10G"
+CONFIG_DISABLE_WERROR=y
+CONFIG_USE_MKLIBS=y
+CONFIG_STRIP_UPX=y
+
+CONFIG_VERSION_CUSTOM=y
+CONFIG_VERSION_PREFIX="SL3000-OpenWrt"
+CONFIG_VERSION_SUFFIX="25.12-Engineering"
+CONFIG_VERSION_NUMBER="20251201"
+
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_SQUASHFS_COMPRESSION_ZSTD=y
+CONFIG_TARGET_ROOTFS_SQUASHFS_BLOCK_SIZE=256k
+CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+
+CONFIG_PACKAGE_ip-full=y
+CONFIG_PACKAGE_sshd=y
+CONFIG_PACKAGE_wget=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_htop=y
+CONFIG_PACKAGE_dnsmasq_full_remove_resolvconf=y
+CONFIG_PACKAGE_wpad-basic-wolfssl=y
+CONFIG_PACKAGE_openssh-sftp-server=y
+CONFIG_PACKAGE_coreutils=y
+
+CONFIG_SL3000_CUSTOM_CONFIG=y
+EOF
+
+safe_clean "$CFG_FILE"
+
+echo "DTS: $DTS_FILE"
+echo "MK : $MK_FILE"
+echo "CFG: $CFG_FILE"
+echo "SL3000 three-piece generate done"
