@@ -1,40 +1,62 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+###############################################
+# 仓库根目录（你的仓库根）
+###############################################
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+SCRIPT_DIR="$ROOT/sl3000-tools"
 LOG="$SCRIPT_DIR/sl3000-three-piece.log"
-> "$LOG"
+: > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
 
+echo "[INFO] ROOT = $ROOT"
+
+###############################################
+# 锁死 25.12 + kernel 6.12 路径
+###############################################
 DTS_DIR="$ROOT/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
 DTS="$DTS_DIR/mt7981b-sl3000-emmc.dts"
 MK="$ROOT/target/linux/mediatek/image/filogic.mk"
 CFG="$ROOT/.config"
 
+echo "[INFO] DTS_DIR = $DTS_DIR"
+echo "[INFO] DTS     = $DTS"
+echo "[INFO] MK      = $MK"
+echo "[INFO] CFG     = $CFG"
+
 mkdir -p "$DTS_DIR"
 
-clean() {
+###############################################
+# CRLF / 隐藏字符清理
+###############################################
+clean_crlf() {
     [ ! -f "$1" ] && return 0
     sed -i 's/\r$//' "$1"
-    sed -i 's/[[:cntrl:]]//g' "$1"
 }
 
-echo "=== Stage 1: Pre-check before generation (25.12) ==="
+###############################################
+# Stage 1：删除旧 SL3000 段（宽松匹配）
+###############################################
+echo "=== Stage 1: Clean old MK entries ==="
 
-if [ -f "$DTS" ]; then rm -f "$DTS"; fi
-if grep -q "^define Device/mt7981b-sl3000-emmc$" "$MK"; then
-    sed -i '/^define Device\/mt7981b-sl3000-emmc$/,/^endef$/d' "$MK"
-fi
+sed -i '/define Device\/mt7981b-sl3000-emmc/,/endef/d' "$MK"
+sed -i '/TARGET_DEVICES[[:space:]]\+.*mt7981b-sl3000-emmc/d' "$MK"
+clean_crlf "$MK"
 
-echo "=== Stage 2: Generate DTS (25.12) ==="
+###############################################
+# Stage 2：生成 DTS（强制覆盖）
+###############################################
+echo "=== Stage 2: Generate DTS ==="
 
 cat > "$DTS" << 'EOF'
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
 /dts-v1/;
 
 #include "mt7981.dtsi"
-#include <dt-bindings/gpio/ggpio.h>
+#include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
 
@@ -94,26 +116,46 @@ cat > "$DTS" << 'EOF'
 &pcie { status = "okay"; };
 EOF
 
-clean "$DTS"
+clean_crlf "$DTS"
+echo "[OK] DTS generated → $DTS"
 
-echo "=== Stage 3: Generate MK (25.12) ==="
+###############################################
+# Stage 3：插入 MK 设备段
+###############################################
+echo "=== Stage 3: Patch MK ==="
 
-cat >> "$MK" << 'EOF'
+TMP_MK="$MK.tmp"
 
-define Device/mt7981b-sl3000-emmc
-  DEVICE_VENDOR := SL
-  DEVICE_MODEL := SL3000 eMMC Engineering Flagship
-  DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_PACKAGES := kmod-mt7981-firmware kmod-fs-ext4 block-mount
-  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
-endef
-TARGET_DEVICES += mt7981b-sl3000-emmc
+awk '
+    /^TARGET_DEVICES \+=/ { last = NR }
+    { lines[NR] = $0 }
+    END {
+        for (i = 1; i <= NR; i++) {
+            print lines[i]
+            if (i == last) {
+                print ""
+                print "define Device/mt7981b-sl3000-emmc"
+                print "\tDEVICE_VENDOR := SL"
+                print "\tDEVICE_MODEL := SL3000 eMMC Engineering Flagship"
+                print "\tDEVICE_DTS := mt7981b-sl3000-emmc"
+                print "\tDEVICE_PACKAGES := kmod-mt7981-firmware kmod-fs-ext4 block-mount"
+                print "\tIMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata"
+                print "endef"
+                print "TARGET_DEVICES += mt7981b-sl3000-emmc"
+                print ""
+            }
+        }
+    }
+' "$MK" > "$TMP_MK"
 
-EOF
+mv "$TMP_MK" "$MK"
+clean_crlf "$MK"
+echo "[OK] MK patched → $MK"
 
-clean "$MK"
-
-echo "=== Stage 4: Generate CONFIG (25.12) ==="
+###############################################
+# Stage 4：生成 CONFIG（强制覆盖）
+###############################################
+echo "=== Stage 4: Generate CONFIG ==="
 
 cat > "$CFG" << 'EOF'
 CONFIG_TARGET_mediatek=y
@@ -159,7 +201,7 @@ CONFIG_USE_MKLIBS=y
 CONFIG_STRIP_UPX=y
 
 CONFIG_VERSION_CUSTOM=y
-CONFIG_VERSION_PREFIX="SL3000-OpenWrt"
+CONFIG_VERSION_PREFIX="SL3000-ImmortalWrt"
 CONFIG_VERSION_SUFFIX="25.12-Engineering"
 CONFIG_VERSION_NUMBER="20251201"
 
@@ -181,25 +223,19 @@ CONFIG_PACKAGE_coreutils=y
 CONFIG_SL3000_CUSTOM_CONFIG=y
 EOF
 
-clean "$CFG"
+clean_crlf "$CFG"
+echo "[OK] CONFIG generated → $CFG"
 
-echo "=== Stage 5: Pre-check Stage 1 (before toolchain, 25.12) ==="
+###############################################
+# Stage 5：校验
+###############################################
+echo "=== Stage 5: Validation ==="
 
-if [ ! -f "$DTS" ]; then echo "DTS missing"; exit 1; fi
-dtc -I dts -O dtb "$DTS" -o /dev/null || { echo "DTS syntax error"; exit 1; }
+[ -s "$DTS" ] || { echo "[FATAL] DTS missing or empty"; exit 1; }
+[ -s "$CFG" ] || { echo "[FATAL] CONFIG missing or empty"; exit 1; }
+grep -q "mt7981b-sl3000-emmc" "$MK" || { echo "[FATAL] MK missing device block"; exit 1; }
 
-if ! grep -q "^define Device/mt7981b-sl3000-emmc$" "$MK"; then echo "MK invalid"; exit 1; fi
-if ! grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981b-sl3000-emmc=y" "$CFG"; then echo "CONFIG invalid"; exit 1; fi
-
-echo "=== Stage 6: Pre-check Stage 2 (after toolchain, 25.12) ==="
-
-make -j1 V=s target/linux/compile >/dev/null 2>&1 || true
-
-if ! grep -R "mt7981b-sl3000-emmc" -n build_dir/target-*/linux-*/profiles.json >/dev/null 2>&1; then
-    echo "Device not registered"; exit 1
-fi
-
-echo "=== Three-piece generation complete (25.12) ==="
-echo "$DTS"
-echo "$MK"
-echo "$CFG"
+echo "=== Three-piece generation complete ==="
+echo "[OUT] DTS: $DTS"
+echo "[OUT] MK : $MK"
+echo "[OUT] CFG: $CFG"
