@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      # 1. 检出仓库（包含你的 sl3000-tools）
+      # 1. 检出仓库（包含 sl3000-tools）
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -29,7 +29,7 @@ jobs:
             zlib1g-dev gawk flex gettext wget unzip python3 python3-distutils \
             file libssl-dev rsync ccache device-tree-compiler
 
-      # 4. 克隆官方 ImmortalWrt 25.12 源码
+      # 4. 克隆 ImmortalWrt 25.12 源码
       - name: Clone ImmortalWrt 25.12 source
         run: |
           rm -rf openwrt
@@ -38,6 +38,7 @@ jobs:
       # 5. 复制 SL3000 工具链
       - name: Copy SL3000 tools
         run: |
+          rm -rf openwrt/sl3000-tools
           cp -r sl3000-tools openwrt/
 
       # 6. 赋予脚本执行权限
@@ -109,7 +110,7 @@ jobs:
       - name: Release firmware
         uses: softprops/action-gh-release@v1
         with:
-          tagname: sl3000-emmc-25.12-${{ github.run_number }}-${{ github.run_id }}
+          tag_name: sl3000-emmc-25.12-${{ github.run_number }}-${{ github.run_id }}
           name: "SL3000 eMMC Firmware Build (25.12) #${{ github.run_number }}"
           body: |
             自动构建的 SL3000 eMMC 固件 (ImmortalWrt 25.12 / Linux 6.12)
