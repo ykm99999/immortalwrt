@@ -12,31 +12,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 设置执行权限（sl3000-tools 目录）
+      # 2. 设置执行权限（只需要两个脚本）
       - name: Make scripts executable
         run: |
           chmod +x sl3000-tools/generate-three-piece.sh
           chmod +x sl3000-tools/three-piece-check.sh
-          chmod +x sl3000-tools/three-piece-fix.sh
-          chmod +x sl3000-tools/three-piece-rebuild.sh
-          chmod +x sl3000-tools/profiles-check.sh
 
-      # 3. 运行三件套重建脚本
-      - name: Run three-piece rebuild
+      # 3. 生成三件套（25.12 + 6.12）
+      - name: Generate SL3000 Three-Piece
         run: |
-          ./sl3000-tools/three-piece-rebuild.sh
+          ./sl3000-tools/generate-three-piece.sh
 
-      # 4. 上传三件套产物（对齐 files-6.12 目录）
+      # 4. 校验三件套（可选但推荐）
+      - name: Check SL3000 Three-Piece
+        run: |
+          ./sl3000-tools/three-piece-check.sh
+
+      # 5. 上传三件套产物
       - name: Upload three-piece artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sl3000-three-piece
+          name: sl3000-three-piece-25.12
           path: |
             target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts
             target/linux/mediatek/image/filogic.mk
             .config
 
-      # 5. 提交三件套更新
+      # 6. 自动提交三件套更新
       - name: Commit and push changes
         run: |
           git config user.name "github-actions[bot]"
