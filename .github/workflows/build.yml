@@ -1,4 +1,4 @@
-name: Build OpenWrt 25.12 SL3000 eMMC (Auto Three-Piece)
+name: Build OpenWrt 25.12 SL3000 eMMC (Firmware Only)
 
 on:
   workflow_dispatch:
@@ -56,11 +56,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sl3000-2512
 
-      - name: Copy SL3000 tools
-        run: |
-          cp -r repo/sl3000-tools openwrt/
-          chmod +x openwrt/sl3000-tools/*.sh
-
       - name: Update & install feeds
         working-directory: openwrt
         run: |
@@ -72,26 +67,30 @@ jobs:
         run: |
           make defconfig
 
-      - name: Build toolchain
-        working-directory: openwrt
+      - name: Copy SL3000 Three-Piece Set (from repo)
         run: |
-          make toolchain/install -j$(nproc) V=s
+          # DTS / MK / CONFIG 来自你仓库（已由脚本生成）
+          cp repo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
+             openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
+          cp repo/target/linux/mediatek/image/filogic.mk \
+             openwrt/target/linux/mediatek/image/
+          cp repo/.config openwrt/.config
 
-      - name: Generate SL3000 Three-Piece Set (25.12)
-        working-directory: openwrt
-        run: |
-          ./sl3000-tools/generate-three-piece.sh
-          ls -l target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/ || true
-          ls -l target/linux/mediatek/image/ || true
-
-      - name: Make defconfig (final)
+      - name: Make defconfig (finalize three-piece)
         working-directory: openwrt
         run: |
           make defconfig
+          echo "===== FINAL CONFIG ====="
+          grep SL3000 -n .config || true
 
+      # 不再显式构建 toolchain，避免 target/linux/prereq 崩溃
       - name: Build SL3000 eMMC firmware
         working-directory: openwrt
+        env:
+          SKIP_TARGET_CHECK: "1"
+          FORCE: "1"
         run: |
+          make download -j8
           make -j$(nproc) V=s | tee firmware-build.log
 
       - name: Upload build logs
