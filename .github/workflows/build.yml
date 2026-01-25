@@ -83,6 +83,11 @@ jobs:
           ls -l target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/ || true
           ls -l target/linux/mediatek/image/ || true
 
+      - name: Run SL3000 Three-Piece Check
+        working-directory: openwrt
+        run: |
+          ./sl3000-tools/all-in-one.sh check
+
       - name: Make defconfig (final)
         working-directory: openwrt
         run: |
