@@ -1,184 +1,100 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
-echo "=== 🛠 生成 SL3000 eMMC 三件套（25.12 / Linux 6.12 / 工程级旗舰版） ==="
-
 #########################################
-# 1. DTS（完整工程级版本）
+# SL3000 三件套生成脚本（25.12 / 6.12 旗舰版）
 #########################################
 
-DTS="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
-mkdir -p target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
-cat > "$DTS" << 'EOF'
-// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
-/dts-v1/;
+DTS_OUT="$REPO_ROOT/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
+MK_OUT="$REPO_ROOT/target/linux/mediatek/image/filogic.mk"
+CFG_OUT="$REPO_ROOT/.config"
 
-#include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/input/input.h>
-#include <dt-bindings/leds/common.h>
-#include "mt7981.dtsi"
-
-/ {
-	model = "mt7981b-sl3000-emmc";
-	compatible = "sl,mt7981b-sl3000-emmc", "mediatek,mt7981";
-
-	aliases {
-		serial0 = &uart0;
-		led-boot = &led_status;
-		led-failsafe = &led_status;
-		led-running = &led_status;
-		led-upgrade = &led_status;
-	};
-
-	chosen {
-		stdout-path = "serial0:115200n8";
-	};
-
-	memory@40000000 {
-		device_type = "memory";
-		reg = <0x0 0x40000000 0x0 0x20000000>;
-	};
-
-	leds {
-		compatible = "gpio-leds";
-
-		led_status: status {
-			label = "sl3000:blue:status";
-			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
-			default-state = "off";
-		};
-	};
-
-	keys {
-		compatible = "gpio-keys";
-
-		reset {
-			label = "reset";
-			linux,code = <KEY_RESTART>;
-			gpios = <&pio 9 GPIO_ACTIVE_LOW>;
-			debounce-interval = <60>;
-		};
-	};
-};
-
-&uart0 { status = "okay"; };
-&eth   { status = "okay"; };
-&switch { status = "okay"; };
-&pcie { status = "okay"; };
-
-&wifi {
-	status = "okay";
-	mediatek,mtd-eeprom = <&factory 0x0>;
-};
-
-&mmc0 {
-	status = "okay";
-	bus-width = <8>;
-	max-frequency = <52000000>;
-	cap-mmc-highspeed;
-	mmc-hs200-1_8v;
-	non-removable;
-};
-EOF
-
-echo "✔ DTS 生成完成"
-
+mkdir -p "$(dirname "$DTS_OUT")"
+mkdir -p "$(dirname "$MK_OUT")"
 
 #########################################
-# 2. MK（完整工程级版本）
+# 工程级清理函数
 #########################################
+clean_file() {
+    local f="$1"
+    [ -f "$f" ] || return 0
 
-MK="target/linux/mediatek/image/filogic.mk"
-mkdir -p target/linux/mediatek/image
+    sed -i 's/\r$//' "$f"
+    sed -i '1s/^\xEF\xBB\xBF//' "$f"
+    sed -i 's/\xC2\xA0//g' "$f"
+    sed -i 's/\xE2\x80\x8B//g' "$f"
+    sed -i 's/\xE2\x80\x8C//g' "$f"
+    sed -i 's/\xE2\x80\x8D//g' "$f"
 
-cat > "$MK" << 'EOF'
-# SPDX-License-Identifier: GPL-2.0-or-later OR MIT
-
-define Device/mt7981b-sl3000-emmc
-  DEVICE_VENDOR := SL
-  DEVICE_MODEL := 3000
-  DEVICE_VARIANT := eMMC Flagship
-  DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_DTS_DIR := ../files-6.12/arch/arm64/boot/dts/mediatek
-
-  DEVICE_PACKAGES := \
-	kmod-mt7981-firmware mt7981-wo-firmware \
-	f2fsck mkf2fs automount block-mount kmod-fs-f2fs kmod-fs-ext4 \
-	luci-app-passwall2 luci-compat kmod-tun \
-	xray-core xray-plugin \
-	shadowsocks-libev-config shadowsocks-libev-ss-local \
-	shadowsocks-libev-ss-redir shadowsocks-libev-ss-server \
-	chinadns-ng dns2socks dns2tcp tcping \
-	dockerd docker docker-compose luci-app-dockerman \
-	kmod-fs-overlay kmod-br-netfilter kmod-crypto-hash \
-	kmod-veth kmod-macvlan kmod-ipvlan kmod-nf-conntrack kmod-nf-nat
-
-  IMAGES := sysupgrade.bin
-
-  KERNEL := kernel-bin | lzma | \
-	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
-
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
-endef
-TARGET_DEVICES += mt7981b-sl3000-emmc
-EOF
-
-echo "✔ MK 生成完成"
-
+    tr -d '\000-\011\013\014\016-\037\177' < "$f" > "$f.clean"
+    mv "$f.clean" "$f"
+}
 
 #########################################
-# 3. CONFIG（完整工程级版本）
+# 生成 DTS（25.12 官方风格）
 #########################################
+printf '%s\n' \
+'// SPDX-License-Identifier: GPL-2.0-or-later OR MIT' \
+'/dts-v1/;' \
+'' \
+'#include "mt7981.dtsi"' \
+'#include <dt-bindings/gpio/gpio.h>' \
+'#include <dt-bindings/input/input.h>' \
+'#include <dt-bindings/leds/common.h>' \
+'' \
+'/ {' \
+'    model = "SL3000 eMMC Flagship";' \
+'    compatible = "sl,sl3000-emmc", "mediatek,mt7981b";' \
+'' \
+'    aliases {' \
+'        serial0 = &uart0;' \
+'        led-boot = &led_status;' \
+'        led-failsafe = &led_status;' \
+'        led-running = &led_status;' \
+'        led-upgrade = &led_status;' \
+'    };' \
+'' \
+'    chosen {' \
+'        stdout-path = "serial0:115200n8";' \
+'    };' \
+'};' \
+> "$DTS_OUT"
+clean_file "$DTS_OUT"
 
-CONF=".config"
+#########################################
+# 生成 MK（25.12 结构）
+#########################################
+printf '%s\n' \
+'define Device/mt7981b-sl3000-emmc' \
+'  DEVICE_VENDOR := SL' \
+'  DEVICE_MODEL := SL3000 eMMC Flagship' \
+'  DEVICE_PACKAGES := kmod-usb3 kmod-mt7981-firmware \' \
+'        luci-app-passwall2 docker dockerd luci-app-dockerman' \
+'  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata' \
+'endef' \
+'' \
+'TARGET_DEVICES += mt7981b-sl3000-emmc' \
+> "$MK_OUT"
+clean_file "$MK_OUT"
 
-cat > "$CONF" << 'EOF'
-CONFIG_TARGET_mediatek=y
-CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981b-sl3000-emmc=y
-CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_mt7981b-sl3000-emmc=y
+#########################################
+# 生成 CONFIG（6.12 内核）
+#########################################
+printf '%s\n' \
+'CONFIG_TARGET_mediatek=y' \
+'CONFIG_TARGET_mediatek_filogic=y' \
+'CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981b-sl3000-emmc=y' \
+'CONFIG_LINUX_6_12=y' \
+'' \
+'CONFIG_PACKAGE_luci-app-passwall2=y' \
+'CONFIG_PACKAGE_docker=y' \
+'CONFIG_PACKAGE_dockerd=y' \
+'CONFIG_PACKAGE_luci-app-dockerman=y' \
+> "$CFG_OUT"
+clean_file "$CFG_OUT"
 
-CONFIG_LINUX_6_12=y
-
-# WiFi 固件
-CONFIG_PACKAGE_kmod-mt7981-firmware=y
-CONFIG_PACKAGE_mt7981-wo-firmware=y
-
-# 存储与文件系统
-CONFIG_PACKAGE_block-mount=y
-CONFIG_PACKAGE_kmod-fs-f2fs=y
-CONFIG_PACKAGE_kmod-fs-ext4=y
-CONFIG_PACKAGE_kmod-fs-overlay=y
-
-##### Passwall2 #####
-CONFIG_PACKAGE_luci-app-passwall2=y
-CONFIG_PACKAGE_luci-compat=y
-CONFIG_PACKAGE_kmod-tun=y
-CONFIG_PACKAGE_xray-core=y
-CONFIG_PACKAGE_xray-plugin=y
-CONFIG_PACKAGE_shadowsocks-libev-config=y
-CONFIG_PACKAGE_shadowsocks-libev-ss-local=y
-CONFIG_PACKAGE_shadowsocks-libev-ss-redir=y
-CONFIG_PACKAGE_shadowsocks-libev-ss-server=y
-CONFIG_PACKAGE_chinadns-ng=y
-CONFIG_PACKAGE_dns2socks=y
-CONFIG_PACKAGE_dns2tcp=y
-CONFIG_PACKAGE_tcping=y
-
-##### Docker #####
-CONFIG_PACKAGE_dockerd=y
-CONFIG_PACKAGE_docker=y
-CONFIG_PACKAGE_docker-compose=y
-CONFIG_PACKAGE_luci-app-dockerman=y
-CONFIG_PACKAGE_kmod-br-netfilter=y
-CONFIG_PACKAGE_kmod-crypto-hash=y
-CONFIG_PACKAGE_kmod-veth=y
-CONFIG_PACKAGE_kmod-macvlan=y
-CONFIG_PACKAGE_kmod-ipvlan=y
-CONFIG_PACKAGE_kmod-nf-conntrack=y
-CONFIG_PACKAGE_kmod-nf-nat=y
-EOF
-
-echo "✔ CONFIG 生成完成"
-echo "=== 🎉 三件套生成完成（25.12 / Linux 6.12 / 工程级旗舰版） ==="
+echo "✔ 三件套生成完成（25.12 / 6.12）"
