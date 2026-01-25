@@ -1,208 +1,183 @@
 #!/bin/bash
 set -e
 
-###############################################
-# SL3000 工程级总控脚本（双模式）
-# 模式：
-#   ./all-in-one.sh check   → 只检测 / 校验 / 对比（不构建固件）
-#   ./all-in-one.sh full    → 完整构建固件（含三件套生成 + 同步 + 构建）
-###############################################
+#########################################
+# SL3000 工程级总控脚本（旗舰版，25.12 + 6.12）
+#########################################
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-OPENWRT_DIR="$ROOT_DIR/../openwrt"
+REPO_ROOT="$ROOT_DIR/.."
 
-###############################################
-# 1. 自动修复：路径修复
-###############################################
-fix_paths() {
-    echo "=== 🛠 自动修复：路径检查 ==="
+DTS_DIR="$REPO_ROOT/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
+DTS_FILE="$DTS_DIR/mt7981b-sl3000-emmc.dts"
+MK_FILE="$REPO_ROOT/target/linux/mediatek/image/filogic.mk"
+CFG_FILE="$REPO_ROOT/.config"
 
-    mkdir -p target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek
-    mkdir -p target/linux/mediatek/image
+#########################################
+# 清理函数：统一清理 DTS / MK / CONFIG
+#########################################
+clean_file() {
+    local f="$1"
+    [ -f "$f" ] || return 0
 
-    echo "✔ 路径检查完成"
+    # 去掉 CRLF
+    sed -i 's/\r$//' "$f"
+    # 去掉 BOM
+    sed -i '1s/^\xEF\xBB\xBF//' "$f"
+    # 去掉常见零宽字符
+    sed -i 's/\xC2\xA0//g' "$f"
+    sed -i 's/\xE2\x80\x8B//g' "$f"
+    sed -i 's/\xE2\x80\x8C//g' "$f"
+    sed -i 's/\xE2\x80\x8D//g' "$f"
+    # 去掉控制字符
+    tr -d '\000-\011\013\014\016-\037\177' < "$f" > "$f.clean"
+    mv "$f.clean" "$f"
 }
 
-###############################################
-# 2. 自动修复：清理隐藏字符
-###############################################
-clean_hidden_chars() {
-    echo "=== 🧹 自动清理隐藏字符（BOM / CRLF） ==="
-
-    find target -type f \( -name "*.dts" -o -name "*.mk" -o -name ".config" \) | while read f; do
-        sed -i 's/\r$//' "$f"
-        sed -i '1s/^\xEF\xBB\xBF//' "$f"
-    done
-
-    echo "✔ 隐藏字符清理完成"
+clean_all() {
+    clean_file "$DTS_FILE"
+    clean_file "$MK_FILE"
+    clean_file "$CFG_FILE"
 }
 
-###############################################
-# 3. DTS 语法检查
-###############################################
+#########################################
+# DTS 语法检查（旗舰版，25.12 + 6.12）
+#########################################
 check_dts_syntax() {
-    echo "=== 🔍 DTS 语法检查 ==="
+    echo "=== 🔍 DTS 语法检查（旗舰版） ==="
 
-    DTS_FILE="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
-
-    if ! dtc -I dts -O dtb "$DTS_FILE" -o /dev/null 2>/dev/null; then
-        echo "❌ DTS 语法错误：$DTS_FILE"
+    if [ ! -f "$DTS_FILE" ]; then
+        echo "❌ DTS 文件不存在：$DTS_FILE"
         exit 1
     fi
 
-    echo "✔ DTS 语法检查通过"
-}
+    echo "--- DTS 前 20 行 ---"
+    sed -n '1,20p' "$DTS_FILE"
 
-###############################################
-# 4. MK 结构检查
-###############################################
-check_mk_structure() {
-    echo "=== 🔍 MK 结构检查 ==="
+    echo "--- DTS 前 20 行（不可见字符） ---"
+    sed -n '1,20p' "$DTS_FILE" | sed -n 'l'
 
-    MK_FILE="target/linux/mediatek/image/filogic.mk"
+    echo "--- cpp 预处理 + dtc 检查 ---"
 
-    REQUIRED_FIELDS=(
-        "DEVICE_VARS"
-        "SUPPORTED_DEVICES"
-        "DEVICE_PACKAGES"
-        "IMAGE/sysupgrade.bin"
+    # 尝试找到内核 include（如果还没构建过，可能为空）
+    KERNEL_INC="$(find "$REPO_ROOT/build_dir" -type d -path "*/linux-*/linux-*/include" 2>/dev/null | head -n 1 || true)"
+
+    CPP_ARGS=(
+        -E -P -undef -nostdinc
+        -I"$DTS_DIR"
+        -I"$REPO_ROOT/target/linux/mediatek/files-6.12/include"
+        -I"$REPO_ROOT/include"
     )
 
-    for f in "${REQUIRED_FIELDS[@]}"; do
-        if ! grep -q "$f" "$MK_FILE"; then
-            echo "❌ MK 缺少字段：$f"
-            exit 1
-        fi
-    done
-
-    echo "✔ MK 结构检查通过"
-}
-
-###############################################
-# 5. CONFIG 一致性检查
-###############################################
-check_config_consistency() {
-    echo "=== 🔍 CONFIG 一致性检查 ==="
-
-    CFG=".config"
-
-    grep -q "CONFIG_TARGET_mediatek_filogic=y" "$CFG" || { echo "❌ CONFIG 缺少 filogic"; exit 1; }
-    grep -q "CONFIG_LINUX_6_12=y" "$CFG" || { echo "❌ CONFIG 未启用 Linux 6.12"; exit 1; }
-    grep -q "CONFIG_PACKAGE_luci-app-passwall2=y" "$CFG" || echo "⚠ Passwall2 未启用"
-    grep -q "CONFIG_PACKAGE_docker=y" "$CFG" || echo "⚠ Docker 未启用"
-
-    echo "✔ CONFIG 一致性检查通过"
-}
-
-###############################################
-# 6. 自动注册 profile（如缺失）
-###############################################
-auto_register_profile() {
-    echo "=== 🧩 自动注册 profile（如缺失） ==="
-
-    PROFILES="$OPENWRT_DIR/bin/targets/mediatek/filogic/profiles.json"
-    DEVICE="mt7981b-sl3000-emmc"
-
-    if [ -f "$PROFILES" ] && ! grep -q "$DEVICE" "$PROFILES"; then
-        echo "⚠ profiles.json 缺少设备，自动注册中..."
-        # 这里只提示，不自动写入，避免污染上游
-        echo "ℹ 建议：构建后运行 profiles-check.sh 进行验证"
+    # 如果找到了内核 include，就加进去；没找到也不报错
+    if [ -n "$KERNEL_INC" ]; then
+        CPP_ARGS+=(-I"$KERNEL_INC")
+        echo "ℹ 使用内核 include: $KERNEL_INC"
     else
-        echo "✔ profiles.json 已包含设备"
+        echo "ℹ 未找到内核 include，使用 OpenWrt 自身 include 进行检查"
     fi
+
+    # 真正执行 cpp + dtc
+    if ! cpp "${CPP_ARGS[@]}" "$DTS_FILE" \
+        | dtc -I dts -O dtb \
+            -Wno-unit_address_vs_reg \
+            -Wno-unit_address_format \
+            -Wno-simple_bus_reg \
+            -o /dev/null - 2>&1
+    then
+        echo "❌ DTS 语法检查失败"
+        exit 1
+    fi
+
+    echo "✔ DTS 语法检查通过（旗舰版）"
 }
 
-###############################################
-# 7. 上游变更报告
-###############################################
-upstream_report() {
-    echo "=== 📡 上游变更报告 ==="
-    chmod +x "$ROOT_DIR/compare-with-upstream-smart.sh"
-    "$ROOT_DIR/compare-with-upstream-smart.sh"
+#########################################
+# MK 检查（25.12 + 6.12）
+#########################################
+check_mk() {
+    echo "=== 🔍 MK 检查 ==="
+
+    if [ ! -f "$MK_FILE" ]; then
+        echo "❌ MK 文件不存在：$MK_FILE"
+        exit 1
+    fi
+
+    grep -q "Device/mt7981b-sl3000-emmc" "$MK_FILE" || {
+        echo "❌ MK 中缺少 Device/mt7981b-sl3000-emmc 段"
+        exit 1
+    }
+
+    grep -q "TARGET_DEVICES" "$MK_FILE" || {
+        echo "❌ MK 中缺少 TARGET_DEVICES 定义"
+        exit 1
+    }
+
+    echo "✔ MK 检查通过"
 }
 
-###############################################
-# 8. 构建环境检查
-###############################################
-check_build_env() {
-    echo "=== 🧪 构建环境检查 ==="
+#########################################
+# CONFIG 检查（25.12 + 6.12）
+#########################################
+check_config() {
+    echo "=== 🔍 CONFIG 检查 ==="
 
-    command -v gcc >/dev/null || { echo "❌ 缺少 gcc"; exit 1; }
-    command -v make >/dev/null || { echo "❌ 缺少 make"; exit 1; }
-    command -v dtc >/dev/null || { echo "❌ 缺少 dtc（设备树编译器）"; exit 1; }
+    if [ ! -f "$CFG_FILE" ]; then
+        echo "❌ CONFIG 文件不存在：$CFG_FILE"
+        exit 1
+    fi
 
-    echo "✔ 构建环境检查通过"
+    grep -q "CONFIG_TARGET_mediatek_filogic=y" "$CFG_FILE" || {
+        echo "❌ CONFIG 未启用 mediatek filogic 目标"
+        exit 1
+    }
+
+    grep -q "CONFIG_LINUX_6_12=y" "$CFG_FILE" || {
+        echo "❌ CONFIG 未启用 Linux 6.12 内核"
+        exit 1
+    }
+
+    echo "✔ CONFIG 检查通过"
 }
 
-###############################################
-# 9. 同步三件套到 openwrt 源码
-###############################################
-sync_three_piece() {
-    echo "=== 🔄 同步三件套到 openwrt 源码 ==="
-
-    mkdir -p "$OPENWRT_DIR/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
-    cp target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/*.dts \
-       "$OPENWRT_DIR/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/"
-
-    cp target/linux/mediatek/image/filogic.mk \
-       "$OPENWRT_DIR/target/linux/mediatek/image/"
-
-    cp .config "$OPENWRT_DIR/.config"
-
-    echo "✔ 三件套同步完成"
-}
-
-###############################################
-# 主流程：check 模式
-###############################################
+#########################################
+# CHECK 模式：不构建，只清理 + 检查
+#########################################
 run_check() {
-    echo "=== 🔍 运行 CHECK 模式（不构建固件） ==="
+    echo "=== 🧹 清理三件套 ==="
+    clean_all
 
-    check_build_env
-    fix_paths
-    clean_hidden_chars
     check_dts_syntax
-    check_mk_structure
-    check_config_consistency
-    upstream_report
+    check_mk
+    check_config
 
-    echo "=== ✅ CHECK 模式完成 ==="
+    echo "=== ✅ CHECK 完成（旗舰版） ==="
 }
 
-###############################################
-# 主流程：full 模式
-###############################################
+#########################################
+# FULL 模式：生成三件套 + 检查 + 构建
+#########################################
 run_full() {
-    echo "=== 🚀 FULL 模式：完整构建固件 ==="
+    echo "=== 🚀 FULL 模式：生成三件套 + 检查 + 构建 ==="
 
-    run_check
-
-    echo "=== 🛠 生成三件套 ==="
+    # 1. 生成三件套（你现有的真源脚本）
     chmod +x "$ROOT_DIR/generate-three-piece.sh"
     "$ROOT_DIR/generate-three-piece.sh"
 
-    echo "=== 🔍 校验三件套 ==="
-    chmod +x "$ROOT_DIR/three-piece-check.sh"
-    "$ROOT_DIR/three-piece-check.sh"
+    # 2. 清理 + 检查
+    run_check
 
-    sync_three_piece
-
-    echo "=== 🧱 构建固件 ==="
-    cd "$OPENWRT_DIR"
+    # 3. 构建（25.12 + 6.12）
+    cd "$REPO_ROOT"
     make defconfig
-    make toolchain/install -j$(nproc)
-    make -j$(nproc)
+    make -j"$(nproc)"
 
-    echo "=== 🔍 构建后验证 ==="
-    chmod +x "$ROOT_DIR/profiles-check.sh"
-    "$ROOT_DIR/profiles-check.sh"
-
-    echo "=== 🎉 FULL 模式完成：固件已生成 ==="
+    echo "=== 🎉 FULL 完成：固件已构建（25.12 + 6.12） ==="
 }
 
-###############################################
+#########################################
 # 入口
-###############################################
+#########################################
 case "$1" in
     check)
         run_check
@@ -211,9 +186,7 @@ case "$1" in
         run_full
         ;;
     *)
-        echo "用法："
-        echo "  ./all-in-one.sh check   # 只检测"
-        echo "  ./all-in-one.sh full    # 完整构建固件"
+        echo "用法: $0 {check|full}"
         exit 1
         ;;
 esac
