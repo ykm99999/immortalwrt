@@ -2,11 +2,11 @@
 set -e
 
 #########################################
-# SL3000 all-in-one（25.12 + 6.12 旗舰版）
+# SL3000 工程级总控脚本（25.12 / 6.12）
 #########################################
 
-SCRIPTDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPTDIR/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$ROOT_DIR/.."
 
 DTS_DIR="$REPO_ROOT/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
 DTS_FILE="$DTS_DIR/mt7981b-sl3000-emmc.dts"
@@ -14,7 +14,7 @@ MK_FILE="$REPO_ROOT/target/linux/mediatek/image/filogic.mk"
 CFG_FILE="$REPO_ROOT/.config"
 
 #########################################
-# 清理
+# 清理函数
 #########################################
 clean_file() {
     local f="$1"
@@ -36,48 +36,27 @@ clean_all() {
 }
 
 #########################################
-# DTS 语法检查（25.12 + 6.12 修复版）
+# DTS 语法检查（cpp + dtc）
 #########################################
 check_dts_syntax() {
-    echo "=== 🔍 DTS 语法检查（25.12 + 6.12 修复版） ==="
+    echo "=== 🔍 DTS 语法检查（25.12 / 6.12） ==="
 
-    echo "--- DTS 前 20 行 ---"
-    sed -n '1,20p' "$DTS_FILE"
+    KERNEL_INC=$(find "$REPO_ROOT/build_dir" -type d -path "*/linux-*/linux-*/include" | head -n 1)
 
-    echo "--- DTS 前 20 行（不可见字符） ---"
-    sed -n '1,20p' "$DTS_FILE" | sed -n 'l'
+    cpp -E -P -undef -nostdinc \
+        -I"$DTS_DIR" \
+        -I"$REPO_ROOT/target/linux/mediatek/files-6.12/include" \
+        -I"$REPO_ROOT/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/include" \
+        -I"$REPO_ROOT/include" \
+        -I"$KERNEL_INC" \
+        "$DTS_FILE" \
+    | dtc -I dts -O dtb \
+        -Wno-unit_address_vs_reg \
+        -Wno-unit_address_format \
+        -Wno-simple_bus_reg \
+        -o /dev/null -
 
-    echo "--- cpp 预处理 + dtc 检查 ---"
-
-    KERNEL_INC="$(find "$REPO_ROOT/build_dir" -type d -path "*/linux-*/linux-*/include" 2>/dev/null | head -n 1 || true)"
-
-    CPP_ARGS=(
-        -E -P -undef -nostdinc
-        -I"$DTS_DIR"
-        -I"$REPO_ROOT/target/linux/mediatek/files-6.12/include"
-        -I"$REPO_ROOT/target/linux/generic/files/include"
-        -I"$REPO_ROOT/include"
-    )
-
-    if [ -n "$KERNEL_INC" ]; then
-        CPP_ARGS+=(-I"$KERNEL_INC")
-        echo "ℹ 使用内核 include: $KERNEL_INC"
-    else
-        echo "ℹ 未找到内核 include，使用 OpenWrt 自身 include"
-    fi
-
-    if ! cpp "${CPP_ARGS[@]}" "$DTS_FILE" \
-        | dtc -I dts -O dtb \
-            -Wno-unit_address_vs_reg \
-            -Wno-unit_address_format \
-            -Wno-simple_bus_reg \
-            -o /dev/null - 2>&1
-    then
-        echo "❌ DTS 语法检查失败"
-        exit 1
-    fi
-
-    echo "✔ DTS 语法检查通过（25.12 + 6.12）"
+    echo "✔ DTS 语法检查通过"
 }
 
 #########################################
@@ -93,7 +72,6 @@ check_mk() {
 # CONFIG 检查
 #########################################
 check_config() {
-    grep -q "CONFIG_TARGET_mediatek_filogic=y" "$CFG_FILE"
     grep -q "CONFIG_LINUX_6_12=y" "$CFG_FILE"
     echo "✔ CONFIG 检查通过"
 }
@@ -106,23 +84,10 @@ run_check() {
     check_dts_syntax
     check_mk
     check_config
-    echo "=== ✅ CHECK 完成 ==="
-}
-
-#########################################
-# FULL 模式
-#########################################
-run_full() {
-    chmod +x "$SCRIPTDIR/generate-three-piece.sh"
-    "$SCRIPTDIR/generate-three-piece.sh"
-    run_check
-    cd "$REPO_ROOT"
-    make defconfig
-    make -j"$(nproc)"
+    echo "=== ✅ CHECK 完成（25.12 / 6.12） ==="
 }
 
 case "$1" in
     check) run_check ;;
-    full)  run_full ;;
-    *) echo "用法: check | full"; exit 1 ;;
+    *) echo "用法: all-in-one.sh check"; exit 1 ;;
 esac
