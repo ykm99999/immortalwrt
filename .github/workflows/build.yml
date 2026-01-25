@@ -36,18 +36,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-immortalwrt-25.12-
 
-      # ⭐ 克隆官方 ImmortalWrt 25.12 源码
       - name: Clone ImmortalWrt 25.12 source
         run: |
           rm -rf openwrt
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      # 把你仓库里的 sl3000-tools 拷贝进官方源码树
       - name: Copy SL3000 tools
         run: |
           cp -r sl3000-tools openwrt/
 
-      # 使用你为 25.12 + 6.12 准备好的三件套生成脚本
       - name: Generate SL3000 Three-Piece Set
         working-directory: openwrt
         run: |
@@ -59,19 +56,6 @@ jobs:
         run: |
           chmod +x sl3000-tools/all-in-one.sh
           ./sl3000-tools/all-in-one.sh check
-
-      - name: Debug DTS head (CI 实际使用版本)
-        working-directory: openwrt
-        run: |
-          echo "=== CI 实际使用的 DTS 前 20 行 ==="
-          sed -n '1,20p' target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts || echo "DTS 文件不存在"
-
-      # ⭐ 使用三件套生成的 .config（最终标准）
-      - name: Use generated .config
-        working-directory: openwrt
-        run: |
-          cp .config .config.backup
-          echo "✔ 已使用三件套生成的 .config"
 
       - name: Update feeds
         working-directory: openwrt
@@ -105,17 +89,3 @@ jobs:
         with:
           name: immortalwrt-25.12-sl3000-emmc
           path: openwrt/bin/targets/mediatek/filogic/
-
-      - name: Release firmware
-        uses: softprops/action-gh-release@v1
-        with:
-          tagname: sl3000-emmc-25.12-${{ github.run_number }}-${{ github.run_id }}
-          name: "SL3000 eMMC Firmware Build #${{ github.run_number }} (25.12)"
-          body: |
-            自动构建的 SL3000 eMMC 固件 (ImmortalWrt 25.12)
-            - 三件套按 25.12 + 6.12 黄金模板生成并同步
-            - DTS 检查通过
-            - 工具链构建完成
-            - 固件构建完成
-          files: |
-            openwrt/bin/targets/mediatek/filogic/*
