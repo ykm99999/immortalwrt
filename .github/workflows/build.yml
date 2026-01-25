@@ -1,122 +1,121 @@
-name: Build ImmortalWrt 25.12 (SL3000 eMMC Flagship)
+name: Build OpenWrt 25.12 SL3000 eMMC (Auto Three-Piece)
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+  actions: read
+  packages: write
+
 jobs:
-  build:
+  build-sl3000-firmware:
     runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
 
     steps:
-      # 1. 检出仓库（包含 sl3000-tools）
-      - name: Checkout repository
+      - name: Checkout local repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          path: repo
 
-      # 2. 优化磁盘空间
       - name: Optimize disk space
         run: |
-          sudo apt-get remove -y --purge azure-cli google-cloud-sdk dotnet powershell mono mysql php android* || true
-          sudo apt-get autoremove -y
+          sudo apt-get remove -y --purge azure-cli google-cloud-sdk dotnet powershell mono mysql-server php android snapd || true
+          sudo apt-get autoremove -y --purge
           sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
+          sudo fallocate -l 10G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          free -h && df -h
 
-      # 3. 安装构建依赖
       - name: Install build dependencies
         run: |
-          sudo apt-get update
+          sudo apt-get update -y
           sudo apt-get install -y build-essential git-core libncurses5-dev \
             zlib1g-dev gawk flex gettext wget unzip python3 python3-distutils \
-            file libssl-dev rsync ccache device-tree-compiler
+            file libssl-dev rsync ccache device-tree-compiler subversion libelf-dev \
+            bc bison patch gcc-multilib g++-multilib swig libudev-dev libusb-1.0-0-dev
 
-      # 4. 克隆 ImmortalWrt 25.12 源码
-      - name: Clone ImmortalWrt 25.12 source
+      - name: Clone official OpenWrt 25.12
         run: |
-          rm -rf openwrt
-          git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
+          sudo rm -rf openwrt || true
+          git clone --depth=1 -b openwrt-25.12 https://github.com/openwrt/openwrt.git openwrt
 
-      # 5. 复制 SL3000 工具链
+      - name: Cache downloads & ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/dl
+            openwrt/.ccache
+          key: ${{ runner.os }}-sl3000-2512-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-sl3000-2512-
+
       - name: Copy SL3000 tools
         run: |
-          rm -rf openwrt/sl3000-tools
-          cp -r sl3000-tools openwrt/
+          cp -r repo/sl3000-tools openwrt/
+          chmod +x openwrt/sl3000-tools/*.sh
 
-      # 6. 赋予脚本执行权限
-      - name: Make scripts executable
-        working-directory: openwrt
-        run: |
-          chmod +x sl3000-tools/generate-three-piece.sh
-          chmod +x sl3000-tools/all-in-one.sh
-
-      # ⭐ 7. 更新 feeds（必须在 DTS 检查前）
-      - name: Update feeds
+      - name: Update & install feeds
         working-directory: openwrt
         run: |
           ./scripts/feeds update -a || true
           ./scripts/feeds install -a
 
-      # ⭐ 8. 生成默认配置（必须在 toolchain 前）
-      - name: Normalize config
+      - name: Make defconfig (base)
         working-directory: openwrt
         run: |
           make defconfig
 
-      # ⭐ 9. 构建工具链（生成 build_dir + kernel include）
       - name: Build toolchain
         working-directory: openwrt
         run: |
           make toolchain/install -j$(nproc) V=s
 
-      # ⭐ 10. 生成三件套（25.12 / 6.12）
       - name: Generate SL3000 Three-Piece Set
         working-directory: openwrt
         run: |
           ./sl3000-tools/generate-three-piece.sh
+          ls -l target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/ || true
+          ls -l target/linux/mediatek/image/ || true
 
-      # ⭐ 11. 运行三件套检查（此时 build_dir 已存在 → DTS 检查不会报错）
-      - name: Run all-in-one CHECK
+      - name: Make defconfig (final)
         working-directory: openwrt
         run: |
-          ./sl3000-tools/all-in-one.sh check
+          make defconfig
 
-      # 12. 使用三件套生成的 .config
-      - name: Use generated .config
+      - name: Build SL3000 eMMC firmware
         working-directory: openwrt
         run: |
-          cp .config .config.backup
-          echo "✔ 已使用三件套生成的 .config"
+          make -j$(nproc) V=s | tee firmware-build.log
 
-      # 13. 构建固件
-      - name: Build firmware
-        working-directory: openwrt
-        run: |
-          make -j$(nproc) V=s | tee build.log
-
-      # 14. 上传构建日志
-      - name: Upload build log
+      - name: Upload build logs
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: openwrt/build.log
+          name: sl3000-2512-build-logs
+          path: openwrt/firmware-build.log
+          retention-days: 7
 
-      # 15. 上传固件产物
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-sl3000-emmc-25.12
+          name: openwrt-25.12-sl3000-emmc-firmware
           path: openwrt/bin/targets/mediatek/filogic/
+          retention-days: 30
 
-      # 16. 发布固件
-      - name: Release firmware
-        uses: softprops/action-gh-release@v1
+      - name: Auto Release firmware
+        uses: softprops/action-gh-release@v2
+        if: success()
         with:
-          tag_name: sl3000-emmc-25.12-${{ github.run_number }}-${{ github.run_id }}
-          name: "SL3000 eMMC Firmware Build (25.12) #${{ github.run_number }}"
+          tagname: sl3000-emmc-openwrt-25.12-${{ github.run_number }}-${{ github.run_id }}
+          name: SL3000 eMMC OpenWrt 25.12 #${{ github.run_number }}
           body: |
-            自动构建的 SL3000 eMMC 固件 (ImmortalWrt 25.12 / Linux 6.12)
-            - 三件套按 25.12 黄金模板生成
-            - DTS 预处理 + 语法检查通过
-            - 工具链构建完成
-            - 固件构建完成
-          files: |
-            openwrt/bin/targets/mediatek/filogic/*
+            OpenWrt 25.12 / kernel 6.12
+            Target: SL3000 (MT7981B eMMC)
+            Auto three-piece (DTS/MK/CONFIG)
+          files: openwrt/bin/targets/mediatek/filogic/*
+          prerelease: true
