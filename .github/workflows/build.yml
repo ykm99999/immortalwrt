@@ -8,17 +8,20 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+      # 1. 检出你的工具仓库（包含三件套脚本）
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # 2. 优化磁盘空间
       - name: Optimize disk space
         run: |
           sudo apt-get remove -y --purge azure-cli google-cloud-sdk dotnet powershell mono mysql php android* || true
           sudo apt-get autoremove -y
           sudo apt-get clean
 
+      # 3. 安装构建依赖
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -26,66 +29,104 @@ jobs:
             zlib1g-dev gawk flex gettext wget unzip python3 python3-distutils \
             file libssl-dev rsync ccache device-tree-compiler
 
+      # 4. 缓存 dl 和 ccache
       - name: Cache downloads and ccache
         uses: actions/cache@v4
         with:
           path: |
             openwrt/dl
             openwrt/.ccache
-          key: ${{ runner.os }}-immortalwrt-25.12-${{ github.sha }}
+          key: ${{ runner.os }}-immortalwrt25-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-immortalwrt-25.12-
+            ${{ runner.os }}-immortalwrt25-
 
+      # 5. 克隆官方 ImmortalWrt 25.12 源码
       - name: Clone ImmortalWrt 25.12 source
         run: |
           rm -rf openwrt
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
+      # 6. 复制 SL3000 工具链（延续 24.10 设置）
       - name: Copy SL3000 tools
         run: |
           cp -r sl3000-tools openwrt/
 
-      - name: Generate SL3000 Three-Piece Set
+      # 7. 赋予脚本执行权限
+      - name: Make scripts executable
         working-directory: openwrt
         run: |
           chmod +x sl3000-tools/generate-three-piece.sh
+          chmod +x sl3000-tools/all-in-one.sh
+
+      # 8. 生成三件套（25.12 / 6.12）
+      - name: Generate SL3000 Three-Piece Set
+        working-directory: openwrt
+        run: |
           ./sl3000-tools/generate-three-piece.sh
 
+      # 9. 运行三件套检查（DTS/MK/CONFIG）
       - name: Run all-in-one CHECK
         working-directory: openwrt
         run: |
-          chmod +x sl3000-tools/all-in-one.sh
           ./sl3000-tools/all-in-one.sh check
 
+      # 10. 使用三件套生成的 .config
+      - name: Use generated .config
+        working-directory: openwrt
+        run: |
+          cp .config .config.backup
+          echo "✔ 已使用三件套生成的 .config"
+
+      # 11. 更新 feeds
       - name: Update feeds
         working-directory: openwrt
         run: |
           ./scripts/feeds update -a || true
           ./scripts/feeds install -a
 
+      # 12. 规范化配置
       - name: Normalize config
         working-directory: openwrt
         run: |
           make defconfig
 
+      # 13. 构建工具链
       - name: Build toolchain
         working-directory: openwrt
         run: |
           make toolchain/install -j$(nproc) V=s
 
+      # 14. 构建固件
       - name: Build firmware
         working-directory: openwrt
         run: |
           make -j$(nproc) V=s | tee build.log
 
+      # 15. 上传构建日志
       - name: Upload build log
         uses: actions/upload-artifact@v4
         with:
-          name: build-log-25.12
+          name: build-log
           path: openwrt/build.log
 
+      # 16. 上传固件产物
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-25.12-sl3000-emmc
+          name: immortalwrt-sl3000-emmc-25.12
           path: openwrt/bin/targets/mediatek/filogic/
+
+      # 17. 发布固件
+      - name: Release firmware
+        uses: softprops/action-gh-release@v1
+        with:
+          tagname: sl3000-emmc-25.12-${{ github.run_number }}-${{ github.run_id }}
+          name: "SL3000 eMMC Firmware Build (25.12) #${{ github.run_number }}"
+          body: |
+            自动构建的 SL3000 eMMC 固件 (ImmortalWrt 25.12 / Linux 6.12)
+            - 三件套按 25.12 黄金模板生成
+            - DTS 预处理 + 语法检查通过
+            - 工具链构建完成
+            - 固件构建完成
+          files: |
+            openwrt/bin/targets/mediatek/filogic/*
