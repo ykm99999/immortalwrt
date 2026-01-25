@@ -1,29 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 
+TARGET_DEVICES += mt7981b-sl3000-emmc
+
 define Device/mt7981b-sl3000-emmc
   DEVICE_VENDOR := SL
-  DEVICE_MODEL := 3000
-  DEVICE_VARIANT := eMMC Flagship
+  DEVICE_MODEL := SL3000 eMMC Engineering Flagship
   DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_DTS_DIR := ../files-6.12/arch/arm64/boot/dts/mediatek
-
-  DEVICE_PACKAGES := \
-	kmod-mt7981-firmware mt7981-wo-firmware \
-	f2fsck mkf2fs automount block-mount kmod-fs-f2fs kmod-fs-ext4 \
-	luci-app-passwall2 luci-compat kmod-tun \
-	xray-core xray-plugin \
-	shadowsocks-libev-config shadowsocks-libev-ss-local \
-	shadowsocks-libev-ss-redir shadowsocks-libev-ss-server \
-	chinadns-ng dns2socks dns2tcp tcping \
-	dockerd docker docker-compose luci-app-dockerman \
-	kmod-fs-overlay kmod-br-netfilter kmod-crypto-hash \
-	kmod-veth kmod-macvlan kmod-ipvlan kmod-nf-conntrack kmod-nf-nat
-
-  IMAGES := sysupgrade.bin
-
-  KERNEL := kernel-bin | lzma | \
-	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
-
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  DEVICE_PACKAGES := kmod-mt7981-firmware kmod-fs-ext4 block-mount
+  IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
 endef
 TARGET_DEVICES += mt7981b-sl3000-emmc
+
