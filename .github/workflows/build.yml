@@ -1,4 +1,4 @@
-name: Build OpenWrt 25.12 SL3000 eMMC (Firmware Only, Build on /mnt)
+name: Build OpenWrt 25.12 SL3000 eMMC (Firmware Only)
 
 on:
   workflow_dispatch:
@@ -24,9 +24,9 @@ jobs:
           path: repo
 
       # ============================
-      # 释放系统盘空间（/ 73G）
+      # 最大化释放 GitHub Runner 空间
       # ============================
-      - name: Optimize system disk space
+      - name: Optimize disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache || true
           sudo apt-get remove -y --purge azure-cli google-cloud-sdk dotnet powershell mono mysql-server php android snapd || true
@@ -47,22 +47,22 @@ jobs:
             bc bison patch gcc-multilib g++-multilib swig libudev-dev libusb-1.0-0-dev
 
       # ============================
-      # 克隆 OpenWrt 到 /mnt（大盘 74G）
+      # 克隆 OpenWrt（固定在 openwrt/）
       # ============================
-      - name: Clone official OpenWrt 25.12 to /mnt
+      - name: Clone official OpenWrt 25.12
         run: |
-          sudo rm -rf /mnt/openwrt || true
-          git clone --depth=1 -b openwrt-25.12 https://github.com/openwrt/openwrt.git /mnt/openwrt
+          rm -rf openwrt || true
+          git clone --depth=1 -b openwrt-25.12 https://github.com/openwrt/openwrt.git openwrt
 
       # ============================
-      # 缓存 dl / ccache（也放到 /mnt）
+      # 缓存 dl / ccache
       # ============================
       - name: Cache downloads & ccache
         uses: actions/cache@v4
         with:
           path: |
-            /mnt/openwrt/dl
-            /mnt/openwrt/.ccache
+            openwrt/dl
+            openwrt/.ccache
           key: ${{ runner.os }}-sl3000-2512
           restore-keys: |
             ${{ runner.os }}-sl3000-2512
@@ -71,7 +71,7 @@ jobs:
       # feeds
       # ============================
       - name: Update & install feeds
-        working-directory: /mnt/openwrt
+        working-directory: openwrt
         run: |
           ./scripts/feeds update -a || true
           ./scripts/feeds install -a
@@ -80,7 +80,7 @@ jobs:
       # defconfig（基础）
       # ============================
       - name: Make defconfig (base)
-        working-directory: /mnt/openwrt
+        working-directory: openwrt
         run: |
           make defconfig
 
@@ -90,26 +90,26 @@ jobs:
       - name: Copy SL3000 Three-Piece Set
         run: |
           cp repo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
-             /mnt/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
+             openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
           cp repo/target/linux/mediatek/image/filogic.mk \
-             /mnt/openwrt/target/linux/mediatek/image/
-          cp repo/.config /mnt/openwrt/.config
+             openwrt/target/linux/mediatek/image/
+          cp repo/.config openwrt/.config
 
       # ============================
       # defconfig（应用三件套）
       # ============================
       - name: Make defconfig (finalize)
-        working-directory: /mnt/openwrt
+        working-directory: openwrt
         run: |
           make defconfig
           echo "===== FINAL CONFIG ====="
           grep SL3000 -n .config || true
 
       # ============================
-      # 构建固件（在 /mnt）
+      # 构建固件
       # ============================
       - name: Build SL3000 eMMC firmware
-        working-directory: /mnt/openwrt
+        working-directory: openwrt
         env:
           SKIP_TARGET_CHECK: "1"
           FORCE: "1"
@@ -125,7 +125,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sl3000-2512-build-logs
-          path: /mnt/openwrt/firmware-build.log
+          path: openwrt/firmware-build.log
           retention-days: 7
 
       # ============================
@@ -136,7 +136,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-25.12-sl3000-emmc-firmware
-          path: /mnt/openwrt/bin/targets/mediatek/filogic/
+          path: openwrt/bin/targets/mediatek/filogic/
           retention-days: 30
 
       # ============================
@@ -152,5 +152,5 @@ jobs:
             OpenWrt 25.12 / kernel 6.12
             Target: SL3000 (MT7981B eMMC)
             Auto three-piece (DTS/MK/CONFIG)
-          files: /mnt/openwrt/bin/targets/mediatek/filogic/*
+          files: openwrt/bin/targets/mediatek/filogic/*
           prerelease: true
