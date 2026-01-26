@@ -1,4 +1,4 @@
-DTS_DIR := $(DTS_DIR)/mediatek
+DTS_DIR := mediatek
 DEVICE_VARS += SUPPORTED_TELTONIKA_DEVICES
 DEVICE_VARS += SUPPORTED_TELTONIKA_HW_MODS
 
@@ -31,12 +31,12 @@ endef
 # ONLY DEVICE: SL3000 (25.12 风格)
 ###########################################################
 define Device/mt7981b-sl3000-emmc
-  DEVICE_VENDOR := SL
-  DEVICE_MODEL := SL3000 eMMC Engineering Flagship
-  DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_DTS_DIR := ../dts
-  DEVICE_PACKAGES := kmod-mt7981-firmware kmod-fs-ext4 block-mount
-  IMAGES := sysupgrade.bin
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+	DEVICE_VENDOR := SL
+	DEVICE_MODEL := SL3000 eMMC Engineering Flagship
+	DEVICE_DTS := mt7981b-sl3000-emmc
+	DEVICE_DTS_DIR := ../dts
+	DEVICE_PACKAGES := kmod-mt7981-firmware kmod-fs-ext4 block-mount
+	IMAGES := sysupgrade.bin
+	IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += mt7981b-sl3000-emmc
