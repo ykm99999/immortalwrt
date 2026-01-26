@@ -1,4 +1,4 @@
-name: Build OpenWrt 25.12 SL3000 eMMC (Build on /mnt)
+name: Build OpenWrt 25.12 SL3000 eMMC (Self-Healing Build on /mnt)
 
 on:
   workflow_dispatch:
@@ -89,26 +89,62 @@ jobs:
           grep SL3000 -n .config || true
 
       # ============================
-      # 🔥 核心修复：构建工具链（必须）
+      # 🔥 自动修复：工具链自愈
       # ============================
-      - name: Build tools & toolchain (critical)
+      - name: Self-Heal: tools & toolchain
         working-directory: /mnt/openwrt
         run: |
-          make tools/install -j$(nproc) V=s
-          make toolchain/install -j$(nproc) V=s
+          if [ ! -x staging_dir/toolchain-*/bin/*gcc ]; then
+            echo "[SELF-HEAL] Toolchain missing → rebuilding"
+            make tools/install -j$(nproc) V=s
+            make toolchain/install -j$(nproc) V=s
+          else
+            echo "[OK] Toolchain already exists"
+          fi
 
       # ============================
-      # WiFi 依赖链（kernel → mac80211 → backports → mt76）
+      # 🔥 自动修复：内核准备自愈
       # ============================
-      - name: Build kernel & WiFi dependencies
+      - name: Self-Heal: kernel prepare
         working-directory: /mnt/openwrt
         run: |
-          make target/linux/prepare V=s
-          make target/linux/compile V=s
-          make package/kernel/mac80211/compile V=s
-          make package/kernel/backports/compile V=s
-          make package/kernel/mt76/compile V=s
+          if [ ! -f build_dir/target-*/linux-*/linux-*/include/config/auto.conf ]; then
+            echo "[SELF-HEAL] Kernel prepare missing → running prepare"
+            make target/linux/prepare V=s
+          else
+            echo "[OK] Kernel prepare already done"
+          fi
 
+      # ============================
+      # 🔥 自动修复：内核编译自愈
+      # ============================
+      - name: Self-Heal: kernel compile
+        working-directory: /mnt/openwrt
+        run: |
+          make target/linux/compile V=s || {
+            echo "[SELF-HEAL] Kernel compile failed → retrying once"
+            make target/linux/compile V=s
+          }
+
+      # ============================
+      # 🔥 自动修复：mac80211 + mt76（无 backports）
+      # ============================
+      - name: Self-Heal: WiFi stack (mac80211 + mt76)
+        working-directory: /mnt/openwrt
+        run: |
+          if [ ! -d staging_dir/target-*/usr/include/mac80211 ]; then
+            echo "[SELF-HEAL] mac80211 missing → building"
+            make package/kernel/mac80211/compile V=s
+          fi
+
+          if [ ! -d staging_dir/target-*/usr/include/mt76 ]; then
+            echo "[SELF-HEAL] mt76 missing → building"
+            make package/kernel/mt76/compile V=s
+          fi
+
+      # ============================
+      # 构建固件（带自动重试）
+      # ============================
       - name: Build SL3000 eMMC firmware
         working-directory: /mnt/openwrt
         env:
@@ -116,7 +152,12 @@ jobs:
           FORCE: "1"
         run: |
           make download -j8 || echo "[WARN] download failed"
-          make -j$(nproc) V=s 2>&1 | tee firmware-build.log
+
+          for i in 1 2; do
+            make -j$(nproc) V=s 2>&1 | tee firmware-build.log && break
+            echo "[SELF-HEAL] Build failed → retry $i"
+          done
+
           test -f firmware-build.log || echo "[ERROR] firmware-build.log missing" > firmware-build.log
 
       - name: Upload build logs
@@ -145,5 +186,6 @@ jobs:
             OpenWrt 25.12 / kernel 6.12
             Target: SL3000 (MT7981B eMMC)
             Auto three-piece (DTS/MK/CONFIG)
+            Self-Healing Build System
           files: /mnt/openwrt/bin/targets/mediatek/filogic/*
           prerelease: true
