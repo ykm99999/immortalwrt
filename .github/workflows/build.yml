@@ -116,11 +116,14 @@ jobs:
           grep SL3000 -n .config || true
 
       # ============================
-      # WiFi 依赖链预构建（修复 mt76 缺 autoconf.h）
+      # 内核与 WiFi 依赖链预构建
+      # （kernel → mac80211 → backports → mt76）
       # ============================
-      - name: Build WiFi dependencies (mac80211 / backports / mt76)
+      - name: Build kernel & WiFi dependencies
         working-directory: /mnt/openwrt
         run: |
+          make target/linux/prepare V=s
+          make target/linux/compile V=s
           make package/kernel/mac80211/compile V=s
           make package/kernel/backports/compile V=s
           make package/kernel/mt76/compile V=s
