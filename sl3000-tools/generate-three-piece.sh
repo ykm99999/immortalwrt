@@ -12,6 +12,8 @@ exec > >(tee -a "$LOG") 2>&1
 
 echo "[INFO] ROOT = $ROOT"
 
+TAB=$'\t'
+
 ###############################################
 # 25.12 固定路径
 ###############################################
@@ -97,51 +99,51 @@ EOF
 clean_crlf "$DTS"
 
 ###############################################
-# Stage 2：生成 MK（保留官方结构 + 删除所有设备 + 添加 SL3000）
+# Stage 2：生成 MK（25.12 官方结构 + TAB 强制输出）
 ###############################################
 echo "=== Stage 2: Generate MK (25.12 official structure) ==="
 
-cat > "$MK" << 'EOF'
-DTS_DIR := $(DTS_DIR)/mediatek
+cat > "$MK" << EOF
+DTS_DIR := mediatek
 DEVICE_VARS += SUPPORTED_TELTONIKA_DEVICES
 DEVICE_VARS += SUPPORTED_TELTONIKA_HW_MODS
 
 define Image/Prepare
-	rm -f $(KDIR)/ubi_mark
-	echo -ne '\xde\xad\xc0\xde' > $(KDIR)/ubi_mark
+${TAB}rm -f \$(KDIR)/ubi_mark
+${TAB}echo -ne '\\xde\\xad\\xc0\\xde' > \$(KDIR)/ubi_mark
 endef
 
 define Build/mt7981-bl2
-	cat $(STAGING_DIR_IMAGE)/mt7981-$1-bl2.img >> $@
+${TAB}cat \$(STAGING_DIR_IMAGE)/mt7981-\$1-bl2.img >> \$@
 endef
 
 define Build/mt7981-bl31-uboot
-	cat $(STAGING_DIR_IMAGE)/mt7981_$1-u-boot.fip >> $@
+${TAB}cat \$(STAGING_DIR_IMAGE)/mt7981_\$1-u-boot.fip >> \$@
 endef
 
 define Build/mt798x-gpt
-	cp $@ $@.tmp 2>/dev/null || true
-	ptgen -g -o $@.tmp -a 1 -l 1024 \
-		-t 0x83 -N ubootenv -r -p 512k@4M \
-		-t 0x83 -N factory   -r -p 2M@4608k \
-		-t 0xef -N fip       -r -p 4M@6656k \
-		-N recovery          -r -p 32M@12M \
-		-t 0x2e -N production -p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M
-	cat $@.tmp >> $@
-	rm $@.tmp
+${TAB}cp \$@ \$@.tmp 2>/dev/null || true
+${TAB}ptgen -g -o \$@.tmp -a 1 -l 1024 \\
+${TAB}${TAB}-t 0x83 -N ubootenv -r -p 512k@4M \\
+${TAB}${TAB}-t 0x83 -N factory   -r -p 2M@4608k \\
+${TAB}${TAB}-t 0xef -N fip       -r -p 4M@6656k \\
+${TAB}${TAB}-N recovery          -r -p 32M@12M \\
+${TAB}${TAB}-t 0x2e -N production -p \$(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M
+${TAB}cat \$@.tmp >> \$@
+${TAB}rm \$@.tmp
 endef
 
 ###########################################################
 # ONLY DEVICE: SL3000 (25.12 风格)
 ###########################################################
 define Device/mt7981b-sl3000-emmc
-  DEVICE_VENDOR := SL
-  DEVICE_MODEL := SL3000 eMMC Engineering Flagship
-  DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_DTS_DIR := ../dts
-  DEVICE_PACKAGES := kmod-mt7981-firmware kmod-fs-ext4 block-mount
-  IMAGES := sysupgrade.bin
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+${TAB}DEVICE_VENDOR := SL
+${TAB}DEVICE_MODEL := SL3000 eMMC Engineering Flagship
+${TAB}DEVICE_DTS := mt7981b-sl3000-emmc
+${TAB}DEVICE_DTS_DIR := ../dts
+${TAB}DEVICE_PACKAGES := kmod-mt7981-firmware kmod-fs-ext4 block-mount
+${TAB}IMAGES := sysupgrade.bin
+${TAB}IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += mt7981b-sl3000-emmc
 EOF
@@ -157,6 +159,8 @@ cat > "$CFG" << 'EOF'
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
 CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981b-sl3000-emmc=y
+
+CONFIG_LINUX_6_12=y
 
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-base=y
@@ -189,6 +193,7 @@ clean_crlf "$CFG"
 echo "=== Stage 4: Validation ==="
 
 grep -q "mt7981b-sl3000-emmc" "$MK" || { echo "[FATAL] MK missing device"; exit 1; }
+grep -q $'\tDEVICE_VENDOR' "$MK" || { echo "[FATAL] MK TAB indent missing"; exit 1; }
 [ -s "$DTS" ] || { echo "[FATAL] DTS missing"; exit 1; }
 [ -s "$CFG" ] || { echo "[FATAL] CONFIG missing"; exit 1; }
 
