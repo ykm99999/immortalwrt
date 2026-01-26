@@ -68,11 +68,13 @@ jobs:
           ./scripts/feeds update -a || true
           ./scripts/feeds install -a
 
-      # 方案一：删除 feeds 里的 mt76，强制用内置版本
-      - name: "Remove external mt76 (use built-in version)"
+      # 强制使用官方 mt76：移除 feeds 与本地覆盖并恢复官方版本
+      - name: "Purge external/local mt76 (use official 25.12 version)"
         working-directory: /mnt/openwrt
         run: |
           rm -rf package/feeds/packages/mt76
+          rm -rf package/kernel/mt76
+          git checkout -- package/kernel/mt76 || true
 
       - name: "Make defconfig (base)"
         working-directory: /mnt/openwrt
@@ -123,31 +125,7 @@ jobs:
             make target/linux/compile V=s
           }
 
-      # 不用 heredoc，直接 echo 生成 autoconf.h 兼容层
-      - name: "Self-Heal: mt76 backport autoconf shim"
-        working-directory: /mnt/openwrt
-        run: |
-          BP_DIR="staging_dir/target-aarch64_cortex-a53_musl/usr/include/mac80211-backport/backport"
-          if [ ! -f "$BP_DIR/autoconf.h" ]; then
-            echo '[SELF-HEAL] backport/autoconf.h missing → creating compatibility shim'
-            mkdir -p "$BP_DIR"
-            {
-              echo '/* Compatibility shim for mt76 on OpenWrt 25.12 */'
-              echo '/* mac80211-backport/backport/autoconf.h is no longer installed, */'
-              echo '/* but some mt76 versions still include it during configure.      */'
-              echo ''
-              echo '#ifndef __BACKPORT_AUTOCONF_H'
-              echo '#define __BACKPORT_AUTOCONF_H'
-              echo ''
-              echo '/* Minimal stub; extend if build logs require macros. */'
-              echo ''
-              echo '#endif /* __BACKPORT_AUTOCONF_H */'
-            } > "$BP_DIR/autoconf.h"
-          else
-            echo '[OK] backport/autoconf.h already present'
-          fi
-
-      - name: "Self-Heal: WiFi stack (mac80211 + mt76)"
+      - name: "Self-Heal: WiFi stack (mac80211 + official mt76)"
         working-directory: /mnt/openwrt
         run: |
           if [ ! -d staging_dir/target-*/usr/include/mac80211 ]; then
@@ -156,7 +134,7 @@ jobs:
           fi
 
           if [ ! -d staging_dir/target-*/usr/include/mt76 ]; then
-            echo '[SELF-HEAL] mt76 missing → building'
+            echo '[SELF-HEAL] official mt76 missing → building'
             make package/kernel/mt76/compile V=s
           fi
 
