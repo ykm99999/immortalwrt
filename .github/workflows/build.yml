@@ -68,9 +68,7 @@ jobs:
           ./scripts/feeds update -a || true
           ./scripts/feeds install -a
 
-      # ============================
-      # 方案一：删除 feeds 里的 mt76
-      # ============================
+      # 方案一：删除 feeds 里的 mt76，强制用内置版本
       - name: "Remove external mt76 (use built-in version)"
         working-directory: /mnt/openwrt
         run: |
@@ -96,23 +94,17 @@ jobs:
           echo '===== FINAL CONFIG ====='
           grep SL3000 -n .config || true
 
-      # ============================
-      # 🔥 自动修复：工具链自愈
-      # ============================
       - name: "Self-Heal: tools & toolchain"
         working-directory: /mnt/openwrt
         run: |
           if [ ! -x staging_dir/toolchain-*/bin/*gcc ]; then
             echo '[SELF-HEAL] Toolchain missing → rebuilding'
-            make tools/install -j$(nproc) V=s
-            make toolchain/install -j$(nproc) V=s
+            make tools/install -j"$(nproc)" V=s
+            make toolchain/install -j"$(nproc)" V=s
           else
             echo '[OK] Toolchain already exists'
           fi
 
-      # ============================
-      # 🔥 自动修复：内核准备自愈
-      # ============================
       - name: "Self-Heal: kernel prepare"
         working-directory: /mnt/openwrt
         run: |
@@ -123,9 +115,6 @@ jobs:
             echo '[OK] Kernel prepare already done'
           fi
 
-      # ============================
-      # 🔥 自动修复：内核编译自愈
-      # ============================
       - name: "Self-Heal: kernel compile"
         working-directory: /mnt/openwrt
         run: |
@@ -134,9 +123,30 @@ jobs:
             make target/linux/compile V=s
           }
 
-      # ============================
-      # 🔥 自动修复：mac80211 + mt76
-      # ============================
+      # 不用 heredoc，直接 echo 生成 autoconf.h 兼容层
+      - name: "Self-Heal: mt76 backport autoconf shim"
+        working-directory: /mnt/openwrt
+        run: |
+          BP_DIR="staging_dir/target-aarch64_cortex-a53_musl/usr/include/mac80211-backport/backport"
+          if [ ! -f "$BP_DIR/autoconf.h" ]; then
+            echo '[SELF-HEAL] backport/autoconf.h missing → creating compatibility shim'
+            mkdir -p "$BP_DIR"
+            {
+              echo '/* Compatibility shim for mt76 on OpenWrt 25.12 */'
+              echo '/* mac80211-backport/backport/autoconf.h is no longer installed, */'
+              echo '/* but some mt76 versions still include it during configure.      */'
+              echo ''
+              echo '#ifndef __BACKPORT_AUTOCONF_H'
+              echo '#define __BACKPORT_AUTOCONF_H'
+              echo ''
+              echo '/* Minimal stub; extend if build logs require macros. */'
+              echo ''
+              echo '#endif /* __BACKPORT_AUTOCONF_H */'
+            } > "$BP_DIR/autoconf.h"
+          else
+            echo '[OK] backport/autoconf.h already present'
+          fi
+
       - name: "Self-Heal: WiFi stack (mac80211 + mt76)"
         working-directory: /mnt/openwrt
         run: |
@@ -150,9 +160,6 @@ jobs:
             make package/kernel/mt76/compile V=s
           fi
 
-      # ============================
-      # 构建固件（带自动重试）
-      # ============================
       - name: "Build SL3000 eMMC firmware"
         working-directory: /mnt/openwrt
         env:
@@ -162,7 +169,7 @@ jobs:
           make download -j8 || echo '[WARN] download failed'
 
           for i in 1 2; do
-            make -j$(nproc) V=s 2>&1 | tee firmware-build.log && break
+            make -j"$(nproc)" V=s 2>&1 | tee firmware-build.log && break
             echo '[SELF-HEAL] Build failed → retrying'
           done
 
@@ -189,7 +196,7 @@ jobs:
         if: success()
         with:
           tagname: sl3000-emmc-openwrt-25.12-${{ github.run_number }}-${{ github.run_id }}
-          name: SL3000 eMMC OpenWrt 25.12 #${{ github.run_number }}
+          name: SL3000 EMMC OpenWrt 25.12 #${{ github.run_number }}
           body: |
             OpenWrt 25.12 / kernel 6.12
             Target: SL3000 (MT7981B eMMC)
