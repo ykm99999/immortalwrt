@@ -68,6 +68,14 @@ jobs:
           ./scripts/feeds update -a || true
           ./scripts/feeds install -a
 
+      # ============================
+      # 方案一：删除 feeds 里的 mt76
+      # ============================
+      - name: "Remove external mt76 (use built-in version)"
+        working-directory: /mnt/openwrt
+        run: |
+          rm -rf package/feeds/packages/mt76
+
       - name: "Make defconfig (base)"
         working-directory: /mnt/openwrt
         run: |
