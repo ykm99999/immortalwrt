@@ -1,4 +1,4 @@
-name: Build OpenWrt 25.12 SL3000 eMMC (Self-Healing Build on /mnt)
+name: "Build OpenWrt 25.12 SL3000 eMMC (Self-Healing Build on /mnt)"
 
 on:
   workflow_dispatch:
@@ -85,7 +85,7 @@ jobs:
         working-directory: /mnt/openwrt
         run: |
           make defconfig
-          echo "===== FINAL CONFIG ====="
+          echo '===== FINAL CONFIG ====='
           grep SL3000 -n .config || true
 
       # ============================
@@ -95,11 +95,11 @@ jobs:
         working-directory: /mnt/openwrt
         run: |
           if [ ! -x staging_dir/toolchain-*/bin/*gcc ]; then
-            echo "[SELF-HEAL] Toolchain missing → rebuilding"
+            echo '[SELF-HEAL] Toolchain missing → rebuilding'
             make tools/install -j$(nproc) V=s
             make toolchain/install -j$(nproc) V=s
           else
-            echo "[OK] Toolchain already exists"
+            echo '[OK] Toolchain already exists'
           fi
 
       # ============================
@@ -109,10 +109,10 @@ jobs:
         working-directory: /mnt/openwrt
         run: |
           if [ ! -f build_dir/target-*/linux-*/linux-*/include/config/auto.conf ]; then
-            echo "[SELF-HEAL] Kernel prepare missing → running prepare"
+            echo '[SELF-HEAL] Kernel prepare missing → running prepare'
             make target/linux/prepare V=s
           else
-            echo "[OK] Kernel prepare already done"
+            echo '[OK] Kernel prepare already done'
           fi
 
       # ============================
@@ -122,7 +122,7 @@ jobs:
         working-directory: /mnt/openwrt
         run: |
           make target/linux/compile V=s || {
-            echo "[SELF-HEAL] Kernel compile failed → retrying once"
+            echo '[SELF-HEAL] Kernel compile failed → retrying once'
             make target/linux/compile V=s
           }
 
@@ -133,12 +133,12 @@ jobs:
         working-directory: /mnt/openwrt
         run: |
           if [ ! -d staging_dir/target-*/usr/include/mac80211 ]; then
-            echo "[SELF-HEAL] mac80211 missing → building"
+            echo '[SELF-HEAL] mac80211 missing → building'
             make package/kernel/mac80211/compile V=s
           fi
 
           if [ ! -d staging_dir/target-*/usr/include/mt76 ]; then
-            echo "[SELF-HEAL] mt76 missing → building"
+            echo '[SELF-HEAL] mt76 missing → building'
             make package/kernel/mt76/compile V=s
           fi
 
@@ -151,14 +151,14 @@ jobs:
           SKIP_TARGET_CHECK: "1"
           FORCE: "1"
         run: |
-          make download -j8 || echo "[WARN] download failed"
+          make download -j8 || echo '[WARN] download failed'
 
           for i in 1 2; do
             make -j$(nproc) V=s 2>&1 | tee firmware-build.log && break
-            echo "[SELF-HEAL] Build failed → retry $i"
+            echo '[SELF-HEAL] Build failed → retrying'
           done
 
-          test -f firmware-build.log || echo "[ERROR] firmware-build.log missing" > firmware-build.log
+          test -f firmware-build.log || echo '[ERROR] firmware-build.log missing' > firmware-build.log
 
       - name: Upload build logs
         if: always()
