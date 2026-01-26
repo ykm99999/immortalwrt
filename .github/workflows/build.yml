@@ -116,6 +116,16 @@ jobs:
           grep SL3000 -n .config || true
 
       # ============================
+      # WiFi 依赖链预构建（修复 mt76 缺 autoconf.h）
+      # ============================
+      - name: Build WiFi dependencies (mac80211 / backports / mt76)
+        working-directory: /mnt/openwrt
+        run: |
+          make package/kernel/mac80211/compile V=s
+          make package/kernel/backports/compile V=s
+          make package/kernel/mt76/compile V=s
+
+      # ============================
       # 构建固件（强制生成日志）
       # ============================
       - name: Build SL3000 eMMC firmware
