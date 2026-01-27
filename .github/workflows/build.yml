@@ -73,16 +73,38 @@ jobs:
         run: |
           make defconfig
 
-      - name: "Copy SL3000 three-piece set (DTS/MK/CONFIG)"
+      - name: "Copy SL3000 three-piece set (DTS/MK/CONFIG, auto files-*)"
         run: |
+          OWRT=/mnt/openwrt
+          REPO=repo
+
+          # 目标 OpenWrt 的 files-* 目录（master 下）
+          OWRT_KVER_DIR="$(cd "$OWRT/target/linux/mediatek" && ls -d files-* 2>/dev/null | sort | tail -n1)"
+          if [ -z "$OWRT_KVER_DIR" ]; then
+            echo "[FATAL] no files-* under target/linux/mediatek in /mnt/openwrt"
+            exit 1
+          fi
+          echo "[INFO] OpenWrt files dir: $OWRT_KVER_DIR"
+
+          # 仓库里的 files-* 目录（你用脚本生成三件套的地方）
+          REPO_KVER_DIR="$(cd "$REPO/target/linux/mediatek" && ls -d files-* 2>/dev/null | sort | tail -n1)"
+          if [ -z "$REPO_KVER_DIR" ]; then
+            echo "[FATAL] no files-* under repo/target/linux/mediatek"
+            exit 1
+          fi
+          echo "[INFO] Repo files dir: $REPO_KVER_DIR"
+
           # DTS
-          cp repo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
-             /mnt/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
-          # image mk
-          cp repo/target/linux/mediatek/image/filogic.mk \
-             /mnt/openwrt/target/linux/mediatek/image/
+          mkdir -p "$OWRT/target/linux/mediatek/$OWRT_KVER_DIR/arch/arm64/boot/dts/mediatek"
+          cp "$REPO/target/linux/mediatek/$REPO_KVER_DIR/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts" \
+             "$OWRT/target/linux/mediatek/$OWRT_KVER_DIR/arch/arm64/boot/dts/mediatek/"
+
+          # image mk（直接覆盖，保持你仓库里的版本）
+          cp "$REPO/target/linux/mediatek/image/filogic.mk" \
+             "$OWRT/target/linux/mediatek/image/filogic.mk"
+
           # .config
-          cp repo/.config /mnt/openwrt/.config
+          cp "$REPO/.config" "$OWRT/.config"
 
       - name: "Finalize defconfig & verify SL3000"
         working-directory: /mnt/openwrt
@@ -121,10 +143,28 @@ jobs:
             make target/linux/compile V=s
           }
 
+      - name: "Self-Heal: mt76 backport autoconf shim"
+        working-directory: /mnt/openwrt
+        run: |
+          # 某些 mt76 版本仍然在找 mac80211-backport/backport/autoconf.h，这里一次性补一个最小 stub
+          for d in staging_dir/target-*/usr/include/mac80211-backport/backport; do
+            mkdir -p "$d"
+            if [ ! -f "$d/autoconf.h" ]; then
+              echo "[SELF-HEAL] creating $d/autoconf.h shim"
+              {
+                echo "/* mt76/mac80211 backport autoconf shim */"
+                echo "#ifndef __BACKPORT_AUTOCONF_H"
+                echo "#define __BACKPORT_AUTOCONF_H"
+                echo "#endif /* __BACKPORT_AUTOCONF_H */"
+              } > "$d/autoconf.h"
+            else
+              echo "[OK] $d/autoconf.h already exists"
+            fi
+          done
+
       - name: "Self-Heal: WiFi stack (mac80211 + mt76 on master)"
         working-directory: /mnt/openwrt
         run: |
-          # master 自带 mac80211 + mt76（含 MT7991/MT7996 支持）
           echo '[INFO] Building mac80211 + mt76 from master'
           make package/kernel/mac80211/compile V=s
           make package/kernel/mt76/compile V=s
