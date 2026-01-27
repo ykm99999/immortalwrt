@@ -1,4 +1,4 @@
-name: Rebuild SL3000 Three-Piece (25.12 / 6.12)
+name: Rebuild SL3000 Three-Piece (24.10 / 6.6)
 
 on:
   workflow_dispatch:
@@ -13,20 +13,17 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      # 1. Checkout
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: true
 
-      # 2. Install dependencies
       - name: Install Core Dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y device-tree-compiler dos2unix libc-bin
 
-      # 3. Check script exists
       - name: Check Script Exists
         run: |
           if [ ! -f "sl3000-tools/generate-three-piece.sh" ]; then
@@ -35,29 +32,24 @@ jobs:
           fi
           echo "✅ Script found"
 
-      # 4. Lock files-6.12 (no auto-detect)
-      - name: Set FILES_DIR (6.12)
-        run: |
-          echo "FILES_DIR=target/linux/mediatek/files-6.12" >> $GITHUB_ENV
-          echo "Using FILES_DIR = target/linux/mediatek/files-6.12"
-
-      # 5. Add execute permission
       - name: Add Execute Permission
         run: chmod 755 sl3000-tools/*.sh
 
-      # 6. Run script
+      - name: Clone ImmortalWrt 24.10
+        run: |
+          git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git openwrt-src
+
       - name: Run Three-Piece Script
+        working-directory: openwrt-src
         run: |
-          bash -x sl3000-tools/generate-three-piece.sh 2>&1 | tee sl3000-run.log
+          bash -x $GITHUB_WORKSPACE/sl3000-tools/generate-three-piece.sh 2>&1 | tee $GITHUB_WORKSPACE/sl3000-run.log
 
-      # 7. Strict verify (fixed to 6.12)
       - name: Strict Verify Three-Piece
+        working-directory: openwrt-src
         run: |
-          FILES_DIR="target/linux/mediatek/files-6.12"
-
-          DTS_FILE="$FILES_DIR/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
-          MK_FILE="target/linux/mediatek/image/filogic.mk"
-          CFG_FILE=".config"
+          DTS_FILE="target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts"
+          MK_FILE="target/linux/mediatek/image/mt7981.mk"
+          CFG_FILE="sl3000-tools/sl3000-full-config.txt"   # ✅ 这里：相对 openwrt-src
 
           echo "Verify DTS: $DTS_FILE"
           echo "Verify MK : $MK_FILE"
@@ -70,42 +62,48 @@ jobs:
 
           if [ ! -s "$CFG_FILE" ]; then
             echo "❌ CONFIG missing or empty"
+            ls -R .
             exit 1
           fi
 
-          if ! grep -q "mt7981b-sl3000-emmc" "$MK_FILE"; then
+          if ! grep -q "sl-3000-emmc" "$MK_FILE"; then
             echo "❌ MK missing SL3000 segment"
             exit 1
           fi
 
           echo "=== SL3000 MK Segment ==="
-          grep -A20 "define Device/mt7981b-sl3000-emmc" "$MK_FILE"
+          grep -A20 "define Device/sl-3000-emmc" "$MK_FILE"
 
           echo "DTS_FILE=$DTS_FILE" >> $GITHUB_ENV
           echo "MK_FILE=$MK_FILE" >> $GITHUB_ENV
           echo "CFG_FILE=$CFG_FILE" >> $GITHUB_ENV
 
-      # 8. Upload artifacts
       - name: Upload Three-Piece & Logs
         uses: actions/upload-artifact@v4
         with:
-          name: sl3000-three-piece-2512
+          name: sl3000-three-piece-2410
           path: |
-            ${{ env.DTS_FILE }}
-            ${{ env.MK_FILE }}
-            ${{ env.CFG_FILE }}
+            openwrt-src/${{ env.DTS_FILE }}
+            openwrt-src/${{ env.MK_FILE }}
+            openwrt-src/${{ env.CFG_FILE }}   # ✅ 这里：从 openwrt-src 拿 config
             sl3000-run.log
           retention-days: 30
 
-      # 9. Commit & push
       - name: Git Commit & Push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add -f ${{ env.DTS_FILE }} ${{ env.MK_FILE }} ${{ env.CFG_FILE }}
+          # 从 openwrt-src 拷回仓库
+          cp openwrt-src/${{ env.DTS_FILE }} target/linux/mediatek/dts/
+          cp openwrt-src/${{ env.MK_FILE }} target/linux/mediatek/image/
+          cp openwrt-src/${{ env.CFG_FILE }} sl3000-tools/   # ✅ 这里：把 config 拷回仓库
 
-          git commit -m "ci: rebuild SL3000 three-piece (25.12 / 6.12)" || {
+          git add -f target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts
+          git add -f target/linux/mediatek/image/mt7981.mk
+          git add -f sl3000-tools/sl3000-full-config.txt
+
+          git commit -m "ci: rebuild SL3000 three-piece (24.10 / 6.6)" || {
             echo "No changes to commit"
             exit 0
           }
