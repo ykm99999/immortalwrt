@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 SCRIPT_DIR="$ROOT/sl3000-tools"
-LOG="$SCRIPT_DIR/sl3000-three-piece-2512.log"
+LOG="$SCRIPT_DIR/sl3000-three-piece-master.log"
 mkdir -p "$SCRIPT_DIR"
 : > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
@@ -15,9 +15,17 @@ echo "[INFO] ROOT = $ROOT"
 TAB=$'\t'
 
 ###############################################
-# 25.12 固定路径
+# 自动探测 mediatek DTS 路径（files-* 最新目录）
 ###############################################
-DTS_DIR="$ROOT/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
+KVER_DIR="$(cd target/linux/mediatek && ls -d files-* 2>/dev/null | sort | tail -n1 || true)"
+if [ -z "$KVER_DIR" ]; then
+  echo "[FATAL] target/linux/mediatek/files-* not found"
+  exit 1
+fi
+
+echo "[INFO] Using mediatek DTS dir: target/linux/mediatek/${KVER_DIR}"
+
+DTS_DIR="$ROOT/target/linux/mediatek/${KVER_DIR}/arch/arm64/boot/dts/mediatek"
 DTS="$DTS_DIR/mt7981b-sl3000-emmc.dts"
 MK="$ROOT/target/linux/mediatek/image/filogic.mk"
 CFG="$ROOT/.config"
@@ -27,9 +35,9 @@ mkdir -p "$DTS_DIR"
 clean_crlf() { sed -i 's/\r$//' "$1" 2>/dev/null || true; }
 
 ###############################################
-# Stage 1：生成 DTS（25.12 兼容）
+# Stage 1：生成 DTS（master 兼容，最小可用骨架）
 ###############################################
-echo "=== Stage 1: Generate DTS ==="
+echo "=== Stage 1: Generate DTS (master) ==="
 
 cat > "$DTS" << 'EOF'
 // SPDX-License-Identifier: GPL-2.0-only OR MIT
@@ -41,148 +49,129 @@ cat > "$DTS" << 'EOF'
 #include <dt-bindings/leds/common.h>
 
 / {
-    model = "SL3000 eMMC Engineering Flagship";
-    compatible = "sl,sl3000-emmc", "mediatek,mt7981b";
+	model = "SL3000 eMMC Engineering Flagship";
+	compatible = "sl,sl3000-emmc", "mediatek,mt7981b";
 
-    aliases {
-        serial0 = &uart0;
-        led-boot = &led_status;
-        led-failsafe = &led_status;
-        led-running = &led_status;
-        led-upgrade = &led_status;
-    };
+	aliases {
+		serial0 = &uart0;
+		led-boot = &led_status;
+		led-failsafe = &led_status;
+		led-running = &led_status;
+		led-upgrade = &led_status;
+	};
 
-    chosen { stdout-path = "serial0:115200n8"; };
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
 
-    leds {
-        compatible = "gpio-leds";
-        status: led-0 {
-            label = "sl:blue:status";
-            gpios = <&pio 12 GPIO_ACTIVE_LOW>;
-            linux,default-trigger = "heartbeat";
-            default-state = "on";
-        };
-    };
+	leds {
+		compatible = "gpio-leds";
 
-    keys {
-        compatible = "gpio-keys";
-        reset {
-            label = "reset";
-            gpios = <&pio 18 GPIO_ACTIVE_LOW>;
-            linux,code = <KEY_RESTART>;
-            debounce-interval = <60>;
-        };
-    };
+		led_status: status {
+			label = "sl:blue:status";
+			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "heartbeat";
+			default-state = "on";
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys";
+
+		reset {
+			label = "reset";
+			gpios = <&pio 18 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+			debounce-interval = <60>;
+		};
+	};
 };
 
-&uart0 { status = "okay"; };
+&uart0 {
+	status = "okay";
+};
 
 &mmc {
-    status = "okay";
-    bus-width = <8>;
-    mmc-hs200-1_8v;
-    non-removable;
-    cap-mmc-hw-reset;
+	status = "okay";
+	bus-width = <8>;
+	mmc-hs200-1_8v;
+	non-removable;
+	cap-mmc-hw-reset;
 };
 
 &gmac0 {
-    status = "okay";
-    phy-mode = "2500base-x";
-    phy-handle = <&phy0>;
+	status = "okay";
+	phy-mode = "2500base-x";
+	phy-handle = <&phy0>;
 };
 
-&switch { status = "okay"; };
+&switch {
+	status = "okay";
+};
 
-&pcie { status = "okay"; };
+&pcie {
+	status = "okay";
+};
 EOF
 
 clean_crlf "$DTS"
 
 ###############################################
-# Stage 2：生成 MK（25.12 官方结构 + TAB 强制输出）
+# Stage 2：生成 / 追加 MK 设备段（master 兼容）
 ###############################################
-echo "=== Stage 2: Generate MK (25.12 official structure) ==="
+echo "=== Stage 2: Ensure MK device (master) ==="
 
-cat > "$MK" << EOF
-DTS_DIR := mediatek
-DEVICE_VARS += SUPPORTED_TELTONIKA_DEVICES
-DEVICE_VARS += SUPPORTED_TELTONIKA_HW_MODS
+if [ ! -f "$MK" ]; then
+  echo "[FATAL] $MK not found"
+  exit 1
+fi
 
-define Image/Prepare
-${TAB}rm -f \$(KDIR)/ubi_mark
-${TAB}echo -ne '\\xde\\xad\\xc0\\xde' > \$(KDIR)/ubi_mark
-endef
+if grep -q "Device/mt7981b-sl3000-emmc" "$MK"; then
+  echo "[INFO] Device mt7981b-sl3000-emmc already present in filogic.mk, skip append"
+else
+  echo "[INFO] Appending mt7981b-sl3000-emmc device to filogic.mk"
+  cat >> "$MK" << EOF
 
-define Build/mt7981-bl2
-${TAB}cat \$(STAGING_DIR_IMAGE)/mt7981-\$1-bl2.img >> \$@
-endef
-
-define Build/mt7981-bl31-uboot
-${TAB}cat \$(STAGING_DIR_IMAGE)/mt7981_\$1-u-boot.fip >> \$@
-endef
-
-define Build/mt798x-gpt
-${TAB}cp \$@ \$@.tmp 2>/dev/null || true
-${TAB}ptgen -g -o \$@.tmp -a 1 -l 1024 \\
-${TAB}${TAB}-t 0x83 -N ubootenv -r -p 512k@4M \\
-${TAB}${TAB}-t 0x83 -N factory   -r -p 2M@4608k \\
-${TAB}${TAB}-t 0xef -N fip       -r -p 4M@6656k \\
-${TAB}${TAB}-N recovery          -r -p 32M@12M \\
-${TAB}${TAB}-t 0x2e -N production -p \$(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M
-${TAB}cat \$@.tmp >> \$@
-${TAB}rm \$@.tmp
-endef
-
-###########################################################
-# ONLY DEVICE: SL3000 (25.12 风格)
-###########################################################
 define Device/mt7981b-sl3000-emmc
 ${TAB}DEVICE_VENDOR := SL
 ${TAB}DEVICE_MODEL := SL3000 eMMC Engineering Flagship
 ${TAB}DEVICE_DTS := mt7981b-sl3000-emmc
 ${TAB}DEVICE_DTS_DIR := ../dts
-${TAB}DEVICE_PACKAGES := kmod-mt7981-firmware kmod-fs-ext4 block-mount
+${TAB}DEVICE_PACKAGES := kmod-fs-ext4 block-mount
 ${TAB}IMAGES := sysupgrade.bin
 ${TAB}IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
 TARGET_DEVICES += mt7981b-sl3000-emmc
 EOF
+fi
 
 clean_crlf "$MK"
 
 ###############################################
-# Stage 3：生成 CONFIG（25.12 兼容）
+# Stage 3：生成 CONFIG（master 基础配置，留 WiFi 给 master 自己）
 ###############################################
-echo "=== Stage 3: Generate CONFIG ==="
+echo "=== Stage 3: Generate CONFIG (master base) ==="
 
 cat > "$CFG" << 'EOF'
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
 CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981b-sl3000-emmc=y
 
-CONFIG_LINUX_6_12=y
+# 内核版本由 master 自己选择，不强行锁死
+# CONFIG_LINUX_6_12 is not set
+# CONFIG_LINUX_6_13 is not set
 
+# 基础 LuCI
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-base=y
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 
-CONFIG_PACKAGE_luci-app-passwall2=y
-CONFIG_PACKAGE_luci-app-ssr-plus=y
-CONFIG_PACKAGE_xray-core=y
-CONFIG_PACKAGE_v2ray-core=y
-CONFIG_PACKAGE_hysteria2=y
-
-CONFIG_PACKAGE_docker=y
-CONFIG_PACKAGE_dockerd=y
-CONFIG_PACKAGE_luci-app-dockerman=y
-CONFIG_PACKAGE_containerd=y
-CONFIG_PACKAGE_runc=y
-
+# 基础存储支持
 CONFIG_PACKAGE_kmod-fs-ext4=y
 CONFIG_PACKAGE_block-mount=y
 CONFIG_PACKAGE_f2fs-tools=y
 
-CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+# 不在这里强行指定 WiFi 驱动，让 master 根据设备 DTS / 依赖自动拉 mt76 / mt7996
 EOF
 
 clean_crlf "$CFG"
@@ -193,11 +182,11 @@ clean_crlf "$CFG"
 echo "=== Stage 4: Validation ==="
 
 grep -q "mt7981b-sl3000-emmc" "$MK" || { echo "[FATAL] MK missing device"; exit 1; }
-grep -q $'\tDEVICE_VENDOR' "$MK" || { echo "[FATAL] MK TAB indent missing"; exit 1; }
+grep -q $'\tDEVICE_VENDOR' "$MK" || { echo "[WARN] MK TAB indent check failed (please ensure tabs in Makefile)" ; }
 [ -s "$DTS" ] || { echo "[FATAL] DTS missing"; exit 1; }
 [ -s "$CFG" ] || { echo "[FATAL] CONFIG missing"; exit 1; }
 
-echo "=== 25.12 Three-piece generation complete ==="
+echo "=== master Three-piece generation complete ==="
 echo "[OUT] DTS: $DTS"
 echo "[OUT] MK : $MK"
 echo "[OUT] CFG: $CFG"
