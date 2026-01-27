@@ -88,9 +88,7 @@ cat > "$DTS" << 'EOF'
 	};
 };
 
-&uart0 {
-	status = "okay";
-};
+&uart0 { status = "okay"; };
 
 &mmc0 {
 	status = "okay";
@@ -111,7 +109,6 @@ cat > "$DTS" << 'EOF'
 
 &mdio_bus {
 	status = "okay";
-
 	phy0: ethernet-phy@0 { reg = <0>; };
 	phy1: ethernet-phy@1 { reg = <1>; };
 	phy2: ethernet-phy@2 { reg = <2>; };
@@ -121,44 +118,19 @@ cat > "$DTS" << 'EOF'
 
 &switch {
 	status = "okay";
-
 	ports {
 		#address-cells = <1>;
 		#size-cells = <0>;
-
-		port@0 {
-			reg = <0>;
-			label = "wan";
-			phy-handle = <&phy0>;
-		};
-
-		port@1 {
-			reg = <1>;
-			label = "lan1";
-			phy-handle = <&phy1>;
-		};
-
-		port@2 {
-			reg = <2>;
-			label = "lan2";
-			phy-handle = <&phy2>;
-		};
-
-		port@3 {
-			reg = <3>;
-			label = "lan3";
-			phy-handle = <&phy3>;
-		};
+		port@0 { reg = <0>; label = "wan"; phy-handle = <&phy0>; };
+		port@1 { reg = <1>; label = "lan1"; phy-handle = <&phy1>; };
+		port@2 { reg = <2>; label = "lan2"; phy-handle = <&phy2>; };
+		port@3 { reg = <3>; label = "lan3"; phy-handle = <&phy3>; };
 	};
 };
 
-/* -------------------------------
- *  PCIe + WiFi (MT7996 + MT7991)
- *  官方工程旗舰版结构（master）
- * ------------------------------- */
+/* WiFi 节点 */
 &pcie {
 	status = "okay";
-
 	wifi@0,0 {
 		compatible = "mediatek,mt7996e";
 		reg = <0x0000 0 0 0 0>;
@@ -170,7 +142,6 @@ cat > "$DTS" << 'EOF'
 
 &pcie1 {
 	status = "okay";
-
 	wifi2g@0,0 {
 		compatible = "mediatek,mt7991e";
 		reg = <0x0000 0 0 0 0>;
@@ -181,9 +152,7 @@ cat > "$DTS" << 'EOF'
 };
 
 &factory {
-	macaddr_factory_4: macaddr@4 {
-		reg = <0x4 0x6>;
-	};
+	macaddr_factory_4: macaddr@4 { reg = <0x4 0x6>; };
 };
 EOF
 
@@ -195,7 +164,6 @@ clean_crlf "$DTS"
 echo "=== Stage 2: Ensure MK device (master flagship) ==="
 
 if ! grep -q "Device/mt7981b-sl3000-emmc" "$MK"; then
-  echo "[INFO] Appending SL3000 device to filogic.mk"
   cat >> "$MK" << EOF
 
 define Device/mt7981b-sl3000-emmc
@@ -206,6 +174,7 @@ ${TAB}DEVICE_DTS_DIR := ../dts
 ${TAB}DEVICE_PACKAGES := kmod-fs-ext4 block-mount
 ${TAB}IMAGES := sysupgrade.bin
 ${TAB}IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+${TAB}IMAGE/initramfs.bin := append-dtb | uImage | append-metadata
 endef
 TARGET_DEVICES += mt7981b-sl3000-emmc
 EOF
@@ -223,10 +192,17 @@ CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
 CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981b-sl3000-emmc=y
 
+# 镜像格式
+CONFIG_TARGET_ROOTFS_INITRAMFS=y
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_IMAGES_GZIP=y
+
+# LuCI
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-base=y
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 
+# 存储支持
 CONFIG_PACKAGE_kmod-fs-ext4=y
 CONFIG_PACKAGE_block-mount=y
 CONFIG_PACKAGE_f2fs-tools=y
