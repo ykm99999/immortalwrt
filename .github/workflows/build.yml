@@ -1,4 +1,4 @@
-name: "Build OpenWrt master SL3000 eMMC (WiFi Ready, /mnt Build)"
+name: "Build OpenWrt 25.12 SL3000 eMMC (/mnt Build)"
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
   packages: write
 
 jobs:
-  build-sl3000-master:
+  build-sl3000-2512:
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     defaults:
@@ -47,10 +47,10 @@ jobs:
             file libssl-dev rsync ccache device-tree-compiler subversion libelf-dev \
             bc bison patch gcc-multilib g++-multilib swig libudev-dev libusb-1.0-0-dev
 
-      - name: "Clone OpenWrt master to /mnt"
+      - name: "Clone OpenWrt 25.12"
         run: |
           rm -rf /mnt/openwrt || true
-          git clone --depth=1 https://github.com/openwrt/openwrt.git /mnt/openwrt
+          git clone --depth=1 -b openwrt-25.12 https://github.com/openwrt/openwrt.git /mnt/openwrt
 
       - name: "Clean feeds and dl cache"
         working-directory: /mnt/openwrt
@@ -65,9 +65,9 @@ jobs:
           path: |
             /mnt/openwrt/dl
             /mnt/openwrt/.ccache
-          key: ${{ runner.os }}-sl3000-master
+          key: ${{ runner.os }}-sl3000-2512
           restore-keys: |
-            ${{ runner.os }}-sl3000-master
+            ${{ runner.os }}-sl3000-2512
 
       - name: "Base defconfig"
         working-directory: /mnt/openwrt
@@ -78,53 +78,26 @@ jobs:
         run: |
           OWRT=/mnt/openwrt
           REPO=repo
-          OWRT_KVER_DIR="$(cd "$OWRT/target/linux/mediatek" && ls -d files-* | sort | tail -n1)"
-          REPO_KVER_DIR="$(cd "$REPO/target/linux/mediatek" && ls -d files-* | sort | tail -n1)"
 
-          cp "$REPO/target/linux/mediatek/$REPO_KVER_DIR/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts" \
-             "$OWRT/target/linux/mediatek/$OWRT_KVER_DIR/arch/arm64/boot/dts/mediatek/"
-          cp "$REPO/target/linux/mediatek/image/filogic.mk" \
-             "$OWRT/target/linux/mediatek/image/filogic.mk"
-          cp "$REPO/.config" "$OWRT/.config"
+          # DTS (25.12 path)
+          cp "$REPO/target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts" \
+             "$OWRT/target/linux/mediatek/dts/"
+
+          # MK (25.12 path)
+          cp "$REPO/target/linux/mediatek/image/mt7981.mk" \
+             "$OWRT/target/linux/mediatek/image/mt7981.mk"
+
+          # CONFIG
+          cp "$REPO/sl3000-tools/sl3000-full-config.txt" "$OWRT/.config"
 
       - name: "Finalize defconfig & verify SL3000"
         working-directory: /mnt/openwrt
         run: |
           make defconfig
-          echo '===== FINAL CONFIG (grep SL3000 / mt79*) ====='
-          grep -n SL3000 .config || true
-          grep -n 'MT79' .config || true
+          echo '===== FINAL CONFIG (grep sl-3000-emmc) ====='
+          grep -n sl-3000-emmc .config || true
 
-      - name: "Self-Heal: tools & toolchain"
-        working-directory: /mnt/openwrt
-        run: |
-          if ! ls staging_dir/toolchain-*/bin/*gcc >/dev/null 2>&1; then
-            echo '[SELF-HEAL] Toolchain missing → rebuilding'
-            make tools/install -j"$(nproc)" V=s
-            make toolchain/install -j"$(nproc)" V=s
-          else
-            echo '[OK] Toolchain already exists'
-          fi
-
-      - name: "Self-Heal: kernel prepare"
-        working-directory: /mnt/openwrt
-        run: |
-          if ! find build_dir/target-*/linux-*/linux-*/include/config -name auto.conf >/dev/null 2>&1; then
-            echo '[SELF-HEAL] Kernel prepare missing → running prepare'
-            make target/linux/prepare V=s
-          else
-            echo '[OK] Kernel prepare already done'
-          fi
-
-      - name: "Self-Heal: kernel compile"
-        working-directory: /mnt/openwrt
-        run: |
-          make target/linux/compile V=s || {
-            echo '[SELF-HEAL] Kernel compile failed → retrying once'
-            make target/linux/compile V=s
-          }
-
-      - name: "Build SL3000 eMMC firmware (master, with WiFi)"
+      - name: "Build SL3000 eMMC firmware (25.12)"
         working-directory: /mnt/openwrt
         env:
           SKIP_TARGET_CHECK: "1"
@@ -139,11 +112,17 @@ jobs:
 
           test -f firmware-build.log || echo '[ERROR] firmware-build.log missing' > firmware-build.log
 
+      - name: "Check firmware output"
+        working-directory: /mnt/openwrt/bin/targets/mediatek/mt7981
+        run: |
+          echo "===== FIRMWARE OUTPUT ====="
+          ls -lh
+
       - name: "Upload build logs"
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sl3000-master-build-logs
+          name: sl3000-2512-build-logs
           path: /mnt/openwrt/firmware-build.log
           retention-days: 7
 
@@ -151,21 +130,23 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-master-sl3000-emmc-firmware
-          path: /mnt/openwrt/bin/targets/mediatek/filogic/
+          name: openwrt-2512-sl3000-emmc-firmware
+          path: |
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*initramfs*.bin
           retention-days: 30
 
-      - name: "Auto Release firmware (master snapshot)"
+      - name: "Auto Release firmware (25.12)"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tagname: sl3000-emmc-openwrt-master-${{ github.run_number }}-${{ github.run_id }}
-          name: SL3000 EMMC OpenWrt master #${{ github.run_number }}
+          tag_name: sl3000-emmc-openwrt-2512-${{ github.run_number }}-${{ github.run_id }}
+          name: SL3000 EMMC OpenWrt 25.12 #${{ github.run_number }}
           body: |
-            OpenWrt master / snapshot
-            Target: SL3000 (MT7981B eMMC, MT7991/MT7996 WiFi)
-            WiFi: mt76 connac3 from master
-            Auto three-piece (DTS/MK/CONFIG)
-            Self-Healing Build System
-          files: /mnt/openwrt/bin/targets/mediatek/filogic/*
-          prerelease: true
+            OpenWrt 25.12 stable
+            Target: SL3000 (MT7981B eMMC)
+            Three-piece set (DTS/MK/CONFIG)
+          files: |
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*initramfs*.bin
+          prerelease: false
