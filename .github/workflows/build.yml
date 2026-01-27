@@ -1,4 +1,4 @@
-name: "Build OpenWrt 25.12 SL3000 eMMC (Self-Healing Build on /mnt)"
+name: "Build OpenWrt master SL3000 eMMC (WiFi Ready, /mnt Build)"
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
   packages: write
 
 jobs:
-  build-sl3000-firmware:
+  build-sl3000-master:
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     defaults:
@@ -32,7 +32,7 @@ jobs:
           sudo rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
           df -h
 
-      - name: "Fix /mnt permissions"
+      - name: "Prepare /mnt"
         run: |
           sudo chown -R runner:runner /mnt
           sudo chmod -R 755 /mnt
@@ -47,10 +47,10 @@ jobs:
             file libssl-dev rsync ccache device-tree-compiler subversion libelf-dev \
             bc bison patch gcc-multilib g++-multilib swig libudev-dev libusb-1.0-0-dev
 
-      - name: "Clone official OpenWrt 25.12 to /mnt"
+      - name: "Clone OpenWrt master to /mnt"
         run: |
           rm -rf /mnt/openwrt || true
-          git clone --depth=1 -b openwrt-25.12 https://github.com/openwrt/openwrt.git /mnt/openwrt
+          git clone --depth=1 https://github.com/openwrt/openwrt.git /mnt/openwrt
 
       - name: "Cache downloads & ccache"
         uses: actions/cache@v4
@@ -58,48 +58,44 @@ jobs:
           path: |
             /mnt/openwrt/dl
             /mnt/openwrt/.ccache
-          key: ${{ runner.os }}-sl3000-2512
+          key: ${{ runner.os }}-sl3000-master
           restore-keys: |
-            ${{ runner.os }}-sl3000-2512
+            ${{ runner.os }}-sl3000-master
 
       - name: "Update & install feeds"
         working-directory: /mnt/openwrt
         run: |
-          ./scripts/feeds update -a || true
+          ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 强制使用官方 mt76：移除 feeds 与本地覆盖并恢复官方版本
-      - name: "Purge external/local mt76 (use official 25.12 version)"
-        working-directory: /mnt/openwrt
-        run: |
-          rm -rf package/feeds/packages/mt76
-          rm -rf package/kernel/mt76
-          git checkout -- package/kernel/mt76 || true
-
-      - name: "Make defconfig (base)"
+      - name: "Base defconfig"
         working-directory: /mnt/openwrt
         run: |
           make defconfig
 
-      - name: "Copy SL3000 Three-Piece Set"
+      - name: "Copy SL3000 three-piece set (DTS/MK/CONFIG)"
         run: |
+          # DTS
           cp repo/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts \
              /mnt/openwrt/target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/
+          # image mk
           cp repo/target/linux/mediatek/image/filogic.mk \
              /mnt/openwrt/target/linux/mediatek/image/
+          # .config
           cp repo/.config /mnt/openwrt/.config
 
-      - name: "Make defconfig (finalize)"
+      - name: "Finalize defconfig & verify SL3000"
         working-directory: /mnt/openwrt
         run: |
           make defconfig
-          echo '===== FINAL CONFIG ====='
-          grep SL3000 -n .config || true
+          echo '===== FINAL CONFIG (grep SL3000 / mt79*) ====='
+          grep -n SL3000 .config || true
+          grep -n 'MT79' .config || true
 
       - name: "Self-Heal: tools & toolchain"
         working-directory: /mnt/openwrt
         run: |
-          if [ ! -x staging_dir/toolchain-*/bin/*gcc ]; then
+          if ! ls staging_dir/toolchain-*/bin/*gcc >/dev/null 2>&1; then
             echo '[SELF-HEAL] Toolchain missing → rebuilding'
             make tools/install -j"$(nproc)" V=s
             make toolchain/install -j"$(nproc)" V=s
@@ -110,7 +106,7 @@ jobs:
       - name: "Self-Heal: kernel prepare"
         working-directory: /mnt/openwrt
         run: |
-          if [ ! -f build_dir/target-*/linux-*/linux-*/include/config/auto.conf ]; then
+          if ! find build_dir/target-*/linux-*/linux-*/include/config -name auto.conf >/dev/null 2>&1; then
             echo '[SELF-HEAL] Kernel prepare missing → running prepare'
             make target/linux/prepare V=s
           else
@@ -125,30 +121,25 @@ jobs:
             make target/linux/compile V=s
           }
 
-      - name: "Self-Heal: WiFi stack (mac80211 + official mt76)"
+      - name: "Self-Heal: WiFi stack (mac80211 + mt76 on master)"
         working-directory: /mnt/openwrt
         run: |
-          if [ ! -d staging_dir/target-*/usr/include/mac80211 ]; then
-            echo '[SELF-HEAL] mac80211 missing → building'
-            make package/kernel/mac80211/compile V=s
-          fi
+          # master 自带 mac80211 + mt76（含 MT7991/MT7996 支持）
+          echo '[INFO] Building mac80211 + mt76 from master'
+          make package/kernel/mac80211/compile V=s
+          make package/kernel/mt76/compile V=s
 
-          if [ ! -d staging_dir/target-*/usr/include/mt76 ]; then
-            echo '[SELF-HEAL] official mt76 missing → building'
-            make package/kernel/mt76/compile V=s
-          fi
-
-      - name: "Build SL3000 eMMC firmware"
+      - name: "Build SL3000 eMMC firmware (master, with WiFi)"
         working-directory: /mnt/openwrt
         env:
           SKIP_TARGET_CHECK: "1"
           FORCE: "1"
         run: |
-          make download -j8 || echo '[WARN] download failed'
+          make download -j8 || echo '[WARN] download failed (non-fatal)'
 
           for i in 1 2; do
             make -j"$(nproc)" V=s 2>&1 | tee firmware-build.log && break
-            echo '[SELF-HEAL] Build failed → retrying'
+            echo "[SELF-HEAL] Build failed (attempt $i) → retrying"
           done
 
           test -f firmware-build.log || echo '[ERROR] firmware-build.log missing' > firmware-build.log
@@ -157,7 +148,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sl3000-2512-build-logs
+          name: sl3000-master-build-logs
           path: /mnt/openwrt/firmware-build.log
           retention-days: 7
 
@@ -165,19 +156,20 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-25.12-sl3000-emmc-firmware
+          name: openwrt-master-sl3000-emmc-firmware
           path: /mnt/openwrt/bin/targets/mediatek/filogic/
           retention-days: 30
 
-      - name: "Auto Release firmware"
+      - name: "Auto Release firmware (master snapshot)"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tagname: sl3000-emmc-openwrt-25.12-${{ github.run_number }}-${{ github.run_id }}
-          name: SL3000 EMMC OpenWrt 25.12 #${{ github.run_number }}
+          tagname: sl3000-emmc-openwrt-master-${{ github.run_number }}-${{ github.run_id }}
+          name: SL3000 EMMC OpenWrt master #${{ github.run_number }}
           body: |
-            OpenWrt 25.12 / kernel 6.12
-            Target: SL3000 (MT7981B eMMC)
+            OpenWrt master / snapshot
+            Target: SL3000 (MT7981B eMMC, MT7991/MT7996 WiFi)
+            WiFi: mt76 connac3 from master
             Auto three-piece (DTS/MK/CONFIG)
             Self-Healing Build System
           files: /mnt/openwrt/bin/targets/mediatek/filogic/*
