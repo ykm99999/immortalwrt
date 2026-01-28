@@ -84,6 +84,15 @@ jobs:
         run: |
           make defconfig
 
+      - name: "Build host tools (fix missing libdeflate-gzip)"
+        working-directory: /mnt/openwrt
+        run: |
+          echo "[SELF-HEAL] Building host tools to fix missing libdeflate-gzip"
+          make tools/install -j$(nproc) || { echo "[WARN] tools failed → retrying"; make tools/clean; make tools/install -j$(nproc); }
+
+          echo "[SELF-HEAL] Building host toolchain"
+          make toolchain/install -j$(nproc) || { echo "[WARN] toolchain failed → retrying"; make toolchain/clean; make toolchain/install -j$(nproc); }
+
       - name: "Copy SL3000 three-piece set (DTS/MK/CONFIG)"
         run: |
           OWRT=/mnt/openwrt
