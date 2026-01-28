@@ -1,4 +1,4 @@
-name: "Build OpenWrt 25.12 SL3000 eMMC (/mnt Self-Heal)"
+name: "Build OpenWrt 25.12 SL3000 eMMC (Full Self-Heal /mnt)"
 
 on:
   workflow_dispatch:
@@ -74,18 +74,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sl3000-2512
 
-      - name: "Run SL3000 three-piece generator"
-        working-directory: repo
-        run: |
-          chmod +x sl3000-tools/sl3000-three-piece.sh
-          ./sl3000-tools/sl3000-three-piece.sh
-
       - name: "Copy SL3000 three-piece set (DTS/MK/CONFIG)"
         run: |
           OWRT=/mnt/openwrt
           REPO=repo
 
           # DTS
+          mkdir -p "$OWRT/target/linux/mediatek/dts"
           cp "$REPO/target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts" \
              "$OWRT/target/linux/mediatek/dts/"
 
@@ -96,6 +91,22 @@ jobs:
 
           # CONFIG
           cp "$REPO/sl3000-tools/sl3000-full-config.txt" "$OWRT/.config"
+
+      - name: "Verify SL3000 three-piece registration"
+        working-directory: /mnt/openwrt
+        run: |
+          echo "=== Check DTS ==="
+          test -f target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts || { echo "[FATAL] DTS missing"; exit 1; }
+          grep -q "mt7981b-sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] DTS not referenced in MK"; exit 1; }
+
+          echo "=== Check MK ==="
+          grep -q "Device/sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] MK missing device definition"; exit 1; }
+          grep -q "TARGET_DEVICES.*sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] MK missing TARGET_DEVICES entry"; exit 1; }
+
+          echo "=== Check CONFIG ==="
+          grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl-3000-emmc=y" .config || { echo "[FATAL] CONFIG missing device enable"; exit 1; }
+
+          echo "[OK] SL3000 three-piece set verified"
 
       - name: "Finalize defconfig & verify SL3000"
         working-directory: /mnt/openwrt
