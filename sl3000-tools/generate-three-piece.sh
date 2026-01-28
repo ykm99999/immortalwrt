@@ -10,6 +10,7 @@ exec > >(tee -a "$LOG") 2>&1
 
 TAB=$'\t'
 
+# DTS 路径保持你设定的 dts 目录
 DTS_DIR="$ROOT/target/linux/mediatek/dts"
 DTS="$DTS_DIR/mt7981b-sl-3000-emmc.dts"
 MK="$ROOT/target/linux/mediatek/image/mt7981.mk"
@@ -17,7 +18,7 @@ CFG="$SCRIPT_DIR/sl3000-full-config.txt"
 
 mkdir -p "$DTS_DIR"
 
-echo "=== Stage 1: Generate DTS (25.12, SL-3000 eMMC) ==="
+echo "=== Stage 1: Generate DTS ==="
 
 cat > "$DTS" << 'EOF'
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
@@ -26,7 +27,6 @@ cat > "$DTS" << 'EOF'
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
-
 #include "mt7981.dtsi"
 
 / {
@@ -35,10 +35,10 @@ cat > "$DTS" << 'EOF'
 
 	aliases {
 		serial0 = &uart0;
-		led-boot = &statusredled;
-		led-failsafe = &statusredled;
-		led-running = &statusgreenled;
-		led-upgrade = &statusblueled;
+		led-boot = &status_red_led;
+		led-failsafe = &status_red_led;
+		led-running = &status_green_led;
+		led-upgrade = &status_blue_led;
 	};
 
 	chosen {
@@ -72,191 +72,42 @@ cat > "$DTS" << 'EOF'
 	gpio-leds {
 		compatible = "gpio-leds";
 
-		statusredled: led-0 {
+		status_red_led: led-0 {
 			label = "red:status";
 			gpios = <&pio 10 GPIO_ACTIVE_LOW>;
 		};
 
-		statusgreenled: led-1 {
+		status_green_led: led-1 {
 			label = "green:status";
 			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
 		};
 
-		statusblueled: led-2 {
+		status_blue_led: led-2 {
 			label = "blue:status";
 			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
 		};
 	};
 };
 
-&eth {
-	status = "okay";
-
-	gmac0: mac@0 {
-		compatible = "mediatek,eth-mac";
-		reg = <0>;
-		phy-mode = "2500base-x";
-
-		fixed-link {
-			speed = <2500>;
-			full-duplex;
-			pause;
-		};
-	};
-
-	gmac1: mac@1 {
-		compatible = "mediatek,eth-mac";
-		reg = <1>;
-		phy-mode = "2500base-x";
-
-		fixed-link {
-			speed = <2500>;
-			full-duplex;
-			pause;
-		};
-	};
-
-	mdio: mdio-bus {
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		switch@0 {
-			compatible = "mediatek,mt7531";
-			reg = <31>;
-			reset-gpios = <&pio 39 GPIO_ACTIVE_LOW>;
-
-			ports {
-				#address-cells = <1>;
-				#size-cells = <0>;
-
-				port@0 {
-					reg = <0>;
-					label = "lan1";
-				};
-
-				port@1 {
-					reg = <1>;
-					label = "lan2";
-				};
-
-				port@2 {
-					reg = <2>;
-					label = "lan3";
-				};
-
-				port@3 {
-					reg = <3>;
-					label = "wan";
-				};
-
-				port@6 {
-					reg = <6>;
-					label = "cpu";
-					ethernet = <&gmac0>;
-					phy-mode = "2500base-x";
-
-					fixed-link {
-						speed = <2500>;
-						full-duplex;
-						pause;
-					};
-				};
-			};
-		};
-	};
-};
-
-&mmc0 {
-	status = "okay";
-	bus-width = <8>;
-	cap-mmc-highspeed;
-	max-frequency = <52000000>;
-	no-sd;
-	no-sdio;
-	non-removable;
-	pinctrl-names = "default", "state_uhs";
-	pinctrl-0 = <&mmc0_pins_default>;
-	pinctrl-1 = <&mmc0_pins_uhs>;
-	vmmc-supply = <&reg_3p3v>;
-
-	card@0 {
-		compatible = "mmc-card";
-		reg = <0>;
-
-		block {
-			compatible = "block-device";
-
-			partitions {
-				block-partition-factory {
-					partname = "factory";
-
-					nvmem-layout {
-						compatible = "fixed-layout";
-						#address-cells = <1>;
-						#size-cells = <1>;
-
-						eepromfactory0: eeprom@0 {
-							reg = <0x0 0x1000>;
-						};
-
-						macaddrfactory4: macaddr@4 {
-							compatible = "mac-base";
-							reg = <0x4 0x6>;
-							#nvmem-cell-cells = <1>;
-						};
-					};
-				};
-			};
-		};
-	};
-};
-
-&pio {
-	mmc0_pins_default: mmc0-pins-default {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
-		};
-	};
-
-	mmc0_pins_uhs: mmc0-pins-uhs {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
-		};
-	};
-};
-
-&uart0 {
-	status = "okay";
-};
-
-&watchdog {
-	status = "okay";
-};
+&uart0 { status = "okay"; }
+&watchdog { status = "okay"; }
+&usb_phy { status = "okay"; }
+&xhci { status = "okay"; }
 
 &wifi {
-	nvmem-cells = <&eepromfactory0>;
+	nvmem-cells = <&eeprom_factory_0>;
 	nvmem-cell-names = "eeprom";
 	status = "okay";
 
 	band@1 {
 		reg = <1>;
-		nvmem-cells = <&macaddrfactory4 1>;
+		nvmem-cells = <&macaddr_factory_4 1>;
 		nvmem-cell-names = "mac-address";
 	};
 };
-
-&usb_phy {
-	status = "okay";
-};
-
-&xhci {
-	status = "okay";
-};
 EOF
 
-echo "=== Stage 2: Ensure MK device (25.12 mt7981.mk) ==="
+echo "=== Stage 2: Ensure MK device ==="
 
 if ! grep -q "Device/sl-3000-emmc" "$MK"; then
   cat >> "$MK" << EOF
@@ -266,7 +117,7 @@ ${TAB}DEVICE_VENDOR := SL
 ${TAB}DEVICE_MODEL := SL3000
 ${TAB}DEVICE_VARIANT := eMMC
 ${TAB}DEVICE_DTS := mt7981b-sl-3000-emmc
-${TAB}DEVICE_DTS_DIR := ../dts
+${TAB}DEVICE_DTS_DIR := dts
 ${TAB}DEVICE_PACKAGES := kmod-usb3 kmod-fs-ext4 block-mount f2fs-tools \\
 ${TAB}${TAB}luci luci-base luci-i18n-base-zh-cn \\
 ${TAB}${TAB}luci-app-eqos-mtk luci-app-mtwifi-cfg luci-app-turboacc-mtk luci-app-wrtbwmon
@@ -278,7 +129,7 @@ TARGET_DEVICES += sl-3000-emmc
 EOF
 fi
 
-echo "=== Stage 3: Generate CONFIG (25.12, SL-3000 eMMC) ==="
+echo "=== Stage 3: Generate CONFIG ==="
 
 cat > "$CFG" << 'EOF'
 CONFIG_TARGET_mediatek=y
@@ -310,7 +161,7 @@ echo "=== Stage 4: Validation ==="
 [ -s "$MK" ]  || { echo "[FATAL] MK missing"; exit 1; }
 [ -s "$CFG" ] || { echo "[FATAL] CONFIG missing"; exit 1; }
 
-echo "=== Three-piece generation complete (25.12, 1GB RAM, SL-3000 eMMC) ==="
+echo "=== Three-piece generation complete (25.12, SL-3000 eMMC) ==="
 echo "[OUT] DTS: $DTS"
 echo "[OUT] MK : $MK"
 echo "[OUT] CFG: $CFG"
