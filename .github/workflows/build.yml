@@ -74,22 +74,24 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sl3000-2512
 
+      - name: "Base defconfig"
+        working-directory: /mnt/openwrt
+        run: |
+          make defconfig
+
       - name: "Copy SL3000 three-piece set (DTS/MK/CONFIG)"
         run: |
           OWRT=/mnt/openwrt
           REPO=repo
 
-          # DTS
           mkdir -p "$OWRT/target/linux/mediatek/dts"
           cp "$REPO/target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts" \
              "$OWRT/target/linux/mediatek/dts/"
 
-          # MK 追加而非覆盖
           if ! grep -q "Device/sl-3000-emmc" "$OWRT/target/linux/mediatek/image/mt7981.mk"; then
             cat "$REPO/target/linux/mediatek/image/mt7981.mk" >> "$OWRT/target/linux/mediatek/image/mt7981.mk"
           fi
 
-          # CONFIG
           cp "$REPO/sl3000-tools/sl3000-full-config.txt" "$OWRT/.config"
 
       - name: "Verify SL3000 three-piece registration"
@@ -101,7 +103,7 @@ jobs:
 
           echo "=== Check MK ==="
           grep -q "Device/sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] MK missing device definition"; exit 1; }
-          grep -q "TARGET_DEVICES.*sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] MK missing TARGET_DEVICES entry"; exit 1; }
+          grep -q "TARGET_DEVICES.+sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] MK missing TARGET_DEVICES entry"; exit 1; }
 
           echo "=== Check CONFIG ==="
           grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl-3000-emmc=y" .config || { echo "[FATAL] CONFIG missing device enable"; exit 1; }
@@ -114,6 +116,31 @@ jobs:
           make defconfig
           echo '===== FINAL CONFIG (grep sl-3000-emmc) ====='
           grep -n sl-3000-emmc .config || true
+
+      - name: "Auto-repair toolchain"
+        working-directory: /mnt/openwrt
+        run: |
+          make toolchain/install -j$(nproc) || { echo "[WARN] Toolchain failed → cleaning and retrying"; make toolchain/clean; make toolchain/install -j$(nproc); }
+
+      - name: "Auto-repair kernel"
+        working-directory: /mnt/openwrt
+        run: |
+          make target/linux/compile -j$(nproc) || { echo "[WARN] Kernel build failed → cleaning and retrying"; make target/linux/clean; make target/linux/compile -j$(nproc); }
+
+      - name: "Auto-repair packages"
+        working-directory: /mnt/openwrt
+        run: |
+          make package/compile V=s || { echo "[WARN] package compile failed → cleaning and retrying"; make package/clean; make package/compile V=s; }
+
+      - name: "Auto-repair image build"
+        working-directory: /mnt/openwrt
+        run: |
+          make target/image/compile V=s || { echo "[WARN] image build failed → cleaning and retrying"; make target/image/clean; make target/image/compile V=s; }
+
+      - name: "Auto-repair world build"
+        working-directory: /mnt/openwrt
+        run: |
+          make V=s || { echo "[WARN] world build failed → cleaning and retrying"; make package/clean; make target/clean; make V=s; }
 
       - name: "Build SL3000 eMMC firmware (25.12)"
         working-directory: /mnt/openwrt
@@ -144,29 +171,4 @@ jobs:
           path: /mnt/openwrt/firmware-build.log
           retention-days: 7
 
-      - name: "Upload firmware artifacts"
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: openwrt-2512-sl3000-emmc-firmware
-          path: |
-            /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
-            /mnt/openwrt/bin/targets/mediatek/mt7981/*initramfs*.bin
-          retention-days: 30
-
-      - name: "Auto Release firmware (25.12)"
-        uses: softprops/action-gh-release@v2
-        if: success()
-        with:
-          tag_name: sl3000-emmc-openwrt-2512-${{ github.run_number }}-${{ github.run_id }}
-          name: SL3000 EMMC OpenWrt 25.12 #${{ github.run_number }}
-          body: |
-            OpenWrt 25.12 stable
-            Target: SL3000 (MT7981B eMMC)
-            Three-piece set (DTS/MK/CONFIG)
-            Full self-heal workflow: feeds, downloads, toolchain, kernel, packages, image, world
-            Built on GitHub Actions runner (/mnt build, disk space optimized, cached)
-          files: |
-            /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
-            /mnt/openwrt/bin/targets/mediatek/mt7981/*initramfs*.bin
-          prerelease: false
+      - name: "Upload firmware artifacts
