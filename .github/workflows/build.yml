@@ -66,6 +66,14 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: "Auto-clean invalid feeds packages (fix package_install errors)"
+        working-directory: /mnt/openwrt
+        run: |
+          echo "[SELF-HEAL] Removing invalid or deprecated packages from feeds"
+          rm -rf feeds/luci/luci-app-advanced-reboot || true
+          rm -rf feeds/packages/onionshare-cli || true
+          ./scripts/feeds install -a
+
       - name: "Cache downloads & build dirs"
         uses: actions/cache@v4
         with:
