@@ -162,10 +162,10 @@ jobs:
         run: |
           make package/compile V=s || { echo "[WARN] package compile failed → cleaning and retrying"; make package/clean; make package/compile V=s; }
 
-      - name: "Auto-repair image build"
+      - name: "Auto-repair target build"
         working-directory: /mnt/openwrt
         run: |
-          make target/image/compile V=s || { echo "[WARN] image build failed → cleaning and retrying"; make target/image/clean; make target/image/compile V=s; }
+          make target/compile V=s || { echo "[WARN] target compile failed → cleaning and retrying"; make target/clean; make target/compile V=s; }
 
       - name: "Auto-repair world build"
         working-directory: /mnt/openwrt
@@ -220,7 +220,7 @@ jobs:
             OpenWrt 25.12 stable
             Target: SL3000 (MT7981B eMMC)
             Three-piece set (DTS/MK/CONFIG)
-            Full self-heal workflow: feeds, downloads, toolchain, kernel, packages, image, world
+            Full self-heal workflow: feeds, downloads, toolchain, kernel, packages, target, world
             Built on GitHub Actions runner (/mnt build, disk space optimized, cached)
           files: |
             /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
