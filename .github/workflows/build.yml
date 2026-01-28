@@ -54,12 +54,17 @@ jobs:
           rm -rf /mnt/openwrt || true
           git clone --depth=1 -b openwrt-25.12 https://github.com/openwrt/openwrt.git /mnt/openwrt
 
+      - name: "Initial feeds update"
+        working-directory: /mnt/openwrt
+        run: |
+          ./scripts/feeds update -a
+
       - name: "Clean feeds and dl cache"
         working-directory: /mnt/openwrt
         run: |
           rm -rf dl package/feeds
-          ./scripts/feeds update -a || { echo "[WARN] feeds update failed → retrying"; rm -rf package/feeds; ./scripts/feeds update -a; }
-          ./scripts/feeds install -a || { echo "[WARN] feeds install failed → retrying"; ./scripts/feeds install -a; }
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
       - name: "Cache downloads & build dirs"
         uses: actions/cache@v4
@@ -114,8 +119,24 @@ jobs:
         working-directory: /mnt/openwrt
         run: |
           make defconfig
-          echo '===== FINAL CONFIG (grep sl-3000-emmc) ====='
           grep -n sl-3000-emmc .config || true
+
+      - name: "Auto-repair ustream-ssl (mbedtls ABI mismatch)"
+        working-directory: /mnt/openwrt
+        run: |
+          echo "[SELF-HEAL] Cleaning ustream-ssl & mbedtls to avoid 25.12 ABI mismatch"
+          rm -rf build_dir/target-*/ustream-ssl-*
+          rm -rf build_dir/target-*/mbedtls-*
+          rm -rf staging_dir/target-*/usr/include/mbedtls
+          rm -rf staging_dir/target-*/usr/lib/libmbed*
+          rm -rf package/libs/ustream-ssl/.pkgdir
+          rm -rf package/libs/mbedtls/.pkgdir
+
+          echo "[SELF-HEAL] Rebuilding mbedtls"
+          make package/libs/mbedtls/compile V=s || { echo "[WARN] mbedtls failed → retrying"; make package/libs/mbedtls/clean; make package/libs/mbedtls/compile V=s; }
+
+          echo "[SELF-HEAL] Rebuilding ustream-ssl"
+          make package/libs/ustream-ssl/compile V=s || { echo "[WARN] ustream-ssl failed → retrying"; make package/libs/ustream-ssl/clean; make package/libs/ustream-ssl/compile V=s; }
 
       - name: "Auto-repair toolchain"
         working-directory: /mnt/openwrt
@@ -160,7 +181,6 @@ jobs:
       - name: "Check firmware output"
         working-directory: /mnt/openwrt/bin/targets/mediatek/mt7981
         run: |
-          echo "===== FIRMWARE OUTPUT ====="
           ls -lh
 
       - name: "Upload build logs"
@@ -178,16 +198,14 @@ jobs:
           name: openwrt-2512-sl3000-emmc-firmware
           path: |
             /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
-            /mnt/openwrt/bin/targets/mediatek/mt7981/*factory.bin
             /mnt/openwrt/bin/targets/mediatek/mt7981/*initramfs*.bin
-            /mnt/openwrt/bin/targets/mediatek/mt7981/*combined*.img.gz
           retention-days: 30
 
       - name: "Auto Release firmware (25.12)"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tagname: sl3000-emmc-openwrt-2512-${{ github.run_number }}-${{ github.run_id }}
+          tag_name: sl3000-emmc-openwrt-2512-${{ github.run_number }}-${{ github.run_id }}
           name: SL3000 EMMC OpenWrt 25.12 #${{ github.run_number }}
           body: |
             OpenWrt 25.12 stable
@@ -197,7 +215,5 @@ jobs:
             Built on GitHub Actions runner (/mnt build, disk space optimized, cached)
           files: |
             /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
-            /mnt/openwrt/bin/targets/mediatek/mt7981/*factory.bin
             /mnt/openwrt/bin/targets/mediatek/mt7981/*initramfs*.bin
-            /mnt/openwrt/bin/targets/mediatek/mt7981/*combined*.img.gz
           prerelease: false
