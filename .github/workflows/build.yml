@@ -1,4 +1,4 @@
-name: "Build OpenWrt 25.12 SL3000 eMMC (/mnt Build)"
+name: "Build OpenWrt 25.12 SL3000 eMMC (/mnt Self-Heal)"
 
 on:
   workflow_dispatch:
@@ -29,10 +29,10 @@ jobs:
           sudo apt-get remove -y --purge azure-cli google-cloud-sdk dotnet powershell mono mysql-server php android snapd || true
           sudo apt-get autoremove -y --purge
           sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
+          sudo rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man || true
           df -h
 
-      - name: "Prepare /mnt"
+      - name: "Prepare /mnt build directory"
         run: |
           sudo chown -R runner:runner /mnt
           sudo chmod -R 755 /mnt
@@ -46,6 +46,8 @@ jobs:
             zlib1g-dev gawk flex gettext wget unzip python3 python3-distutils \
             file libssl-dev rsync ccache device-tree-compiler subversion libelf-dev \
             bc bison patch gcc-multilib g++-multilib swig libudev-dev libusb-1.0-0-dev
+          if [ ! -f /usr/bin/env ]; then sudo ln -s /bin/env /usr/bin/env || true; fi
+          if [ ! -f /usr/bin/bash ]; then sudo ln -s /bin/bash /usr/bin/bash || true; fi
 
       - name: "Clone OpenWrt 25.12"
         run: |
@@ -56,36 +58,41 @@ jobs:
         working-directory: /mnt/openwrt
         run: |
           rm -rf dl package/feeds
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          ./scripts/feeds update -a || { echo "[WARN] feeds update failed → retrying"; rm -rf package/feeds; ./scripts/feeds update -a; }
+          ./scripts/feeds install -a || { echo "[WARN] feeds install failed → retrying"; ./scripts/feeds install -a; }
 
-      - name: "Cache downloads & ccache"
+      - name: "Cache downloads & build dirs"
         uses: actions/cache@v4
         with:
           path: |
             /mnt/openwrt/dl
+            /mnt/openwrt/build_dir
+            /mnt/openwrt/staging_dir
+            /mnt/openwrt/tmp
             /mnt/openwrt/.ccache
-          key: ${{ runner.os }}-sl3000-2512
+          key: ${{ runner.os }}-sl3000-2512-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-sl3000-2512
 
-      - name: "Base defconfig"
-        working-directory: /mnt/openwrt
+      - name: "Run SL3000 three-piece generator"
+        working-directory: repo
         run: |
-          make defconfig
+          chmod +x sl3000-tools/sl3000-three-piece.sh
+          ./sl3000-tools/sl3000-three-piece.sh
 
       - name: "Copy SL3000 three-piece set (DTS/MK/CONFIG)"
         run: |
           OWRT=/mnt/openwrt
           REPO=repo
 
-          # DTS (25.12 path)
+          # DTS
           cp "$REPO/target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts" \
              "$OWRT/target/linux/mediatek/dts/"
 
-          # MK (25.12 path)
-          cp "$REPO/target/linux/mediatek/image/mt7981.mk" \
-             "$OWRT/target/linux/mediatek/image/mt7981.mk"
+          # MK 追加而非覆盖
+          if ! grep -q "Device/sl-3000-emmc" "$OWRT/target/linux/mediatek/image/mt7981.mk"; then
+            cat "$REPO/target/linux/mediatek/image/mt7981.mk" >> "$OWRT/target/linux/mediatek/image/mt7981.mk"
+          fi
 
           # CONFIG
           cp "$REPO/sl3000-tools/sl3000-full-config.txt" "$OWRT/.config"
@@ -100,10 +107,10 @@ jobs:
       - name: "Build SL3000 eMMC firmware (25.12)"
         working-directory: /mnt/openwrt
         env:
-          SKIP_TARGET_CHECK: "1"
+          SKIPTARGETCHECK: "1"
           FORCE: "1"
         run: |
-          make download -j8 || echo '[WARN] download failed (non-fatal)'
+          make download -j8 || { echo "[WARN] download failed → cleaning dl cache"; rm -rf dl/*; make download -j8; }
 
           for i in 1 2; do
             make -j"$(nproc)" V=s 2>&1 | tee firmware-build.log && break
@@ -146,6 +153,8 @@ jobs:
             OpenWrt 25.12 stable
             Target: SL3000 (MT7981B eMMC)
             Three-piece set (DTS/MK/CONFIG)
+            Full self-heal workflow: feeds, downloads, toolchain, kernel, packages, image, world
+            Built on GitHub Actions runner (/mnt build, disk space optimized, cached)
           files: |
             /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
             /mnt/openwrt/bin/targets/mediatek/mt7981/*initramfs*.bin
