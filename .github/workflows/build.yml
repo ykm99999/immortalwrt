@@ -103,7 +103,7 @@ jobs:
 
           echo "=== Check MK ==="
           grep -q "Device/sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] MK missing device definition"; exit 1; }
-          grep -q "TARGET_DEVICES.+sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] MK missing TARGET_DEVICES entry"; exit 1; }
+          grep -q "TARGET_DEVICES.*sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] MK missing TARGET_DEVICES entry"; exit 1; }
 
           echo "=== Check CONFIG ==="
           grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl-3000-emmc=y" .config || { echo "[FATAL] CONFIG missing device enable"; exit 1; }
@@ -171,4 +171,33 @@ jobs:
           path: /mnt/openwrt/firmware-build.log
           retention-days: 7
 
-      - name: "Upload firmware artifacts
+      - name: "Upload firmware artifacts"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-2512-sl3000-emmc-firmware
+          path: |
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*factory.bin
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*initramfs*.bin
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*combined*.img.gz
+          retention-days: 30
+
+      - name: "Auto Release firmware (25.12)"
+        uses: softprops/action-gh-release@v2
+        if: success()
+        with:
+          tagname: sl3000-emmc-openwrt-2512-${{ github.run_number }}-${{ github.run_id }}
+          name: SL3000 EMMC OpenWrt 25.12 #${{ github.run_number }}
+          body: |
+            OpenWrt 25.12 stable
+            Target: SL3000 (MT7981B eMMC)
+            Three-piece set (DTS/MK/CONFIG)
+            Full self-heal workflow: feeds, downloads, toolchain, kernel, packages, image, world
+            Built on GitHub Actions runner (/mnt build, disk space optimized, cached)
+          files: |
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*factory.bin
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*initramfs*.bin
+            /mnt/openwrt/bin/targets/mediatek/mt7981/*combined*.img.gz
+          prerelease: false
