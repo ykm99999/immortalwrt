@@ -66,10 +66,9 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: "Auto-clean invalid feeds packages (fix package_install errors)"
+      - name: "Auto-clean invalid feeds packages"
         working-directory: /mnt/openwrt
         run: |
-          echo "[SELF-HEAL] Removing invalid or deprecated packages from feeds"
           rm -rf feeds/luci/luci-app-advanced-reboot || true
           rm -rf feeds/packages/onionshare-cli || true
           ./scripts/feeds install -a
@@ -95,11 +94,8 @@ jobs:
       - name: "Build host tools (fix missing libdeflate-gzip)"
         working-directory: /mnt/openwrt
         run: |
-          echo "[SELF-HEAL] Building host tools to fix missing libdeflate-gzip"
-          make tools/install -j$(nproc) || { echo "[WARN] tools failed → retrying"; make tools/clean; make tools/install -j$(nproc); }
-
-          echo "[SELF-HEAL] Building host toolchain"
-          make toolchain/install -j$(nproc) || { echo "[WARN] toolchain failed → retrying"; make toolchain/clean; make toolchain/install -j$(nproc); }
+          make tools/install -j$(nproc) || { make tools/clean; make tools/install -j$(nproc); }
+          make toolchain/install -j$(nproc) || { make toolchain/clean; make toolchain/install -j$(nproc); }
 
       - name: "Copy SL3000 three-piece set (DTS/MK/CONFIG)"
         run: |
@@ -119,66 +115,42 @@ jobs:
       - name: "Verify SL3000 three-piece registration"
         working-directory: /mnt/openwrt
         run: |
-          echo "=== Check DTS ==="
-          test -f target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts || { echo "[FATAL] DTS missing"; exit 1; }
-          grep -q "mt7981b-sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] DTS not referenced in MK"; exit 1; }
+          test -f target/linux/mediatek/dts/mt7981b-sl-3000-emmc.dts || exit 1
+          grep -q "Device/sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || exit 1
+          grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl-3000-emmc=y" .config || exit 1
 
-          echo "=== Check MK ==="
-          grep -q "Device/sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] MK missing device definition"; exit 1; }
-          grep -q "TARGET_DEVICES.*sl-3000-emmc" target/linux/mediatek/image/mt7981.mk || { echo "[FATAL] MK missing TARGET_DEVICES entry"; exit 1; }
-
-          echo "=== Check CONFIG ==="
-          grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl-3000-emmc=y" .config || { echo "[FATAL] CONFIG missing device enable"; exit 1; }
-
-          echo "[OK] SL3000 three-piece set verified"
-
-      - name: "Finalize defconfig & verify SL3000"
+      - name: "Finalize defconfig"
         working-directory: /mnt/openwrt
         run: |
           make defconfig
-          grep -n sl-3000-emmc .config || true
 
       - name: "Auto-repair ustream-ssl (mbedtls ABI mismatch)"
         working-directory: /mnt/openwrt
         run: |
-          echo "[SELF-HEAL] Cleaning ustream-ssl & mbedtls to avoid 25.12 ABI mismatch"
-          rm -rf build_dir/target-*/ustream-ssl-*
-          rm -rf build_dir/target-*/mbedtls-*
-          rm -rf staging_dir/target-*/usr/include/mbedtls
-          rm -rf staging_dir/target-*/usr/lib/libmbed*
-          rm -rf package/libs/ustream-ssl/.pkgdir
-          rm -rf package/libs/mbedtls/.pkgdir
-
-          echo "[SELF-HEAL] Rebuilding mbedtls"
-          make package/libs/mbedtls/compile V=s || { echo "[WARN] mbedtls failed → retrying"; make package/libs/mbedtls/clean; make package/libs/mbedtls/compile V=s; }
-
-          echo "[SELF-HEAL] Rebuilding ustream-ssl"
-          make package/libs/ustream-ssl/compile V=s || { echo "[WARN] ustream-ssl failed → retrying"; make package/libs/ustream-ssl/clean; make package/libs/ustream-ssl/compile V=s; }
-
-      - name: "Auto-repair toolchain"
-        working-directory: /mnt/openwrt
-        run: |
-          make toolchain/install -j$(nproc) || { echo "[WARN] Toolchain failed → cleaning and retrying"; make toolchain/clean; make toolchain/install -j$(nproc); }
+          rm -rf build_dir/target-*/ustream-ssl-* build_dir/target-*/mbedtls-* \
+                 staging_dir/target-*/usr/include/mbedtls staging_dir/target-*/usr/lib/libmbed*
+          make package/libs/mbedtls/compile V=s || { make package/libs/mbedtls/clean; make package/libs/mbedtls/compile V=s; }
+          make package/libs/ustream-ssl/compile V=s || { make package/libs/ustream-ssl/clean; make package/libs/ustream-ssl/compile V=s; }
 
       - name: "Auto-repair kernel"
         working-directory: /mnt/openwrt
         run: |
-          make target/linux/compile -j$(nproc) || { echo "[WARN] Kernel build failed → cleaning and retrying"; make target/linux/clean; make target/linux/compile -j$(nproc); }
+          make target/linux/compile -j$(nproc) || { make target/linux/clean; make target/linux/compile -j$(nproc); }
+
+      - name: "Auto-repair target build (must run before package_install)"
+        working-directory: /mnt/openwrt
+        run: |
+          make target/compile V=s || { make target/clean; make target/compile V=s; }
 
       - name: "Auto-repair packages"
         working-directory: /mnt/openwrt
         run: |
-          make package/compile V=s || { echo "[WARN] package compile failed → cleaning and retrying"; make package/clean; make package/compile V=s; }
-
-      - name: "Auto-repair target build"
-        working-directory: /mnt/openwrt
-        run: |
-          make target/compile V=s || { echo "[WARN] target compile failed → cleaning and retrying"; make target/clean; make target/compile V=s; }
+          make package/compile V=s || { make package/clean; make package/compile V=s; }
 
       - name: "Auto-repair world build"
         working-directory: /mnt/openwrt
         run: |
-          make V=s || { echo "[WARN] world build failed → cleaning and retrying"; make package/clean; make target/clean; make V=s; }
+          make V=s || { make package/clean; make target/clean; make V=s; }
 
       - name: "Build SL3000 eMMC firmware (25.12)"
         working-directory: /mnt/openwrt
@@ -186,14 +158,8 @@ jobs:
           SKIPTARGETCHECK: "1"
           FORCE: "1"
         run: |
-          make download -j8 || { echo "[WARN] download failed → cleaning dl cache"; rm -rf dl/*; make download -j8; }
-
-          for i in 1 2; do
-            make -j"$(nproc)" V=s 2>&1 | tee firmware-build.log && break
-            echo "[SELF-HEAL] Build failed (attempt $i) → retrying"
-          done
-
-          test -f firmware-build.log || echo '[ERROR] firmware-build.log missing' > firmware-build.log
+          make download -j8 || { rm -rf dl/*; make download -j8; }
+          make -j$(nproc) V=s 2>&1 | tee firmware-build.log
 
       - name: "Check firmware output"
         working-directory: /mnt/openwrt/bin/targets/mediatek/mt7981
@@ -206,7 +172,6 @@ jobs:
         with:
           name: sl3000-2512-build-logs
           path: /mnt/openwrt/firmware-build.log
-          retention-days: 7
 
       - name: "Upload firmware artifacts"
         if: always()
@@ -216,7 +181,6 @@ jobs:
           path: |
             /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
             /mnt/openwrt/bin/targets/mediatek/mt7981/*initramfs*.bin
-          retention-days: 30
 
       - name: "Auto Release firmware (25.12)"
         uses: softprops/action-gh-release@v2
@@ -228,9 +192,7 @@ jobs:
             OpenWrt 25.12 stable
             Target: SL3000 (MT7981B eMMC)
             Three-piece set (DTS/MK/CONFIG)
-            Full self-heal workflow: feeds, downloads, toolchain, kernel, packages, target, world
-            Built on GitHub Actions runner (/mnt build, disk space optimized, cached)
+            Full self-heal workflow
           files: |
             /mnt/openwrt/bin/targets/mediatek/mt7981/*sysupgrade.bin
             /mnt/openwrt/bin/targets/mediatek/mt7981/*initramfs*.bin
-          prerelease: false
