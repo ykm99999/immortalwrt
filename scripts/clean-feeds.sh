@@ -1,7 +1,4 @@
 #!/bin/bash
-# 白名单模式 + SSRPlus 依赖目录补齐 + 底层库依赖补齐 + 禁用主线包扫描
-# 适配 ImmortalWrt 25.12（mt7981 / sl_3000_emmc）
-
 set -e
 
 FEEDS_ROOT="package/feeds"
@@ -26,20 +23,26 @@ cp -r feeds/luci/libs/luci-lib-jsonc          $FEEDS_ROOT/luci/
 cp -r feeds/luci/themes/luci-theme-bootstrap  $FEEDS_ROOT/luci/
 
 echo "=== 保留 Passwall2 / SSRPlus / Xray ==="
+
+# 25.12 结构变化：ssr-plus 不在 helloworld，而在 small
+if [ -d feeds/helloworld/ssr-plus ]; then
+  cp -r feeds/helloworld/ssr-plus $FEEDS_ROOT/helloworld/
+elif [ -d feeds/small/ssr-plus ]; then
+  cp -r feeds/small/ssr-plus $FEEDS_ROOT/small/
+fi
+
+# luci-app-ssr-plus 仍在 helloworld
 cp -r feeds/helloworld/luci-app-ssr-plus      $FEEDS_ROOT/helloworld/
-cp -r feeds/helloworld/ssr-plus               $FEEDS_ROOT/helloworld/
+
+# xray-core 仍在 helloworld
 cp -r feeds/helloworld/xray-core              $FEEDS_ROOT/helloworld/
 cp -r feeds/helloworld/v2ray-geodata          $FEEDS_ROOT/helloworld/
 
+# Passwall2 在 small
 cp -r feeds/small/luci-app-passwall2          $FEEDS_ROOT/small/
 cp -r feeds/small/passwall2                   $FEEDS_ROOT/small/
 
-# 25.12 中 xray-core 只在 helloworld，不在 small
-if [ -d feeds/small/xray-core ]; then
-  cp -r feeds/small/xray-core $FEEDS_ROOT/small/
-fi
-
-echo "=== 补齐 SSRPlus 依赖目录（不启用、不构建，只让它们存在） ==="
+echo "=== 补齐 SSRPlus 依赖目录 ==="
 SSR_DEPS=(
   dns2tcp microsocks tcping shadowsocksr-libev-ssr-check
   curl nping chinadns-ng dns2socks dns2socks-rust dnsproxy mosdns
@@ -58,7 +61,7 @@ for dep in "${SSR_DEPS[@]}"; do
   fi
 done
 
-echo "=== 补齐底层库依赖（libev / libsodium / libudns / boost / rust/host / golang/host） ==="
+echo "=== 补齐底层库依赖 ==="
 LIB_DEPS=(libev libsodium libudns boost boost-program_options boost-date_time)
 for dep in "${LIB_DEPS[@]}"; do
   if [ -d "feeds/packages/$dep" ]; then
@@ -89,7 +92,6 @@ CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_mt7981=y
 CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000_emmc=y
 
-# LuCI 基础
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-base=y
 CONFIG_PACKAGE_luci-compat=y
@@ -98,25 +100,20 @@ CONFIG_PACKAGE_luci-lib-ip=y
 CONFIG_PACKAGE_luci-lib-jsonc=y
 CONFIG_PACKAGE_luci-theme-bootstrap=y
 
-# LuCI 网络管理
 CONFIG_PACKAGE_luci-mod-admin-full=y
 CONFIG_PACKAGE_luci-mod-network=y
 CONFIG_PACKAGE_luci-mod-status=y
 CONFIG_PACKAGE_luci-mod-system=y
 
-# Passwall2
 CONFIG_PACKAGE_luci-app-passwall2=y
 CONFIG_PACKAGE_passwall2=y
 
-# SSRPlus
 CONFIG_PACKAGE_luci-app-ssr-plus=y
 CONFIG_PACKAGE_ssr-plus=y
 
-# Xray 核心
 CONFIG_PACKAGE_xray-core=y
 CONFIG_PACKAGE_v2ray-geodata=y
 
-# 语言支持
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-ssr-plus-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
