@@ -68,14 +68,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
-            python3 \
-            python3-pip \
-            python3-setuptools \
-            python3-wheel \
-            python3-dev \
-            python3-venv \
-            libffi-dev \
-            libssl-dev
+            python3 python3-pip python3-setuptools python3-wheel python3-dev python3-venv \
+            libffi-dev libssl-dev
 
       - name: Apply DTS from repo
         run: |
@@ -110,7 +104,7 @@ jobs:
 
       - name: Validate CONFIG device
         working-directory: /mnt/openwrt
-        run: grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000-emmc=y" .config
+        run: grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000_emmc=y" .config
 
       - name: Run defconfig
         working-directory: /mnt/openwrt
@@ -118,7 +112,7 @@ jobs:
 
       - name: Validate CONFIG after defconfig
         working-directory: /mnt/openwrt
-        run: grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000-emmc=y" .config
+        run: grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000_emmc=y" .config
 
       - name: Validate DTS compiled
         working-directory: /mnt/openwrt
@@ -149,39 +143,31 @@ jobs:
         working-directory: /mnt/openwrt
         run: |
           make download -j$(nproc) || \
-          (echo "download failed, cleaning dl and retrying..." && rm -rf dl/* && make download -j$(nproc))
+          (rm -rf dl/* && make download -j$(nproc))
 
       - name: Build toolchain (self-heal)
         working-directory: /mnt/openwrt
         run: |
           make toolchain/install -j$(nproc) || \
-          (echo "toolchain failed, cleaning and retrying..." && \
-           make toolchain/clean && \
-           make toolchain/install -j$(nproc))
+          (make toolchain/clean && make toolchain/install -j$(nproc))
 
       - name: Build kernel (self-heal)
         working-directory: /mnt/openwrt
         run: |
           make target/linux/compile -j$(nproc) V=s || \
-          (echo "kernel failed, cleaning and retrying..." && \
-           make target/linux/clean && \
-           make target/linux/compile -j$(nproc) V=s)
+          (make target/linux/clean && make target/linux/compile -j$(nproc) V=s)
 
       - name: Build packages (self-heal)
         working-directory: /mnt/openwrt
         run: |
           make package/compile -j$(nproc) V=s || \
-          (echo "packages failed, cleaning and retrying..." && \
-           make package/clean && \
-           make package/compile -j$(nproc) V=s)
+          (make package/clean && make package/compile -j$(nproc) V=s)
 
       - name: Build image (self-heal)
         working-directory: /mnt/openwrt
         run: |
           make target/image/compile -j$(nproc) V=s || \
-          (echo "image failed, cleaning and retrying..." && \
-           make target/image/clean && \
-           make target/image/compile -j$(nproc) V=s)
+          (make target/image/clean && make target/image/compile -j$(nproc) V=s)
 
       - name: Validate firmware output
         working-directory: /mnt/openwrt
@@ -208,7 +194,22 @@ jobs:
             - ccache enabled
             - disk space optimized
             - three-piece diff attached
-            - auto registration checks (defconfig / DTB / profiles.json / firmware)
+            - auto registration checks (defconfig / DTB / profiles.json /
+            - name: Auto Release firmware
+              uses: softprops/action-gh-release@v2
+              if: success()
+             with:
+           tag_name: sl3000-emmc-openwrt-25.12-${{ github.run_number }}
+          name: SL3000 eMMC OpenWrt 25.12 #${{ github.run_number }}
+          body: |
+            OpenWrt 25.12 / MT7981B / 1G RAM
+            Target: SL-3000 eMMC (sl_3000-emmc)
+            - Repo three-piece (DTS/MK/CONFIG) applied
+            - Full self-heal build chain (toolchain/kernel/packages/image)
+            - ccache enabled
+            - disk space optimized
+            - three-piece diff attached
+            - auto registration checks (defconfig / DTB / profiles.json /           firmware)
           files: |
             /mnt/openwrt/bin/targets/mediatek/mt7981/*
             repo/sl3000/dts/mt7981b-sl-3000-emmc.dts
