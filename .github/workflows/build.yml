@@ -194,21 +194,6 @@ jobs:
             - ccache enabled
             - disk space optimized
             - three-piece diff attached
-            - auto registration checks (defconfig / DTB / profiles.json /
-            - name: Auto Release firmware
-        uses: softprops/action-gh-release@v2
-        if: success()
-        with:
-          tag_name: sl3000-emmc-openwrt-25.12-${{ github.run_number }}
-          name: SL3000 eMMC OpenWrt 25.12 #${{ github.run_number }}
-          body: |
-            OpenWrt 25.12 / MT7981B / 1G RAM
-            Target: SL-3000 eMMC (sl_3000-emmc)
-            - Repo three-piece (DTS/MK/CONFIG) applied
-            - Full self-heal build chain (toolchain/kernel/packages/image)
-            - ccache enabled
-            - disk space optimized
-            - three-piece diff attached
             - auto registration checks (defconfig / DTB / profiles.json / firmware)
           files: |
             /mnt/openwrt/bin/targets/mediatek/mt7981/*
