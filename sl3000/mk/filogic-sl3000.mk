@@ -1,6 +1,6 @@
 define Device/sl_3000-emmc
   DEVICE_VENDOR := SL
-  DEVICE_MODEL := 3000 eMMC
+  DEVICE_MODEL := 3000-eMMC
   DEVICE_DTS := mt7981b-sl-3000-emmc
   DEVICE_DTS_DIR := ../dts
 
