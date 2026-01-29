@@ -15,32 +15,50 @@ mkdir -p $FEEDS_ROOT/small
 mkdir -p $FEEDS_ROOT/helloworld
 
 echo "=== 保留 LuCI 基础 ==="
-cp -r feeds/luci/modules/luci-base            $FEEDS_ROOT/luci/
-cp -r feeds/luci/modules/luci-compat          $FEEDS_ROOT/luci/
-cp -r feeds/luci/modules/luci-lua-runtime     $FEEDS_ROOT/luci/
-cp -r feeds/luci/libs/luci-lib-ip             $FEEDS_ROOT/luci/
-cp -r feeds/luci/libs/luci-lib-jsonc          $FEEDS_ROOT/luci/
-cp -r feeds/luci/themes/luci-theme-bootstrap  $FEEDS_ROOT/luci/
+cp -r feeds/luci/modules/luci-base            $FEEDS_ROOT/luci/ || true
+cp -r feeds/luci/modules/luci-compat          $FEEDS_ROOT/luci/ || true
+cp -r feeds/luci/modules/luci-lua-runtime     $FEEDS_ROOT/luci/ || true
+cp -r feeds/luci/libs/luci-lib-ip             $FEEDS_ROOT/luci/ || true
+cp -r feeds/luci/libs/luci-lib-jsonc          $FEEDS_ROOT/luci/ || true
+cp -r feeds/luci/themes/luci-theme-bootstrap  $FEEDS_ROOT/luci/ || true
 
 echo "=== 保留 Passwall2 / SSRPlus / Xray ==="
 
-# 25.12 结构变化：ssr-plus 不在 helloworld，而在 small
+# SSRPlus 主体
 if [ -d feeds/helloworld/ssr-plus ]; then
   cp -r feeds/helloworld/ssr-plus $FEEDS_ROOT/helloworld/
 elif [ -d feeds/small/ssr-plus ]; then
   cp -r feeds/small/ssr-plus $FEEDS_ROOT/small/
 fi
 
-# luci-app-ssr-plus 仍在 helloworld
-cp -r feeds/helloworld/luci-app-ssr-plus      $FEEDS_ROOT/helloworld/
+# luci-app-ssr-plus
+if [ -d feeds/helloworld/luci-app-ssr-plus ]; then
+  cp -r feeds/helloworld/luci-app-ssr-plus $FEEDS_ROOT/helloworld/
+elif [ -d feeds/small/luci-app-ssr-plus ]; then
+  cp -r feeds/small/luci-app-ssr-plus $FEEDS_ROOT/small/
+fi
 
-# xray-core 仍在 helloworld
-cp -r feeds/helloworld/xray-core              $FEEDS_ROOT/helloworld/
-cp -r feeds/helloworld/v2ray-geodata          $FEEDS_ROOT/helloworld/
+# xray-core
+if [ -d feeds/helloworld/xray-core ]; then
+  cp -r feeds/helloworld/xray-core $FEEDS_ROOT/helloworld/
+elif [ -d feeds/small/xray-core ]; then
+  cp -r feeds/small/xray-core $FEEDS_ROOT/small/
+fi
 
-# Passwall2 在 small
-cp -r feeds/small/luci-app-passwall2          $FEEDS_ROOT/small/
-cp -r feeds/small/passwall2                   $FEEDS_ROOT/small/
+# v2ray-geodata
+if [ -d feeds/helloworld/v2ray-geodata ]; then
+  cp -r feeds/helloworld/v2ray-geodata $FEEDS_ROOT/helloworld/
+elif [ -d feeds/small/v2ray-geodata ]; then
+  cp -r feeds/small/v2ray-geodata $FEEDS_ROOT/small/
+fi
+
+# Passwall2
+if [ -d feeds/small/luci-app-passwall2 ]; then
+  cp -r feeds/small/luci-app-passwall2 $FEEDS_ROOT/small/
+fi
+if [ -d feeds/small/passwall2 ]; then
+  cp -r feeds/small/passwall2 $FEEDS_ROOT/small/
+fi
 
 echo "=== 补齐 SSRPlus 依赖目录 ==="
 SSR_DEPS=(
