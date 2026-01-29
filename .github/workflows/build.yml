@@ -108,7 +108,7 @@ jobs:
 
       - name: Validate CONFIG after defconfig
         working-directory: /mnt/openwrt
-        run: grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000_emmc=y" .config
+        run: grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000-emmc=y" .config
 
       - name: Build host tools (25.12 APK requirement)
         working-directory: /mnt/openwrt
