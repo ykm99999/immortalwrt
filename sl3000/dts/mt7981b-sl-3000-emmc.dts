@@ -5,11 +5,11 @@
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
 
-#include "mt7981.dtsi"
+#include "mt7981b.dtsi"
 
 / {
 	model = "SL-3000 eMMC bootstrap versions";
-	compatible = "sl,3000-emmc", "mediatek,mt7981";
+	compatible = "sl,3000-emmc", "mediatek,mt7981b";
 
 	aliases {
 		serial0 = &uart0;
