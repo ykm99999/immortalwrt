@@ -1,6 +1,6 @@
 #!/bin/bash
 # 白名单模式 + SSRPlus 依赖目录补齐 + 底层库依赖补齐 + 禁用主线包扫描
-# 只改脚本，不动工作流，不动 package/*
+# 适配 ImmortalWrt 25.12（mt7981 / sl_3000_emmc）
 
 set -e
 
@@ -17,23 +17,27 @@ mkdir -p $FEEDS_ROOT/luci
 mkdir -p $FEEDS_ROOT/small
 mkdir -p $FEEDS_ROOT/helloworld
 
-echo "=== 保留 luci 基础 ==="
-cp -r feeds/luci/modules/luci-base        $FEEDS_ROOT/luci/
-cp -r feeds/luci/modules/luci-compat      $FEEDS_ROOT/luci/
-cp -r feeds/luci/modules/luci-lua-runtime $FEEDS_ROOT/luci/
-cp -r feeds/luci/libs/luci-lib-ip         $FEEDS_ROOT/luci/
-cp -r feeds/luci/libs/luci-lib-jsonc      $FEEDS_ROOT/luci/
-cp -r feeds/luci/themes/luci-theme-bootstrap $FEEDS_ROOT/luci/
+echo "=== 保留 LuCI 基础 ==="
+cp -r feeds/luci/modules/luci-base            $FEEDS_ROOT/luci/
+cp -r feeds/luci/modules/luci-compat          $FEEDS_ROOT/luci/
+cp -r feeds/luci/modules/luci-lua-runtime     $FEEDS_ROOT/luci/
+cp -r feeds/luci/libs/luci-lib-ip             $FEEDS_ROOT/luci/
+cp -r feeds/luci/libs/luci-lib-jsonc          $FEEDS_ROOT/luci/
+cp -r feeds/luci/themes/luci-theme-bootstrap  $FEEDS_ROOT/luci/
 
 echo "=== 保留 Passwall2 / SSRPlus / Xray ==="
-cp -r feeds/helloworld/luci-app-ssr-plus  $FEEDS_ROOT/helloworld/
-cp -r feeds/helloworld/ssr-plus           $FEEDS_ROOT/helloworld/
-cp -r feeds/helloworld/xray-core          $FEEDS_ROOT/helloworld/
-cp -r feeds/helloworld/v2ray-geodata      $FEEDS_ROOT/helloworld/
+cp -r feeds/helloworld/luci-app-ssr-plus      $FEEDS_ROOT/helloworld/
+cp -r feeds/helloworld/ssr-plus               $FEEDS_ROOT/helloworld/
+cp -r feeds/helloworld/xray-core              $FEEDS_ROOT/helloworld/
+cp -r feeds/helloworld/v2ray-geodata          $FEEDS_ROOT/helloworld/
 
-cp -r feeds/small/luci-app-passwall2      $FEEDS_ROOT/small/
-cp -r feeds/small/passwall2               $FEEDS_ROOT/small/
-cp -r feeds/small/xray-core               $FEEDS_ROOT/small/ 2>/dev/null || true
+cp -r feeds/small/luci-app-passwall2          $FEEDS_ROOT/small/
+cp -r feeds/small/passwall2                   $FEEDS_ROOT/small/
+
+# 25.12 中 xray-core 只在 helloworld，不在 small
+if [ -d feeds/small/xray-core ]; then
+  cp -r feeds/small/xray-core $FEEDS_ROOT/small/
+fi
 
 echo "=== 补齐 SSRPlus 依赖目录（不启用、不构建，只让它们存在） ==="
 SSR_DEPS=(
@@ -57,7 +61,6 @@ done
 echo "=== 补齐底层库依赖（libev / libsodium / libudns / boost / rust/host / golang/host） ==="
 LIB_DEPS=(libev libsodium libudns boost boost-program_options boost-date_time)
 for dep in "${LIB_DEPS[@]}"; do
-  # 优先从 feeds/packages 拿
   if [ -d "feeds/packages/$dep" ]; then
     cp -r "feeds/packages/$dep" "$FEEDS_ROOT/packages/"
   elif [ -d "feeds/helloworld/$dep" ]; then
@@ -80,12 +83,13 @@ CONFIG_ALL_KMODS=n
 CONFIG_ALL_NONSHARED=n
 EOF
 
-echo "=== 写入白名单 config ==="
+echo "=== 写入白名单 config（25.12 修复版） ==="
 cat >> .config << "EOF"
 CONFIG_TARGET_mediatek=y
-CONFIG_TARGET_mediatek_filogic=y
-CONFIG_TARGET_mediatek_filogic_DEVICE_sl_3000-emmc=y
+CONFIG_TARGET_mediatek_mt7981=y
+CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000_emmc=y
 
+# LuCI 基础
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-base=y
 CONFIG_PACKAGE_luci-compat=y
@@ -94,23 +98,28 @@ CONFIG_PACKAGE_luci-lib-ip=y
 CONFIG_PACKAGE_luci-lib-jsonc=y
 CONFIG_PACKAGE_luci-theme-bootstrap=y
 
+# LuCI 网络管理
 CONFIG_PACKAGE_luci-mod-admin-full=y
 CONFIG_PACKAGE_luci-mod-network=y
 CONFIG_PACKAGE_luci-mod-status=y
 CONFIG_PACKAGE_luci-mod-system=y
 
+# Passwall2
 CONFIG_PACKAGE_luci-app-passwall2=y
 CONFIG_PACKAGE_passwall2=y
 
+# SSRPlus
 CONFIG_PACKAGE_luci-app-ssr-plus=y
 CONFIG_PACKAGE_ssr-plus=y
 
+# Xray 核心
 CONFIG_PACKAGE_xray-core=y
 CONFIG_PACKAGE_v2ray-geodata=y
 
+# 语言支持
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-ssr-plus-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
 EOF
 
-echo "=== 白名单模式完成 ==="
+echo "=== 白名单模式完成（25.12 完整修复版） ==="
