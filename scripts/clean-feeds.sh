@@ -25,42 +25,34 @@ cp -r feeds/luci/themes/luci-theme-bootstrap  $FEEDS_ROOT/luci/ || true
 echo "=== 保留 Passwall2 / SSRPlus / Xray ==="
 
 # SSRPlus 主体
-if [ -d feeds/helloworld/ssr-plus ]; then
-  cp -r feeds/helloworld/ssr-plus $FEEDS_ROOT/helloworld/
-elif [ -d feeds/small/ssr-plus ]; then
-  cp -r feeds/small/ssr-plus $FEEDS_ROOT/small/
-fi
+for path in feeds/helloworld/ssr-plus feeds/small/ssr-plus; do
+  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/helloworld/" && break
+done
 
 # luci-app-ssr-plus
-if [ -d feeds/helloworld/luci-app-ssr-plus ]; then
-  cp -r feeds/helloworld/luci-app-ssr-plus $FEEDS_ROOT/helloworld/
-elif [ -d feeds/small/luci-app-ssr-plus ]; then
-  cp -r feeds/small/luci-app-ssr-plus $FEEDS_ROOT/small/
-fi
+for path in feeds/helloworld/luci-app-ssr-plus feeds/small/luci-app-ssr-plus; do
+  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/helloworld/" && break
+done
 
 # xray-core
-if [ -d feeds/helloworld/xray-core ]; then
-  cp -r feeds/helloworld/xray-core $FEEDS_ROOT/helloworld/
-elif [ -d feeds/small/xray-core ]; then
-  cp -r feeds/small/xray-core $FEEDS_ROOT/small/
-fi
+for path in feeds/helloworld/xray-core feeds/small/xray-core; do
+  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/helloworld/" && break
+done
 
 # v2ray-geodata
-if [ -d feeds/helloworld/v2ray-geodata ]; then
-  cp -r feeds/helloworld/v2ray-geodata $FEEDS_ROOT/helloworld/
-elif [ -d feeds/small/v2ray-geodata ]; then
-  cp -r feeds/small/v2ray-geodata $FEEDS_ROOT/small/
-fi
+for path in feeds/helloworld/v2ray-geodata feeds/small/v2ray-geodata; do
+  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/helloworld/" && break
+done
 
 # Passwall2
-if [ -d feeds/small/luci-app-passwall2 ]; then
-  cp -r feeds/small/luci-app-passwall2 $FEEDS_ROOT/small/
-fi
-if [ -d feeds/small/passwall2 ]; then
-  cp -r feeds/small/passwall2 $FEEDS_ROOT/small/
-fi
+for path in feeds/small/luci-app-passwall2; do
+  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/small/"
+done
+for path in feeds/small/passwall2; do
+  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/small/"
+done
 
-echo "=== 补齐 SSRPlus 依赖目录 ==="
+echo "=== 补齐 SSRPlus 依赖目录（自动 fallback） ==="
 SSR_DEPS=(
   dns2tcp microsocks tcping shadowsocksr-libev-ssr-check
   curl nping chinadns-ng dns2socks dns2socks-rust dnsproxy mosdns
@@ -70,31 +62,41 @@ SSR_DEPS=(
 )
 
 for dep in "${SSR_DEPS[@]}"; do
-  if [ -d "feeds/helloworld/$dep" ]; then
-    cp -r "feeds/helloworld/$dep" "$FEEDS_ROOT/helloworld/"
-  elif [ -d "feeds/packages/$dep" ]; then
-    cp -r "feeds/packages/$dep" "$FEEDS_ROOT/packages/"
-  elif [ -d "feeds/small/$dep" ]; then
-    cp -r "feeds/small/$dep" "$FEEDS_ROOT/small/"
-  fi
+  for path in feeds/helloworld/$dep feeds/packages/$dep feeds/small/$dep; do
+    if [ -d "$path" ]; then
+      cp -r "$path" "$FEEDS_ROOT/helloworld/" 2>/dev/null || \
+      cp -r "$path" "$FEEDS_ROOT/packages/" 2>/dev/null || \
+      cp -r "$path" "$FEEDS_ROOT/small/" 2>/dev/null
+      break
+    fi
+  done
 done
 
-echo "=== 补齐底层库依赖 ==="
+echo "=== 补齐底层库依赖（libev / libsodium / libudns / boost） ==="
 LIB_DEPS=(libev libsodium libudns boost boost-program_options boost-date_time)
+
 for dep in "${LIB_DEPS[@]}"; do
-  if [ -d "feeds/packages/$dep" ]; then
-    cp -r "feeds/packages/$dep" "$FEEDS_ROOT/packages/"
-  elif [ -d "feeds/helloworld/$dep" ]; then
-    cp -r "feeds/helloworld/$dep" "$FEEDS_ROOT/helloworld/"
-  fi
+  for path in feeds/packages/$dep feeds/helloworld/$dep feeds/small/$dep; do
+    if [ -d "$path" ]; then
+      cp -r "$path" "$FEEDS_ROOT/packages/" 2>/dev/null || \
+      cp -r "$path" "$FEEDS_ROOT/helloworld/" 2>/dev/null || \
+      cp -r "$path" "$FEEDS_ROOT/small/" 2>/dev/null
+      break
+    fi
+  done
 done
 
-HOST_DEPS=(rust golang)
+echo "=== 补齐 host 依赖（golang/host / rust/host） ==="
+HOST_DEPS=(golang rust)
+
 for dep in "${HOST_DEPS[@]}"; do
-  if [ -d "feeds/packages/lang/$dep" ]; then
-    mkdir -p "$FEEDS_ROOT/packages/lang"
-    cp -r "feeds/packages/lang/$dep" "$FEEDS_ROOT/packages/lang/"
-  fi
+  for path in feeds/packages/lang/$dep feeds/packages/$dep feeds/helloworld/$dep feeds/small/$dep; do
+    if [ -d "$path" ]; then
+      mkdir -p "$FEEDS_ROOT/packages/lang"
+      cp -r "$path" "$FEEDS_ROOT/packages/lang/" 2>/dev/null || true
+      break
+    fi
+  done
 done
 
 echo "=== 禁用主线包扫描 ==="
