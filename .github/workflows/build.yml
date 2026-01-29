@@ -84,7 +84,6 @@ jobs:
         working-directory: /mnt/openwrt
         run: |
           make tools/install -j"$(nproc)" || {
-            echo "[WARN] tools/install failed, cleaning and retrying"
             make tools/clean
             make tools/install -j"$(nproc)"
           }
@@ -106,15 +105,14 @@ jobs:
           [ -s "$DTS" ] || { echo "[FATAL] DTS missing: $DTS"; exit 1; }
 
           echo "=== Check MK ==="
-          grep -q "define Device/sl_3000-emmc" "$MK" || { echo "[FATAL] MK missing Device/sl_3000-emmc"; exit 1; }
-          grep -q "TARGETDEVICES += sl3000-emmc" "$MK" || { echo "[FATAL] MK missing TARGET_DEVICES"; exit 1; }
+          grep -q "define Device/sl-3000-emmc" "$MK" || { echo "[FATAL] MK missing Device/sl-3000-emmc"; exit 1; }
+          grep -q "TARGET_DEVICES += sl-3000-emmc" "$MK" || { echo "[FATAL] MK missing TARGET_DEVICES sl-3000-emmc"; exit 1; }
 
           echo "=== Check CONFIG ==="
-          if ! grep -q '^CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000-emmc=y' "$CFG"; then
-            echo "[FATAL] CONFIG missing device enable (mt7981 / sl_3000-emmc)"
-            grep '^CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE' "$CFG" || true
+          grep -q '^CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000-emmc=y' "$CFG" || {
+            echo "[FATAL] CONFIG missing device enable"
             exit 1
-          fi
+          }
 
       - name: Cache build dirs
         uses: actions/cache@v4
@@ -145,17 +143,13 @@ jobs:
                 ;;
             esac
 
-            echo "$ENABLEDPKGS" | grep -qx "$pkgname" || {
-              echo "[PRUNE] remove package/$pkgname"
-              rm -rf "$pkgdir"
-            }
+            echo "$ENABLEDPKGS" | grep -qx "$pkgname" || rm -rf "$pkgdir"
           done
 
       - name: Download sources
         working-directory: /mnt/openwrt
         run: |
           make download -j8 || {
-            echo "[WARN] download failed, clean dl and retry"
             rm -rf dl/*
             make download -j4
           }
@@ -179,18 +173,15 @@ jobs:
       - name: Repair mbedtls and ustream-ssl
         working-directory: /mnt/openwrt
         run: |
-          echo "[FIX] clean mbedtls / ustream-ssl"
           rm -rf build_dir/target-*/mbedtls-* build_dir/target-*/ustream-ssl-* \
                  staging_dir/target-*/usr/lib/libmbed* staging_dir/target-*/usr/include/mbedtls \
                  package/libs/mbedtls/.pkgdir package/libs/ustream-ssl/.pkgdir || true
 
-          echo "[FIX] rebuild mbedtls"
           make package/libs/mbedtls/compile V=s || {
             make package/libs/mbedtls/clean
             make package/libs/mbedtls/compile V=s
           }
 
-          echo "[FIX] rebuild ustream-ssl"
           make package/libs/ustream-ssl/compile V=s || {
             make package/libs/ustream-ssl/clean
             make package/libs/ustream-ssl/compile V=s
@@ -204,7 +195,6 @@ jobs:
             make package/compile -j"$(nproc)" V=s
           }
 
-      # 25.12 没有 target/image/compile，用 target/compile 生成镜像并顺带生成 base-files.version
       - name: Build target (images)
         working-directory: /mnt/openwrt
         run: |
@@ -219,9 +209,7 @@ jobs:
           LOG=/mnt/openwrt/firmware-build.log
           : > "$LOG"
 
-          echo "=== First world build ===" | tee -a "$LOG"
           if ! make -j"$(nproc)" V=s | tee -a "$LOG"; then
-            echo "=== World build failed, clean and retry ===" | tee -a "$LOG"
             make package/clean
             make target/clean
             make -j"$(nproc)" V=s | tee -a "$LOG"
@@ -230,10 +218,7 @@ jobs:
       - name: List firmware outputs
         working-directory: /mnt/openwrt
         run: |
-          ls -lh bin/targets/mediatek/mt7981 || {
-            echo "[WARN] no firmware found under bin/targets/mediatek/mt7981"
-            exit 1
-          }
+          ls -lh bin/targets/mediatek/mt7981 || exit 1
 
       - name: Upload build log
         uses: actions/upload-artifact@v4
