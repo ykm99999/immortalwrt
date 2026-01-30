@@ -123,7 +123,7 @@ echo "=== 写入白名单 config（25.12 修复版） ==="
 cat >> .config << "EOF"
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_mt7981=y
-CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000_emmc=y
+CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000-emmc=y
 
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-base=y
