@@ -17,7 +17,7 @@ mkdir -p $FEEDS_ROOT/small
 mkdir -p $FEEDS_ROOT/helloworld
 
 # -------------------------------
-# 自动 fallback 复制函数（修复版）
+# 自动 fallback 复制函数（保留）
 # -------------------------------
 copy_pkg() {
   local pkg="$1"
@@ -54,7 +54,7 @@ copy_pkg() {
 }
 
 # -------------------------------
-# 1. LuCI 基础
+# 1. LuCI 基础（保留）
 # -------------------------------
 echo "=== 保留 LuCI 基础 ==="
 for p in \
@@ -65,49 +65,31 @@ do
 done
 
 # -------------------------------
-# 2. SSRPlus / Passwall2 / Xray
+# 2. 删除科学上网包（彻底移除）
 # -------------------------------
-echo "=== 保留 Passwall2 / SSRPlus / Xray ==="
-copy_pkg ssr-plus
-copy_pkg luci-app-ssr-plus
-copy_pkg xray-core
-copy_pkg v2ray-geodata
-copy_pkg luci-app-passwall2
-copy_pkg passwall2
+echo "=== 已禁用：Passwall2 / SSRPlus / Xray（不再复制） ==="
+# 故意留空，不复制任何科学上网包
 
 # -------------------------------
-# 3. SSRPlus 依赖补齐
+# 3. 删除 SSRPlus 依赖补齐（彻底移除）
 # -------------------------------
-echo "=== 补齐 SSRPlus 依赖 ==="
-SSR_DEPS=(
-  dns2tcp microsocks tcping shadowsocksr-libev-ssr-check
-  curl nping chinadns-ng dns2socks dns2socks-rust dnsproxy mosdns
-  hysteria tuic-client shadow-tls ipt2socks kcptun-client naiveproxy
-  redsocks2 shadowsocks-libev shadowsocksr-libev simple-obfs
-  v2ray-plugin trojan lua-neturl coreutils coreutils-base64
-)
-for dep in "${SSR_DEPS[@]}"; do
-  copy_pkg "$dep"
-done
+echo "=== 已禁用：SSRPlus 依赖补齐 ==="
+# 故意留空，不复制任何依赖
 
 # -------------------------------
-# 4. 底层库依赖补齐（修复版）
+# 4. 删除底层库依赖补齐（彻底移除）
 # -------------------------------
-echo "=== 补齐底层库依赖 ==="
-LIB_DEPS=(libev libsodium libudns boost boost-program_options boost-date_time)
-for dep in "${LIB_DEPS[@]}"; do
-  copy_pkg "$dep"
-done
+echo "=== 已禁用：底层库依赖（libev/libsodium/libudns/boost） ==="
+# 故意留空
 
 # -------------------------------
-# 5. host 工具依赖补齐（修复版）
+# 5. 删除 host 工具依赖（golang / rust）
 # -------------------------------
-echo "=== 补齐 host 工具依赖（golang / rust） ==="
-copy_pkg golang
-copy_pkg rust
+echo "=== 已禁用：golang / rust host 工具 ==="
+# 故意留空
 
 # -------------------------------
-# 6. 禁用主线扫描（修复版）
+# 6. 禁用主线扫描（保留）
 # -------------------------------
 echo "=== 禁用主线包扫描 ==="
 cat > .config << "EOF"
@@ -117,14 +99,15 @@ CONFIG_ALL_NONSHARED=n
 EOF
 
 # -------------------------------
-# 7. 写入白名单 config（修复版）
+# 7. 写入白名单 config（无科学上网包）
 # -------------------------------
-echo "=== 写入白名单 config（25.12 修复版） ==="
+echo "=== 写入白名单 config（无科学上网包） ==="
 cat >> .config << "EOF"
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_mt7981=y
 CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000-emmc=y
 
+# LuCI 基础
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-base=y
 CONFIG_PACKAGE_luci-compat=y
@@ -133,23 +116,16 @@ CONFIG_PACKAGE_luci-lib-ip=y
 CONFIG_PACKAGE_luci-lib-jsonc=y
 CONFIG_PACKAGE_luci-theme-bootstrap=y
 
+# LuCI 网络管理
 CONFIG_PACKAGE_luci-mod-admin-full=y
 CONFIG_PACKAGE_luci-mod-network=y
 CONFIG_PACKAGE_luci-mod-status=y
 CONFIG_PACKAGE_luci-mod-system=y
+CONFIG_PACKAGE_luci-proto-ppp=y
+CONFIG_PACKAGE_luci-proto-ipv6=y
 
-CONFIG_PACKAGE_luci-app-passwall2=y
-CONFIG_PACKAGE_passwall2=y
-
-CONFIG_PACKAGE_luci-app-ssr-plus=y
-CONFIG_PACKAGE_ssr-plus=y
-
-CONFIG_PACKAGE_xray-core=y
-CONFIG_PACKAGE_v2ray-geodata=y
-
+# 中文语言包
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
-CONFIG_PACKAGE_luci-i18n-ssr-plus-zh-cn=y
-CONFIG_PACKAGE_luci-i18n-passwall2-zh-cn=y
 EOF
 
-echo "=== 白名单模式完成（25.12 完整修复版） ==="
+echo "=== 白名单模式完成（无科学上网版） ==="
