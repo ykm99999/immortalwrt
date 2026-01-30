@@ -48,12 +48,10 @@ jobs:
       - name: Clean feeds config
         working-directory: /mnt/openwrt
         run: |
-          cat > feeds.conf.default << "EOF"
-          src-git packages https://github.com/openwrt/packages.git
-          src-git luci https://github.com/openwrt/luci.git
-          src-git helloworld https://github.com/fw876/helloworld.git
-          src-git small https://github.com/kenzok8/small.git
-          EOF
+          echo 'src-git packages https://github.com/openwrt/packages.git' > feeds.conf.default
+          echo 'src-git luci https://github.com/openwrt/luci.git' >> feeds.conf.default
+          echo 'src-git helloworld https://github.com/fw876/helloworld.git' >> feeds.conf.default
+          echo 'src-git small https://github.com/kenzok8/small.git' >> feeds.conf.default
 
       - name: Update feeds
         working-directory: /mnt/openwrt
@@ -94,6 +92,25 @@ jobs:
           make toolchain/install -j$(nproc) V=s || \
           (make toolchain/clean && make toolchain/install -j$(nproc) V=s)
 
+      # ---------------------------------------------------------
+      # 🔍 三件套检测（25.12 修复版）
+      # ---------------------------------------------------------
+      - name: Detect three-piece consistency
+        run: |
+          echo "🔍 Checking DTS/MK/CONFIG consistency..."
+
+          test -f repo/sl3000/dts/mt7981b-sl-3000-emmc.dts || (echo "❌ DTS missing" && exit 1)
+          test -f repo/sl3000/mk/filogic-sl3000.mk || (echo "❌ MK missing" && exit 1)
+          test -f repo/sl3000/config/sl3000.config || (echo "❌ CONFIG missing" && exit 1)
+
+          grep -q "mediatek,mt7981" repo/sl3000/dts/mt7981b-sl-3000-emmc.dts || (echo "❌ DTS SoC mismatch" && exit 1)
+
+          grep -q "sl_3000-emmc" repo/sl3000/mk/filogic-sl3000.mk || (echo "❌ MK device mismatch" && exit 1)
+          grep -q "CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000_emmc=y" repo/sl3000/config/sl3000.config || (echo "❌ CONFIG device mismatch" && exit 1)
+
+      # ---------------------------------------------------------
+      # 🛠 三件套自动注册（25.12 修复版）
+      # ---------------------------------------------------------
       - name: Apply DTS
         run: |
           mkdir -p /mnt/openwrt/target/linux/mediatek/dts
@@ -106,6 +123,15 @@ jobs:
           sed -i '/TARGET_DEVICES += sl_3000-emmc/d' "$MK"
           cat repo/sl3000/mk/filogic-sl3000.mk >> "$MK"
 
+      - name: Apply CONFIG
+        working-directory: /mnt/openwrt
+        run: |
+          cp $GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config .config
+          make defconfig
+
+      # ---------------------------------------------------------
+      # 🔥 kernel / packages / image
+      # ---------------------------------------------------------
       - name: Build kernel (self-heal)
         working-directory: /mnt/openwrt
         run: |
@@ -124,6 +150,9 @@ jobs:
           make target/image/compile -j$(nproc) V=s || \
           (make target/image/clean && make target/image/compile -j$(nproc) V=s)
 
+      # ---------------------------------------------------------
+      # 🔍 固件校验（25.12 路径修复）
+      # ---------------------------------------------------------
       - name: Validate firmware output
         working-directory: /mnt/openwrt
         run: |
