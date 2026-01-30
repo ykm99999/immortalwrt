@@ -10,9 +10,49 @@ rm -rf $FEEDS_ROOT/small/*
 rm -rf $FEEDS_ROOT/helloworld/*
 
 mkdir -p $FEEDS_ROOT/packages
+mkdir -p $FEEDS_ROOT/packages/libs
+mkdir -p $FEEDS_ROOT/packages/lang
 mkdir -p $FEEDS_ROOT/luci
 mkdir -p $FEEDS_ROOT/small
 mkdir -p $FEEDS_ROOT/helloworld
+
+# -------------------------------
+# 自动 fallback 复制函数（增强版）
+# -------------------------------
+copy_pkg() {
+  local pkg="$1"
+  for path in \
+    feeds/helloworld/$pkg \
+    feeds/small/$pkg \
+    feeds/packages/$pkg \
+    feeds/packages/libs/$pkg \
+    feeds/packages/net/$pkg \
+    feeds/packages/utils/$pkg \
+    feeds/packages/lang/$pkg
+  do
+    if [ -d "$path" ]; then
+      # 复制到正确的 feeds 目录结构
+      case "$path" in
+        feeds/packages/libs/*)
+          cp -r "$path" "$FEEDS_ROOT/packages/libs/"
+          ;;
+        feeds/packages/lang/*)
+          cp -r "$path" "$FEEDS_ROOT/packages/lang/"
+          ;;
+        feeds/packages/*)
+          cp -r "$path" "$FEEDS_ROOT/packages/"
+          ;;
+        feeds/small/*)
+          cp -r "$path" "$FEEDS_ROOT/small/"
+          ;;
+        feeds/helloworld/*)
+          cp -r "$path" "$FEEDS_ROOT/helloworld/"
+          ;;
+      esac
+      return
+    fi
+  done
+}
 
 # -------------------------------
 # 1. LuCI 基础
@@ -29,20 +69,6 @@ done
 # 2. SSRPlus / Passwall2 / Xray
 # -------------------------------
 echo "=== 保留 Passwall2 / SSRPlus / Xray ==="
-
-# 自动 fallback 复制函数
-copy_pkg() {
-  local pkg="$1"
-  for path in feeds/helloworld/$pkg feeds/small/$pkg feeds/packages/$pkg; do
-    if [ -d "$path" ]; then
-      cp -r "$path" "$FEEDS_ROOT/helloworld/" 2>/dev/null || \
-      cp -r "$path" "$FEEDS_ROOT/small/" 2>/dev/null || \
-      cp -r "$path" "$FEEDS_ROOT/packages/" 2>/dev/null
-      return
-    fi
-  done
-}
-
 copy_pkg ssr-plus
 copy_pkg luci-app-ssr-plus
 copy_pkg xray-core
@@ -53,7 +79,7 @@ copy_pkg passwall2
 # -------------------------------
 # 3. SSRPlus 依赖补齐
 # -------------------------------
-echo "=== 补齐 SSRPlus 依赖目录 ==="
+echo "=== 补齐 SSRPlus 依赖 ==="
 SSR_DEPS=(
   dns2tcp microsocks tcping shadowsocksr-libev-ssr-check
   curl nping chinadns-ng dns2socks dns2socks-rust dnsproxy mosdns
@@ -61,34 +87,25 @@ SSR_DEPS=(
   redsocks2 shadowsocks-libev shadowsocksr-libev simple-obfs
   v2ray-plugin trojan lua-neturl coreutils coreutils-base64
 )
-
 for dep in "${SSR_DEPS[@]}"; do
   copy_pkg "$dep"
 done
 
 # -------------------------------
-# 4. 底层库依赖补齐
+# 4. 底层库依赖补齐（关键修复）
 # -------------------------------
 echo "=== 补齐底层库依赖 ==="
 LIB_DEPS=(libev libsodium libudns boost boost-program_options boost-date_time)
-
 for dep in "${LIB_DEPS[@]}"; do
   copy_pkg "$dep"
 done
 
 # -------------------------------
-# 5. host 工具依赖补齐
+# 5. host 工具依赖补齐（关键修复）
 # -------------------------------
 echo "=== 补齐 host 工具依赖（golang/host / rust/host） ==="
-for dep in golang rust; do
-  for path in feeds/packages/lang/$dep feeds/packages/$dep feeds/helloworld/$dep feeds/small/$dep; do
-    if [ -d "$path" ]; then
-      mkdir -p "$FEEDS_ROOT/packages/lang"
-      cp -r "$path" "$FEEDS_ROOT/packages/lang/" 2>/dev/null || true
-      break
-    fi
-  done
-done
+copy_pkg golang
+copy_pkg rust
 
 # -------------------------------
 # 6. 禁用主线扫描
