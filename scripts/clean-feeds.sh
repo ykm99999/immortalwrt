@@ -17,7 +17,7 @@ mkdir -p $FEEDS_ROOT/small
 mkdir -p $FEEDS_ROOT/helloworld
 
 # -------------------------------
-# 自动 fallback 复制函数（增强版）
+# 自动 fallback 复制函数（修复版）
 # -------------------------------
 copy_pkg() {
   local pkg="$1"
@@ -31,7 +31,6 @@ copy_pkg() {
     feeds/packages/lang/$pkg
   do
     if [ -d "$path" ]; then
-      # 复制到正确的 feeds 目录结构
       case "$path" in
         feeds/packages/libs/*)
           cp -r "$path" "$FEEDS_ROOT/packages/libs/"
@@ -92,7 +91,7 @@ for dep in "${SSR_DEPS[@]}"; do
 done
 
 # -------------------------------
-# 4. 底层库依赖补齐（关键修复）
+# 4. 底层库依赖补齐（修复版）
 # -------------------------------
 echo "=== 补齐底层库依赖 ==="
 LIB_DEPS=(libev libsodium libudns boost boost-program_options boost-date_time)
@@ -101,14 +100,14 @@ for dep in "${LIB_DEPS[@]}"; do
 done
 
 # -------------------------------
-# 5. host 工具依赖补齐（关键修复）
+# 5. host 工具依赖补齐（修复版）
 # -------------------------------
-echo "=== 补齐 host 工具依赖（golang/host / rust/host） ==="
+echo "=== 补齐 host 工具依赖（golang / rust） ==="
 copy_pkg golang
 copy_pkg rust
 
 # -------------------------------
-# 6. 禁用主线扫描
+# 6. 禁用主线扫描（修复版）
 # -------------------------------
 echo "=== 禁用主线包扫描 ==="
 cat > .config << "EOF"
@@ -118,7 +117,7 @@ CONFIG_ALL_NONSHARED=n
 EOF
 
 # -------------------------------
-# 7. 写入白名单 config（25.12）
+# 7. 写入白名单 config（修复版）
 # -------------------------------
 echo "=== 写入白名单 config（25.12 修复版） ==="
 cat >> .config << "EOF"
