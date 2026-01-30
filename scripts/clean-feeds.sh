@@ -14,45 +14,46 @@ mkdir -p $FEEDS_ROOT/luci
 mkdir -p $FEEDS_ROOT/small
 mkdir -p $FEEDS_ROOT/helloworld
 
+# -------------------------------
+# 1. LuCI 基础
+# -------------------------------
 echo "=== 保留 LuCI 基础 ==="
-cp -r feeds/luci/modules/luci-base            $FEEDS_ROOT/luci/ || true
-cp -r feeds/luci/modules/luci-compat          $FEEDS_ROOT/luci/ || true
-cp -r feeds/luci/modules/luci-lua-runtime     $FEEDS_ROOT/luci/ || true
-cp -r feeds/luci/libs/luci-lib-ip             $FEEDS_ROOT/luci/ || true
-cp -r feeds/luci/libs/luci-lib-jsonc          $FEEDS_ROOT/luci/ || true
-cp -r feeds/luci/themes/luci-theme-bootstrap  $FEEDS_ROOT/luci/ || true
+for p in \
+  luci-base luci-compat luci-lua-runtime \
+  luci-lib-ip luci-lib-jsonc luci-theme-bootstrap
+do
+  cp -r feeds/luci/**/$p $FEEDS_ROOT/luci/ 2>/dev/null || true
+done
 
+# -------------------------------
+# 2. SSRPlus / Passwall2 / Xray
+# -------------------------------
 echo "=== 保留 Passwall2 / SSRPlus / Xray ==="
 
-# SSRPlus 主体
-for path in feeds/helloworld/ssr-plus feeds/small/ssr-plus; do
-  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/helloworld/" && break
-done
+# 自动 fallback 复制函数
+copy_pkg() {
+  local pkg="$1"
+  for path in feeds/helloworld/$pkg feeds/small/$pkg feeds/packages/$pkg; do
+    if [ -d "$path" ]; then
+      cp -r "$path" "$FEEDS_ROOT/helloworld/" 2>/dev/null || \
+      cp -r "$path" "$FEEDS_ROOT/small/" 2>/dev/null || \
+      cp -r "$path" "$FEEDS_ROOT/packages/" 2>/dev/null
+      return
+    fi
+  done
+}
 
-# luci-app-ssr-plus
-for path in feeds/helloworld/luci-app-ssr-plus feeds/small/luci-app-ssr-plus; do
-  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/helloworld/" && break
-done
+copy_pkg ssr-plus
+copy_pkg luci-app-ssr-plus
+copy_pkg xray-core
+copy_pkg v2ray-geodata
+copy_pkg luci-app-passwall2
+copy_pkg passwall2
 
-# xray-core
-for path in feeds/helloworld/xray-core feeds/small/xray-core; do
-  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/helloworld/" && break
-done
-
-# v2ray-geodata
-for path in feeds/helloworld/v2ray-geodata feeds/small/v2ray-geodata; do
-  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/helloworld/" && break
-done
-
-# Passwall2
-for path in feeds/small/luci-app-passwall2; do
-  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/small/"
-done
-for path in feeds/small/passwall2; do
-  [ -d "$path" ] && cp -r "$path" "$FEEDS_ROOT/small/"
-done
-
-echo "=== 补齐 SSRPlus 依赖目录（自动 fallback） ==="
+# -------------------------------
+# 3. SSRPlus 依赖补齐
+# -------------------------------
+echo "=== 补齐 SSRPlus 依赖目录 ==="
 SSR_DEPS=(
   dns2tcp microsocks tcping shadowsocksr-libev-ssr-check
   curl nping chinadns-ng dns2socks dns2socks-rust dnsproxy mosdns
@@ -62,34 +63,24 @@ SSR_DEPS=(
 )
 
 for dep in "${SSR_DEPS[@]}"; do
-  for path in feeds/helloworld/$dep feeds/packages/$dep feeds/small/$dep; do
-    if [ -d "$path" ]; then
-      cp -r "$path" "$FEEDS_ROOT/helloworld/" 2>/dev/null || \
-      cp -r "$path" "$FEEDS_ROOT/packages/" 2>/dev/null || \
-      cp -r "$path" "$FEEDS_ROOT/small/" 2>/dev/null
-      break
-    fi
-  done
+  copy_pkg "$dep"
 done
 
-echo "=== 补齐底层库依赖（libev / libsodium / libudns / boost） ==="
+# -------------------------------
+# 4. 底层库依赖补齐
+# -------------------------------
+echo "=== 补齐底层库依赖 ==="
 LIB_DEPS=(libev libsodium libudns boost boost-program_options boost-date_time)
 
 for dep in "${LIB_DEPS[@]}"; do
-  for path in feeds/packages/$dep feeds/helloworld/$dep feeds/small/$dep; do
-    if [ -d "$path" ]; then
-      cp -r "$path" "$FEEDS_ROOT/packages/" 2>/dev/null || \
-      cp -r "$path" "$FEEDS_ROOT/helloworld/" 2>/dev/null || \
-      cp -r "$path" "$FEEDS_ROOT/small/" 2>/dev/null
-      break
-    fi
-  done
+  copy_pkg "$dep"
 done
 
-echo "=== 补齐 host 依赖（golang/host / rust/host） ==="
-HOST_DEPS=(golang rust)
-
-for dep in "${HOST_DEPS[@]}"; do
+# -------------------------------
+# 5. host 工具依赖补齐
+# -------------------------------
+echo "=== 补齐 host 工具依赖（golang/host / rust/host） ==="
+for dep in golang rust; do
   for path in feeds/packages/lang/$dep feeds/packages/$dep feeds/helloworld/$dep feeds/small/$dep; do
     if [ -d "$path" ]; then
       mkdir -p "$FEEDS_ROOT/packages/lang"
@@ -99,6 +90,9 @@ for dep in "${HOST_DEPS[@]}"; do
   done
 done
 
+# -------------------------------
+# 6. 禁用主线扫描
+# -------------------------------
 echo "=== 禁用主线包扫描 ==="
 cat > .config << "EOF"
 CONFIG_ALL=n
@@ -106,6 +100,9 @@ CONFIG_ALL_KMODS=n
 CONFIG_ALL_NONSHARED=n
 EOF
 
+# -------------------------------
+# 7. 写入白名单 config（25.12）
+# -------------------------------
 echo "=== 写入白名单 config（25.12 修复版） ==="
 cat >> .config << "EOF"
 CONFIG_TARGET_mediatek=y
