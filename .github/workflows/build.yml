@@ -30,7 +30,7 @@ jobs:
       run: |
         git clone https://github.com/immortalwrt/immortalwrt.git /mnt/openwrt
         cd /mnt/openwrt
-        git checkout 25.12
+        git checkout openwrt-25.12   # ← 唯一修复点
 
     # ============================================================
     # 3. 安装依赖（Ubuntu 24.04 修复）
