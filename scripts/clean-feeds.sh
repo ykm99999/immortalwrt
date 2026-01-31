@@ -16,12 +16,8 @@ mkdir -p $FEEDS_ROOT/luci
 mkdir -p $FEEDS_ROOT/small
 mkdir -p $FEEDS_ROOT/helloworld
 
-echo "=== 清空主树包（emortal/network/utils/boot/system） ==="
-rm -rf package/emortal/*
-rm -rf package/network/*
-rm -rf package/utils/*
-rm -rf package/boot/*
-rm -rf package/system/*
+# 不再清空主树，避免破坏构建链
+echo "=== 保留主树包（system/utils/network/boot/emortal 不再清空） ==="
 
 copy_pkg() {
   local pkg="$1"
@@ -65,13 +61,13 @@ do
   cp -r feeds/luci/**/$p $FEEDS_ROOT/luci/ 2>/dev/null || true
 done
 
-echo "=== 禁用所有科学上网包 ==="
+echo "=== 禁用所有科学上网包（不复制） ==="
 # 故意留空
 
-echo "=== 禁用所有 SSRPlus 依赖 ==="
+echo "=== 禁用所有 SSRPlus 依赖（不复制） ==="
 # 故意留空
 
-echo "=== 禁用所有底层库依赖 ==="
+echo "=== 禁用所有底层库依赖（libev/libsodium/libudns/boost 等） ==="
 # 故意留空
 
 echo "=== 禁用 golang / rust ==="
@@ -90,6 +86,18 @@ CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_mt7981=y
 CONFIG_TARGET_DEVICE_mediatek_mt7981_DEVICE_sl_3000-emmc=y
 
+# 基础系统
+CONFIG_PACKAGE_base-files=y
+CONFIG_PACKAGE_busybox=y
+CONFIG_PACKAGE_dnsmasq-full=y
+CONFIG_PACKAGE_firewall4=y
+CONFIG_PACKAGE_odhcp6c=y
+CONFIG_PACKAGE_odhcpd-ipv6only=y
+CONFIG_PACKAGE_ppp=y
+CONFIG_PACKAGE_ppp-mod-pppoe=y
+CONFIG_PACKAGE_coremark=y
+
+# LuCI 基础
 CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-base=y
 CONFIG_PACKAGE_luci-compat=y
@@ -98,6 +106,7 @@ CONFIG_PACKAGE_luci-lib-ip=y
 CONFIG_PACKAGE_luci-lib-jsonc=y
 CONFIG_PACKAGE_luci-theme-bootstrap=y
 
+# LuCI 网络管理
 CONFIG_PACKAGE_luci-mod-admin-full=y
 CONFIG_PACKAGE_luci-mod-network=y
 CONFIG_PACKAGE_luci-mod-status=y
@@ -105,7 +114,8 @@ CONFIG_PACKAGE_luci-mod-system=y
 CONFIG_PACKAGE_luci-proto-ppp=y
 CONFIG_PACKAGE_luci-proto-ipv6=y
 
+# 语言支持（仅保留基础）
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 EOF
 
-echo "=== 白名单模式完成（最终版） ==="
+echo "=== 白名单模式完成（最终修复版） ==="
