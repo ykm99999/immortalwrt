@@ -61,6 +61,16 @@ do
   cp -r feeds/luci/**/$p $FEEDS_ROOT/luci/ 2>/dev/null || true
 done
 
+echo "=== 复制 LuCI 主模块（满足 default-settings 对 luci 的依赖） ==="
+for p in \
+  luci-mod-admin-full \
+  luci-mod-network \
+  luci-mod-status \
+  luci-mod-system
+do
+  cp -r feeds/luci/**/$p $FEEDS_ROOT/luci/ 2>/dev/null || true
+done
+
 echo "=== 禁用所有科学上网包（不复制） ==="
 # 故意留空
 
@@ -118,4 +128,4 @@ CONFIG_PACKAGE_luci-proto-ipv6=y
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 EOF
 
-echo "=== 白名单模式完成（最终修复版） ==="
+echo "=== 白名单模式完成（最终修复版 + LuCI 主模块补齐） ==="
