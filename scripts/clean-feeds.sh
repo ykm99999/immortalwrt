@@ -16,8 +16,8 @@ mkdir -p $FEEDS_ROOT/luci
 mkdir -p $FEEDS_ROOT/small
 mkdir -p $FEEDS_ROOT/helloworld
 
-# 不再清空主树，避免破坏构建链
-echo "=== 保留主树包（system/utils/network/boot/emortal 不再清空） ==="
+echo "=== 保留主树（不删除 package/system/* 等核心包） ==="
+# 主树不再清空，避免破坏 apk/ubus/uci/procd/busybox 等构建链核心组件
 
 copy_pkg() {
   local pkg="$1"
@@ -53,7 +53,7 @@ copy_pkg() {
   done
 }
 
-echo "=== 保留 LuCI 基础 ==="
+echo "=== 白名单复制 LuCI 基础 ==="
 for p in \
   luci-base luci-compat luci-lua-runtime \
   luci-lib-ip luci-lib-jsonc luci-theme-bootstrap
@@ -64,7 +64,7 @@ done
 echo "=== 禁用所有科学上网包（不复制） ==="
 # 故意留空
 
-echo "=== 禁用所有 SSRPlus 依赖（不复制） ==="
+echo "=== 禁用所有 SSRPlus / Passwall2 依赖（不复制） ==="
 # 故意留空
 
 echo "=== 禁用所有底层库依赖（libev/libsodium/libudns/boost 等） ==="
@@ -80,7 +80,7 @@ CONFIG_ALL_KMODS=n
 CONFIG_ALL_NONSHARED=n
 EOF
 
-echo "=== 写入白名单 config（无科学上网） ==="
+echo "=== 写入极简白名单 config（与你贴出的完全一致） ==="
 cat >> .config << "EOF"
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_mt7981=y
