@@ -30,7 +30,7 @@ jobs:
       run: |
         git clone https://github.com/immortalwrt/immortalwrt.git /mnt/openwrt
         cd /mnt/openwrt
-        git checkout openwrt-25.12   # ← 唯一修复点 1
+        git checkout openwrt-25.12   # ← 修复分支名
 
     # ============================================================
     # 3. 安装依赖（Ubuntu 24.04 修复）
@@ -61,11 +61,17 @@ jobs:
       working-directory: /mnt/openwrt
       run: |
         rm -f feeds.conf
-        rm -f feeds.conf.default
-        cp feeds.conf.default feeds.conf   # ← 唯一修复点 2（恢复 feeds.conf）
+        cp feeds.conf.default feeds.conf   # ← 保留 default，只重建 feeds.conf
 
     # ============================================================
-    # 6. Update feeds（延续工程体系）
+    # 6. 确保脚本权限（统一处理）
+    # ============================================================
+    - name: Ensure custom scripts executable
+      run: |
+        chmod +x $GITHUB_WORKSPACE/repo/scripts/*.sh || true
+
+    # ============================================================
+    # 7. Update feeds（延续工程体系）
     # ============================================================
     - name: Update feeds
       working-directory: /mnt/openwrt
@@ -74,16 +80,15 @@ jobs:
         ./scripts/feeds install -a
 
     # ============================================================
-    # 7. 运行 clean-feeds.sh（白名单 + 三件套闭环）
+    # 8. 运行 clean-feeds.sh（白名单 + 三件套闭环）
     # ============================================================
     - name: Run clean-feeds.sh (white list)
       working-directory: /mnt/openwrt
       run: |
-        chmod +x $GITHUB_WORKSPACE/repo/scripts/clean-feeds.sh
         bash $GITHUB_WORKSPACE/repo/scripts/clean-feeds.sh
 
     # ============================================================
-    # 8. 禁用 menuconfig（延续工程体系）
+    # 9. 禁用 menuconfig（延续工程体系）
     # ============================================================
     - name: Disable menuconfig globally
       working-directory: /mnt/openwrt
@@ -92,44 +97,46 @@ jobs:
         make defconfig
 
     # ============================================================
-    # 9. 下载源码（self-heal 阶段）
+    # 10. 下载源码（self-heal 阶段）
     # ============================================================
     - name: Download sources (self-heal)
       working-directory: /mnt/openwrt
       run: make download -j8 || make download -j1 V=s
 
     # ============================================================
-    # 10. Build host tools（self-heal 阶段）
+    # 11. Build host tools（self-heal 阶段）
     # ============================================================
     - name: Build host tools (self-heal)
       working-directory: /mnt/openwrt
       run: make tools/install -j$(nproc) || make tools/install -j1 V=s
 
     # ============================================================
-    # 11. Build toolchain（self-heal 阶段）
+    # 12. Build toolchain（self-heal 阶段）
     # ============================================================
     - name: Build toolchain (self-heal)
       working-directory: /mnt/openwrt
       run: make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
     # ============================================================
-    # 12. Build OpenSSL（self-heal 阶段）
+    # 13. Build OpenSSL（self-heal 阶段）
     # ============================================================
     - name: Build OpenSSL first (self-heal)
       working-directory: /mnt/openwrt
       run: make package/libs/openssl/compile -j$(nproc) || make package/libs/openssl/compile -j1 V=s
 
     # ============================================================
-    # 13. 三件套一致性检测（延续工程体系）
+    # 14. 三件套一致性检测（延续工程体系）
     # ============================================================
     - name: Detect three-piece consistency
       working-directory: /mnt/openwrt
       run: |
         echo ">>> Detecting DTS/MK consistency..."
         sha256sum target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || true
+        sha256sum target/linux/mediatek/image/filogic-sl3000.mk || true
+        sha256sum .config || true
 
     # ============================================================
-    # 14. Apply DTS（延续工程体系）
+    # 15. Apply DTS（延续工程体系）
     # ============================================================
     - name: Apply DTS
       working-directory: /mnt/openwrt
@@ -137,7 +144,7 @@ jobs:
         cp -v $GITHUB_WORKSPACE/repo/sl3000/dts/mt7981b-sl3000-emmc.dts target/linux/mediatek/dts/
 
     # ============================================================
-    # 15. Apply MK（延续工程体系）
+    # 16. Apply MK（延续工程体系）
     # ============================================================
     - name: Apply MK
       working-directory: /mnt/openwrt
@@ -145,14 +152,14 @@ jobs:
         cp -v $GITHUB_WORKSPACE/repo/sl3000/mk/filogic-sl3000.mk target/linux/mediatek/image/
 
     # ============================================================
-    # 16. Build firmware（延续工程体系）
+    # 17. Build firmware（延续工程体系）
     # ============================================================
     - name: Build firmware
       working-directory: /mnt/openwrt
       run: make -j$(nproc) || make -j1 V=s
 
     # ============================================================
-    # 17. 上传固件（延续工程体系）
+    # 18. 上传固件（延续工程体系）
     # ============================================================
     - name: Upload firmware
       uses: actions/upload-artifact@v4
