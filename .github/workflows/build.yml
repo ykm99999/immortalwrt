@@ -68,7 +68,7 @@ jobs:
     # ============================================================
     - name: Ensure custom scripts executable
       run: |
-        chmod +x $GITHUB_WORKSPACE/repo/scripts/*.sh || true
+        chmod +x $GITHUB_WORKSPACE/scripts/*.sh || true
 
     # ============================================================
     # 7. Update feeds（延续工程体系）
@@ -85,7 +85,7 @@ jobs:
     - name: Run clean-feeds.sh (white list)
       working-directory: /mnt/openwrt
       run: |
-        bash $GITHUB_WORKSPACE/repo/scripts/clean-feeds.sh
+        bash $GITHUB_WORKSPACE/scripts/clean-feeds.sh
 
     # ============================================================
     # 9. 禁用 menuconfig（延续工程体系）
@@ -130,7 +130,7 @@ jobs:
     - name: Detect three-piece consistency
       working-directory: /mnt/openwrt
       run: |
-        echo ">>> Detecting DTS/MK consistency..."
+        echo ">>> Detecting DTS/MK/config consistency..."
         sha256sum target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts || true
         sha256sum target/linux/mediatek/image/filogic-sl3000.mk || true
         sha256sum .config || true
@@ -141,7 +141,7 @@ jobs:
     - name: Apply DTS
       working-directory: /mnt/openwrt
       run: |
-        cp -v $GITHUB_WORKSPACE/repo/sl3000/dts/mt7981b-sl3000-emmc.dts target/linux/mediatek/dts/
+        cp -v $GITHUB_WORKSPACE/sl3000/dts/mt7981b-sl3000-emmc.dts target/linux/mediatek/dts/
 
     # ============================================================
     # 16. Apply MK（延续工程体系）
@@ -149,7 +149,7 @@ jobs:
     - name: Apply MK
       working-directory: /mnt/openwrt
       run: |
-        cp -v $GITHUB_WORKSPACE/repo/sl3000/mk/filogic-sl3000.mk target/linux/mediatek/image/
+        cp -v $GITHUB_WORKSPACE/sl3000/mk/filogic-sl3000.mk target/linux/mediatek/image/
 
     # ============================================================
     # 17. Build firmware（延续工程体系）
