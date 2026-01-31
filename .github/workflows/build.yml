@@ -1,198 +1,178 @@
-name: build-sl3000-2512
+name: build-sl3000-openwrt-2512
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+  packages: write
+
+env:
+  WORK_DIR: ${{ github.workspace }}/openwrt_2512
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  SOURCE_REPO: https://github.com/immortalwrt/immortalwrt.git
+  SOURCE_BRANCH: openwrt-25.12
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-sl3000-2512:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
 
     steps:
-    # ============================================================
-    # 0. Checkout
-    # ============================================================
-    - name: Checkout repo
-      uses: actions/checkout@v4
+      # ============================================================
+      # 0. Checkout repo
+      # ============================================================
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          path: repo
 
-    # ============================================================
-    # 1. Prepare build directory
-    # ============================================================
-    - name: Prepare /mnt/openwrt
-      run: |
-        sudo rm -rf /mnt/openwrt
-        sudo mkdir -p /mnt/openwrt
-        sudo chown $USER:$USER /mnt/openwrt
+      # ============================================================
+      # 1. Prepare build directory
+      # ============================================================
+      - name: Prepare build directory
+        run: |
+          sudo rm -rf "${{ env.WORK_DIR }}"
+          mkdir -p "${{ env.WORK_DIR }}"
 
-    # ============================================================
-    # 2. Clone ImmortalWrt 25.12
-    # ============================================================
-    - name: Clone ImmortalWrt 25.12
-      run: |
-        git clone https://github.com/immortalwrt/immortalwrt.git /mnt/openwrt
-        cd /mnt/openwrt
-        git checkout openwrt-25.12
+      # ============================================================
+      # 2. Clone ImmortalWrt 25.12
+      # ============================================================
+      - name: Clone ImmortalWrt 25.12
+        run: |
+          git clone --depth=1 -b "${{ env.SOURCE_BRANCH }}" "${{ env.SOURCE_REPO }}" "${{ env.WORK_DIR }}"
 
-    # ============================================================
-    # 3. Install dependencies
-    # ============================================================
-    - name: Install build dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y \
-          build-essential clang flex bison g++ gawk gcc-multilib \
-          gettext git libncurses5-dev libssl-dev python3 python3-pip \
-          rsync unzip zlib1g-dev file ccache
+      # ============================================================
+      # 3. Install dependencies + ccache
+      # ============================================================
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk gcc-multilib \
+            gettext git libncurses5-dev libssl-dev python3 python3-pip \
+            rsync unzip zlib1g-dev file ccache
 
-    # ============================================================
-    # 4. Cache ccache
-    # ============================================================
-    - name: Cache ccache
-      uses: actions/cache@v4
-      with:
-        path: ~/.ccache
-        key: ccache-${{ runner.os }}-${{ github.sha }}
-        restore-keys: |
-          ccache-${{ runner.os }}-
+          echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> $GITHUB_ENV
+          echo "CCACHE_COMPRESS=1" >> $GITHUB_ENV
+          echo "CCACHE_MAXSIZE=2G" >> $GITHUB_ENV
 
-    # ============================================================
-    # 5. Reset feeds.conf
-    # ============================================================
-    - name: Reset feeds.conf
-      working-directory: /mnt/openwrt
-      run: |
-        rm -f feeds.conf
-        cp feeds.conf.default feeds.conf
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-2512-${{ github.sha }}
+          restore-keys: |
+            ccache-2512-
 
-    # ============================================================
-    # 6. Ensure scripts executable
-    # ============================================================
-    - name: Ensure scripts executable
-      run: |
-        chmod +x $GITHUB_WORKSPACE/scripts/*.sh || true
+      # ============================================================
+      # 4. Update feeds (25.12 APK feeds)
+      # ============================================================
+      - name: Update feeds
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-    # ============================================================
-    # 7. Update feeds
-    # ============================================================
-    - name: Update feeds
-      working-directory: /mnt/openwrt
-      run: |
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+      # ============================================================
+      # 5. Apply three-piece set (DTS/MK/CONFIG)
+      # ============================================================
+      - name: Apply three-piece set
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          echo ">>> Applying DTS/MK/CONFIG..."
+          cp -v "$GITHUB_WORKSPACE/repo/sl3000/dts/mt7981b-sl-3000-emmc.dts" target/linux/mediatek/dts/
+          cp -v "$GITHUB_WORKSPACE/repo/sl3000/mk/filogic-sl3000.mk" target/linux/mediatek/image/
+          cp -v "$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config" .config
+          make defconfig
 
-    # ============================================================
-    # 8. Run clean-feeds.sh (三件套注册)
-    # ============================================================
-    - name: Run clean-feeds.sh
-      working-directory: /mnt/openwrt
-      run: |
-        bash $GITHUB_WORKSPACE/scripts/clean-feeds.sh
+      # ============================================================
+      # 6. Verify CONFIG loaded
+      # ============================================================
+      - name: Verify CONFIG loaded
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          echo ">>> Checking CONFIG..."
+          grep -q "CONFIG_TARGET_mediatek" .config \
+            && echo "CONFIG 已加载" \
+            || (echo "CONFIG 未加载"; exit 1)
 
-    # ============================================================
-    # 9. Apply CONFIG
-    # ============================================================
-    - name: Apply CONFIG
-      working-directory: /mnt/openwrt
-      run: |
-        cp -v $GITHUB_WORKSPACE/sl3000/config/sl3000.config .config
-        make defconfig
+      # ============================================================
+      # 7. Build tools
+      # ============================================================
+      - name: Build tools
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          make tools/install -j"$(nproc)" || make tools/install -j1 V=s
 
-    # ============================================================
-    # 10. Verify CONFIG loaded
-    # ============================================================
-    - name: Verify CONFIG loaded
-      working-directory: /mnt/openwrt
-      run: |
-        echo ">>> Checking CONFIG..."
-        grep -q "CONFIG_TARGET_mediatek" .config \
-          && echo "CONFIG 已加载" \
-          || (echo "CONFIG 未加载"; exit 1)
+      # ============================================================
+      # 8. Build toolchain
+      # ============================================================
+      - name: Build toolchain
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s
 
-    # ============================================================
-    # 11. Download sources
-    # ============================================================
-    - name: Download sources
-      working-directory: /mnt/openwrt
-      run: make download -j8 || make download -j1 V=s
+      # ============================================================
+      # 9. Build kernel
+      # ============================================================
+      - name: Build kernel
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          make target/linux/compile -j"$(nproc)" || make target/linux/compile -j1 V=s
 
-    # ============================================================
-    # 12. Build tools
-    # ============================================================
-    - name: Build tools
-      working-directory: /mnt/openwrt
-      run: make tools/install -j$(nproc) || make tools/install -j1 V=s
+      # ============================================================
+      # 10. Verify DTS compiled
+      # ============================================================
+      - name: Verify DTS compiled
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          echo ">>> Checking DTS..."
+          find build_dir/ -name "*sl-3000*.dtb" -print -quit \
+            || (echo "DTS 未被编译"; exit 1)
 
-    # ============================================================
-    # 13. Build toolchain
-    # ============================================================
-    - name: Build toolchain
-      working-directory: /mnt/openwrt
-      run: make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
+      # ============================================================
+      # 11. Verify MK applied
+      # ============================================================
+      - name: Verify MK applied
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          echo ">>> Checking MK..."
+          grep -R "sl3000" -n target/linux/mediatek/image/ \
+            || (echo "MK 未被加载"; exit 1)
 
-    # ============================================================
-    # 14. Build OpenSSL
-    # ============================================================
-    - name: Build OpenSSL
-      working-directory: /mnt/openwrt
-      run: make package/libs/openssl/compile -j$(nproc) || make package/libs/openssl/compile -j1 V=s
+      # ============================================================
+      # 12. Build packages (APK mode)
+      # ============================================================
+      - name: Build packages
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          make package/compile -j"$(nproc)" || make package/compile -j1 V=s
 
-    # ============================================================
-    # 15. Apply DTS
-    # ============================================================
-    - name: Apply DTS
-      working-directory: /mnt/openwrt
-      run: |
-        cp -v $GITHUB_WORKSPACE/sl3000/dts/mt7981b-sl-3000-emmc.dts target/linux/mediatek/dts/
+      # ============================================================
+      # 13. Build image (APK image builder)
+      # ============================================================
+      - name: Build image
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          make -j"$(nproc)" || make -j1 V=s
 
-    # ============================================================
-    # 16. Apply MK
-    # ============================================================
-    - name: Apply MK
-      working-directory: /mnt/openwrt
-      run: |
-        cp -v $GITHUB_WORKSPACE/sl3000/mk/filogic-sl3000.mk target/linux/mediatek/image/
+      # ============================================================
+      # 14. Verify final firmware
+      # ============================================================
+      - name: Verify final firmware
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          echo ">>> Checking final firmware..."
+          find bin/targets/ -name "*sl3000*" -print -quit \
+            || (echo "未生成 sl3000 固件"; exit 1)
 
-    # ============================================================
-    # 17. Verify DTS compiled
-    # ============================================================
-    - name: Verify DTS compiled
-      working-directory: /mnt/openwrt
-      run: |
-        echo ">>> Checking DTS..."
-        find build_dir/ -name "*sl-3000*.dtb" -print -quit \
-          || (echo "DTS 未被编译"; exit 1)
-
-    # ============================================================
-    # 18. Verify MK applied
-    # ============================================================
-    - name: Verify MK applied
-      working-directory: /mnt/openwrt
-      run: |
-        echo ">>> Checking MK..."
-        grep -R "sl3000" -n target/linux/mediatek/image/ \
-          || (echo "MK 未被加载"; exit 1)
-
-    # ============================================================
-    # 19. Build firmware
-    # ============================================================
-    - name: Build firmware
-      working-directory: /mnt/openwrt
-      run: make -j$(nproc) || make -j1 V=s
-
-    # ============================================================
-    # 20. Verify final firmware
-    # ============================================================
-    - name: Verify final firmware
-      working-directory: /mnt/openwrt
-      run: |
-        echo ">>> Checking final firmware..."
-        find bin/targets/ -name "*sl3000*" -print -quit \
-          || (echo "未生成 sl3000 固件"; exit 1)
-
-    # ============================================================
-    # 21. Upload firmware
-    # ============================================================
-    - name: Upload firmware
-      uses: actions/upload-artifact@v4
-      with:
-        name: SL3000-25.12
-        path: /mnt/openwrt/bin/targets
+      # ============================================================
+      # 15. Upload firmware
+      # ============================================================
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: sl3000-2512-firmware
+          path: |
+            ${{ env.WORK_DIR }}/bin/targets
