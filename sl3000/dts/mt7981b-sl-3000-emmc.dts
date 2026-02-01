@@ -27,7 +27,7 @@
 
 	memory@40000000 {
 		device_type = "memory";
-		reg = <0 0x40000000 0 0x40000000>; /* 1GB */
+		reg = <0 0x40000000 0 0x40000000>; /* 1GB DDR */
 	};
 
 	gpio-keys {
@@ -159,7 +159,7 @@
 			partitions {
 				factory: partition@0 {
 					label = "factory";
-					reg = <0x0 0x1000>;
+					reg = <0x0 0x2000>; /* 扩展到 8KB，避免 EEPROM 不足 */
 
 					nvmem-layout {
 						compatible = "fixed-layout";
