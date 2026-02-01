@@ -12,12 +12,13 @@ define Device/sl_3000-emmc
 	coremark \
 	blkid blockdev fdisk \
 	f2fsck mkf2fs \
-	kmod-mmc
+	kmod-mmc \
+	kmod-usb3
 
-  KERNEL := kernel-bin | lzma | fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
+  KERNEL := kernel-bin | xz | fit xz $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb
 
-  KERNEL_INITRAMFS := kernel-bin | lzma | \
-	fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
+  KERNEL_INITRAMFS := kernel-bin | xz | \
+	fit xz $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
 
   IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
 endef
