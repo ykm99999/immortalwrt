@@ -19,61 +19,93 @@ jobs:
     timeout-minutes: 360
 
     steps:
+      # ============================================================
+      # 0. Checkout repo
+      # ============================================================
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           path: repo
+          fetch-depth: 1
+          lfs: false
+          submodules: false
 
+      # ============================================================
+      # 1. Prepare build directory
+      # ============================================================
       - name: Prepare build directory
         run: |
           sudo rm -rf "${{ env.WORK_DIR }}"
           mkdir -p "${{ env.WORK_DIR }}"
 
+      # ============================================================
+      # 2. Clone ImmortalWrt（优化克隆速度）
+      # ============================================================
       - name: Clone ImmortalWrt 25.12
         run: |
-          git clone --depth=1 -b "${{ env.SOURCE_BRANCH }}" "${{ env.SOURCE_REPO }}" "${{ env.WORK_DIR }}"
+          git clone \
+            --depth=1 \
+            --single-branch \
+            --filter=blob:none \
+            -b "${{ env.SOURCE_BRANCH }}" \
+            "${{ env.SOURCE_REPO }}" \
+            "${{ env.WORK_DIR }}"
 
       # ============================================================
-      # 强制清理缓存（新增）
+      # 3. Restore dl cache（极大提升构建速度）
       # ============================================================
-      - name: Force clean build cache（强制清理缓存）
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          echo ">>> 强制清理 OpenWrt 构建缓存..."
-          rm -rf build_dir
-          rm -rf staging_dir
-          rm -rf tmp
-          rm -rf dl/*
+      - name: Restore dl cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.WORK_DIR }}/dl
+          key: dl-cache-2512
+          restore-keys: dl-cache-
 
-          echo ">>> 强制清理 ccache..."
-          rm -rf ${{ env.CCACHE_DIR }}
-          mkdir -p ${{ env.CCACHE_DIR }}
+      # ============================================================
+      # 4. Restore toolchain cache（按分支区分）
+      # ============================================================
+      - name: Restore toolchain cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.WORK_DIR }}/staging_dir/toolchain-*
+            ${{ env.WORK_DIR }}/build_dir/toolchain-*
+          key: toolchain-cache-${{ env.SOURCE_BRANCH }}
+          restore-keys: toolchain-cache-
 
-          echo ">>> 缓存清理完成（构建环境已完全干净）"
-
+      # ============================================================
+      # 5. Install dependencies（锁定 gcc 版本）
+      # ============================================================
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential clang flex bison g++ gawk gcc-multilib \
-            gettext git libncurses5-dev libssl-dev python3 python3-pip \
-            rsync unzip zlib1g-dev file ccache libelf-dev bc
+            gcc-12 g++-12 \
+            build-essential flex bison gawk \
+            gettext git libncurses5-dev libssl-dev \
+            python3 python3-pip rsync unzip zlib1g-dev \
+            file ccache libelf-dev bc
+
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
+
           echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> $GITHUB_ENV
           echo "CCACHE_COMPRESS=1" >> $GITHUB_ENV
           echo "CCACHE_MAXSIZE=2G" >> $GITHUB_ENV
 
-      - name: Cache ccache
+      # ============================================================
+      # 6. Restore ccache（修复 key）
+      # ============================================================
+      - name: Restore ccache
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-2512-${{ github.sha }}
-          restore-keys: |
-            ccache-2512-
+          key: ccache-2512
+          restore-keys: ccache-2512
 
       # ============================================================
-      # 三件套闭环
+      # 7. 三件套闭环
       # ============================================================
-
       - name: Copy DTS + Override MK
         working-directory: ${{ env.WORK_DIR }}
         run: |
@@ -96,45 +128,67 @@ jobs:
           make defconfig
 
       # ============================================================
-      # 构建链
+      # 8. 构建链（fail-fast）
       # ============================================================
-
       - name: Build tools
         working-directory: ${{ env.WORK_DIR }}
-        run: make tools/install -j"$(nproc)" || make tools/install -j1 V=s
+        run: make tools/install -j"$(nproc)" V=s || exit 1
 
       - name: Build toolchain
         working-directory: ${{ env.WORK_DIR }}
-        run: make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s
+        run: make toolchain/install -j"$(nproc)" V=s || exit 1
 
       - name: Build kernel
         working-directory: ${{ env.WORK_DIR }}
-        run: make target/linux/compile -j"$(nproc)" || make target/linux/compile -j1 V=s
+        run: make target/linux/compile -j"$(nproc)" V=s || exit 1
 
       - name: Build packages
         working-directory: ${{ env.WORK_DIR }}
-        run: make package/compile -j"$(nproc)" || make package/compile -j1 V=s
+        run: make package/compile -j"$(nproc)" V=s || exit 1
 
-      - name: Build image
+      - name: Build image（采集完整日志）
         working-directory: ${{ env.WORK_DIR }}
-        run: make -j"$(nproc)" || make -j1 V=s
+        run: |
+          make -j"$(nproc)" V=s | tee build.log
+          test ${PIPESTATUS[0]} -eq 0 || exit 1
 
       # ============================================================
-      # 校验 + 上传
+      # 9. 校验固件结构 + 生成 sha256sum
       # ============================================================
-
       - name: Verify final firmware
         working-directory: ${{ env.WORK_DIR }}
         run: |
           echo ">>> Checking final firmware..."
           ls -lh bin/targets/mediatek/filogic/*sl3000* || (echo "未生成 sl3000 固件"; exit 1)
 
+          echo ">>> 检查是否存在 sysupgrade 固件..."
+          ls bin/targets/mediatek/filogic/*sl3000*sysupgrade*.bin >/dev/null 2>&1 || (echo "未找到 sysupgrade 固件"; exit 1)
+
+          echo ">>> 生成 sha256sum..."
+          sha256sum bin/targets/mediatek/filogic/*sl3000* > sha256sums.txt
+
+      # ============================================================
+      # 10. 上传构建日志 + 指纹 + 固件
+      # ============================================================
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ env.WORK_DIR }}/build.log
+
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: sl3000-2512-firmware
-          path: ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/*sl3000*
+          path: |
+            ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/*sl3000*
+            ${{ env.WORK_DIR }}/sha256sums.txt
+            ${{ env.WORK_DIR }}/.buildinfo
 
+      # ============================================================
+      # 11. Release
+      # ============================================================
       - name: Release SL3000 Firmware
         uses: softprops/action-gh-release@v2
         with:
@@ -143,4 +197,7 @@ jobs:
           body: |
             自动构建的 SL3000 固件（OpenWrt 25.12）
             构建编号：${{ github.run_number }}
-          files: ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/*sl3000*
+          files: |
+            ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/*sl3000*
+            ${{ env.WORK_DIR }}/sha256sums.txt
+            ${{ env.WORK_DIR }}/.buildinfo
