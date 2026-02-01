@@ -63,13 +63,10 @@ jobs:
         run: |
           echo ">>> Applying DTS/MK/CONFIG..."
 
-          # 正确 DTS
           cp -v "$GITHUB_WORKSPACE/repo/sl3000/dts/mt7981b-sl3000-emmc.dts" target/linux/mediatek/dts/
 
-          # 将 MK 追加到 filogic.mk（OpenWrt 官方要求）
           cat "$GITHUB_WORKSPACE/repo/sl3000/mk/filogic-sl3000.mk" >> target/linux/mediatek/image/filogic.mk
 
-          # 注入 CONFIG
           cp -v "$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config" .config
           make defconfig
 
@@ -123,9 +120,23 @@ jobs:
           find bin/targets/ -name "*sl3000*" -print -quit \
             || (echo "未生成 sl3000 固件"; exit 1)
 
-      - name: Upload firmware
+      - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: sl3000-2512-firmware
           path: |
             ${{ env.WORK_DIR }}/bin/targets
+
+      # ================================
+      # 自动发布固件到 GitHub Release
+      # ================================
+      - name: Release SL3000 Firmware
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sl3000-2512-${{ github.run_number }}
+          name: SL3000 Firmware 25.12 Build ${{ github.run_number }}
+          body: |
+            自动构建的 SL3000 固件（OpenWrt 25.12）
+            构建编号：${{ github.run_number }}
+          files: |
+            ${{ env.WORK_DIR }}/bin/targets/**/sl3000*
