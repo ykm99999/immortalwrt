@@ -56,10 +56,12 @@ jobs:
       # 三件套闭环
       # ============================================================
 
-      - name: Override MK (覆盖官方 filogic.mk)
+      - name: Copy DTS + Override MK
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          echo ">>> Overriding official filogic.mk..."
+          echo ">>> Copy DTS + Override MK..."
+          cp -v "$GITHUB_WORKSPACE/repo/target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts" \
+                target/linux/mediatek/dts/
           cp -v "$GITHUB_WORKSPACE/repo/target/linux/mediatek/image/filogic.mk" \
                 target/linux/mediatek/image/filogic.mk
 
