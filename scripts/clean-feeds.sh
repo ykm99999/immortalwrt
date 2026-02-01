@@ -20,6 +20,7 @@ echo "=== 保留主树（不删除 package/system/* 等核心包） ==="
 echo "=== 白名单复制 LuCI 基础 ==="
 mkdir -p feeds/luci
 cp -r package/feeds/luci/* feeds/luci/ 2>/dev/null || true
+cp -r package/feeds/luci-base feeds/luci/ 2>/dev/null || true
 
 # ================================
 # 4. 复制 LuCI 主模块
@@ -27,6 +28,7 @@ cp -r package/feeds/luci/* feeds/luci/ 2>/dev/null || true
 echo "=== 复制 LuCI 主模块（default-settings 必需） ==="
 mkdir -p feeds/luci/modules
 cp -r package/feeds/luci/modules/* feeds/luci/modules/ 2>/dev/null || true
+cp -r package/feeds/luci/luci feeds/luci/ 2>/dev/null || true
 
 # ================================
 # 5. 复制 LuCI 中文语言包
@@ -34,6 +36,7 @@ cp -r package/feeds/luci/modules/* feeds/luci/modules/ 2>/dev/null || true
 echo "=== 复制 LuCI 中文语言包（25.12 正确命名 zh_Hans） ==="
 mkdir -p feeds/luci/i18n
 cp -r package/feeds/luci/i18n/*zh_Hans* feeds/luci/i18n/ 2>/dev/null || true
+cp -r package/feeds/luci/luci-i18n-base-zh-cn feeds/luci/ 2>/dev/null || true
 
 # ================================
 # 6. 禁用科学上网相关包
