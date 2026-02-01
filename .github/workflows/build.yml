@@ -8,7 +8,7 @@ permissions:
   packages: write
 
 env:
-  WORK_DIR: ${{ github.workspace }}/openwrt_2512
+  WORK_DIR: ${{ github.workspace }}/openwrt2512
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   SOURCE_REPO: https://github.com/immortalwrt/immortalwrt.git
   SOURCE_BRANCH: openwrt-25.12
@@ -102,6 +102,21 @@ jobs:
           restore-keys: ccache-2512
 
       # ============================================================
+      # 6.5 Download sources (self-heal) —— 严格延续插入
+      # ============================================================
+      - name: Download sources (self-heal)
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          echo ">>> [自愈] 同步三件套 DTS/MK/CONFIG 到源码目录"
+          cp -v "$GITHUB_WORKSPACE/repo/target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts" \
+                target/linux/mediatek/dts/
+          cp -v "$GITHUB_WORKSPACE/repo/target/linux/mediatek/image/filogic.mk" \
+                target/linux/mediatek/image/filogic.mk
+          cp -v "$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config" \
+                .config
+          echo ">>> [自愈] 三件套同步完成"
+
+      # ============================================================
       # 7. feeds update/install（关键修复）
       # ============================================================
       - name: Update & Install Feeds（关键步骤）
@@ -166,9 +181,9 @@ jobs:
       - name: Verify final firmware
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          ls -lh bin/targets/mediatek/filogic/*sl3000* || exit 1
-          ls bin/targets/mediatek/filogic/*sl3000*sysupgrade*.bin >/dev/null 2>&1 || exit 1
-          sha256sum bin/targets/mediatek/filogic/*sl3000* > sha256sums.txt
+          ls -lh bin/targets/mediatek/filogic/sl3000 || exit 1
+          ls bin/targets/mediatek/filogic/sl3000/*sysupgrade*.bin >/dev/null 2>&1 || exit 1
+          sha256sum bin/targets/mediatek/filogic/sl3000 > sha256sums.txt
 
       # ============================================================
       # 11. 上传构建日志 + 固件
@@ -185,7 +200,7 @@ jobs:
         with:
           name: sl3000-2512-firmware
           path: |
-            ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/*sl3000*
+            ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/sl3000
             ${{ env.WORK_DIR }}/sha256sums.txt
             ${{ env.WORK_DIR }}/.buildinfo
 
@@ -195,12 +210,12 @@ jobs:
       - name: Release SL3000 Firmware
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: sl3000-2512-${{ github.run_number }}
+          tagname: sl3000-2512-${{ github.run_number }}
           name: SL3000 Firmware 25.12 Build ${{ github.run_number }}
           body: |
             自动构建的 SL3000 固件（OpenWrt 25.12）
             构建编号：${{ github.run_number }}
           files: |
-            ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/*sl3000*
+            ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/sl3000
             ${{ env.WORK_DIR }}/sha256sums.txt
             ${{ env.WORK_DIR }}/.buildinfo
