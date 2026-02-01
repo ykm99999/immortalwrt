@@ -9,7 +9,9 @@
 
 / {
 	model = "SL-3000 eMMC Router";
-	compatible = "sl,sl3000-emmc", "mediatek,mt7981";
+	compatible = "sl,sl3000-emmc",
+		     "mediatek,mt7981b-sl3000-emmc",
+		     "mediatek,mt7981b";
 
 	aliases {
 		serial0 = &uart0;
