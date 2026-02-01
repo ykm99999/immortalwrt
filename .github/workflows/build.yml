@@ -19,32 +19,20 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      # ============================================================
-      # 0. Checkout repo
-      # ============================================================
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           path: repo
 
-      # ============================================================
-      # 1. Prepare build directory
-      # ============================================================
       - name: Prepare build directory
         run: |
           sudo rm -rf "${{ env.WORK_DIR }}"
           mkdir -p "${{ env.WORK_DIR }}"
 
-      # ============================================================
-      # 2. Clone ImmortalWrt 25.12
-      # ============================================================
       - name: Clone ImmortalWrt 25.12
         run: |
           git clone --depth=1 -b "${{ env.SOURCE_BRANCH }}" "${{ env.SOURCE_REPO }}" "${{ env.WORK_DIR }}"
 
-      # ============================================================
-      # 3. Install dependencies + ccache
-      # ============================================================
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -52,7 +40,6 @@ jobs:
             build-essential clang flex bison g++ gawk gcc-multilib \
             gettext git libncurses5-dev libssl-dev python3 python3-pip \
             rsync unzip zlib1g-dev file ccache
-
           echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> $GITHUB_ENV
           echo "CCACHE_COMPRESS=1" >> $GITHUB_ENV
           echo "CCACHE_MAXSIZE=2G" >> $GITHUB_ENV
@@ -65,18 +52,12 @@ jobs:
           restore-keys: |
             ccache-2512-
 
-      # ============================================================
-      # 4. Update feeds (25.12 APK feeds)
-      # ============================================================
       - name: Update feeds
         working-directory: ${{ env.WORK_DIR }}
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ============================================================
-      # 5. Apply three-piece set (DTS/MK/CONFIG)
-      # ============================================================
       - name: Apply three-piece set
         working-directory: ${{ env.WORK_DIR }}
         run: |
@@ -86,9 +67,6 @@ jobs:
           cp -v "$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config" .config
           make defconfig
 
-      # ============================================================
-      # 6. Verify CONFIG loaded
-      # ============================================================
       - name: Verify CONFIG loaded
         working-directory: ${{ env.WORK_DIR }}
         run: |
@@ -97,33 +75,18 @@ jobs:
             && echo "CONFIG 已加载" \
             || (echo "CONFIG 未加载"; exit 1)
 
-      # ============================================================
-      # 7. Build tools
-      # ============================================================
       - name: Build tools
         working-directory: ${{ env.WORK_DIR }}
-        run: |
-          make tools/install -j"$(nproc)" || make tools/install -j1 V=s
+        run: make tools/install -j"$(nproc)" || make tools/install -j1 V=s
 
-      # ============================================================
-      # 8. Build toolchain
-      # ============================================================
       - name: Build toolchain
         working-directory: ${{ env.WORK_DIR }}
-        run: |
-          make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s
+        run: make toolchain/install -j"$(nproc)" || make toolchain/install -j1 V=s
 
-      # ============================================================
-      # 9. Build kernel
-      # ============================================================
       - name: Build kernel
         working-directory: ${{ env.WORK_DIR }}
-        run: |
-          make target/linux/compile -j"$(nproc)" || make target/linux/compile -j1 V=s
+        run: make target/linux/compile -j"$(nproc)" || make target/linux/compile -j1 V=s
 
-      # ============================================================
-      # 10. Verify DTS compiled
-      # ============================================================
       - name: Verify DTS compiled
         working-directory: ${{ env.WORK_DIR }}
         run: |
@@ -131,35 +94,22 @@ jobs:
           find build_dir/ -name "*sl-3000*.dtb" -print -quit \
             || (echo "DTS 未被编译"; exit 1)
 
-      # ============================================================
-      # 11. Verify MK applied
-      # ============================================================
       - name: Verify MK applied
         working-directory: ${{ env.WORK_DIR }}
         run: |
           echo ">>> Checking MK..."
-          grep -R "sl3000" -n target/linux/mediatek/image/ \
-            || (echo "MK 未被加载"; exit 1)
+          test -f target/linux/mediatek/image/filogic-sl3000.mk \
+            && echo "MK 已加载" \
+            || (echo "MK 未加载"; exit 1)
 
-      # ============================================================
-      # 12. Build packages (APK mode)
-      # ============================================================
       - name: Build packages
         working-directory: ${{ env.WORK_DIR }}
-        run: |
-          make package/compile -j"$(nproc)" || make package/compile -j1 V=s
+        run: make package/compile -j"$(nproc)" || make package/compile -j1 V=s
 
-      # ============================================================
-      # 13. Build image (APK image builder)
-      # ============================================================
       - name: Build image
         working-directory: ${{ env.WORK_DIR }}
-        run: |
-          make -j"$(nproc)" || make -j1 V=s
+        run: make -j"$(nproc)" || make -j1 V=s
 
-      # ============================================================
-      # 14. Verify final firmware
-      # ============================================================
       - name: Verify final firmware
         working-directory: ${{ env.WORK_DIR }}
         run: |
@@ -167,9 +117,6 @@ jobs:
           find bin/targets/ -name "*sl3000*" -print -quit \
             || (echo "未生成 sl3000 固件"; exit 1)
 
-      # ============================================================
-      # 15. Upload firmware
-      # ============================================================
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
