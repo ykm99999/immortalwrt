@@ -77,4 +77,12 @@ echo "$MK_FILE" > .selfheal/mk.path
 echo "$CONFIG_FILE" > .selfheal/config.path
 
 echo ">>> 三件套路径已注册完成"
-echo ">>> clean-feeds.sh 执行完毕"
+
+# ================================
+# 10. 单设备激活提示
+# ================================
+if grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" .config; then
+    echo ">>> sl3000-emmc 已激活"
+fi
+
+echo "=== clean-feeds.sh v25.12-sl3000-final 完成 (可复现 + 三件套闭环, MK/DTS 已固定路径) ==="
