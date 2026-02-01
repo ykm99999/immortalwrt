@@ -73,12 +73,9 @@ echo ">>> [2/12] 检查文件可读性..."
 [ -s "$CONFIG_FILE" ] || { echo "Error: 模板 CONFIG 文件为空"; exit 1; }
 
 # --------------------------------
-# ③ 设备名一致性检测（模板阶段）
+# ③ 设备名一致性检测（模板阶段不检查激活字段）
 # --------------------------------
 echo ">>> [3/12] 检查设备名一致性..."
-grep -q "sl3000-emmc" "$CONFIG_FILE" || {
-    echo "Error: 模板 CONFIG 未包含 sl3000-emmc"; exit 1;
-}
 grep -q "mt7981b-sl3000-emmc" "$DTS_FILE" || {
     echo "Error: DTS 未定义 mt7981b-sl3000-emmc"; exit 1;
 }
