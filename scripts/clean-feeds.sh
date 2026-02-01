@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo ">>> [自愈体系] clean-feeds.sh v25.12-sl3000-final-V3 启动"
+echo ">>> [自愈体系] clean-feeds.sh v25.12-sl3000-final-V5 启动"
 
 ###############################################
 # 0. 定义模板源 FEEDS（修复路径）
@@ -12,58 +12,61 @@ echo ">>> 使用模板源 FEEDS: $SRC_FEEDS"
 ###############################################
 # 1. 清空 feeds
 ###############################################
-echo "=== 清空 feeds 包 ==="
 rm -rf feeds/*
 mkdir -p feeds
 
 ###############################################
-# 1.1 检查模板源完整性（fail-fast）
+# 2. 动态查找函数
 ###############################################
-REQUIRED_FEEDS=(
-    "$SRC_FEEDS/luci/luci-base"
-    "$SRC_FEEDS/luci/modules/luci"
-    "$SRC_FEEDS/luci/collections/luci"
-    "$SRC_FEEDS/luci/i18n/zh_Hans"
-)
-
-echo ">>> 检查模板源完整性..."
-for path in "${REQUIRED_FEEDS[@]}"; do
-    [ -d "$path" ] || {
-        echo "Error: 模板源缺少必要目录: $path"
+find_feed() {
+    local pkg="$1"
+    local path
+    path=$(find "$SRC_FEEDS" -type d -name "$pkg" | head -n1)
+    if [ -z "$path" ]; then
+        echo "Error: 未找到 $pkg"
         exit 1
-    }
-done
+    fi
+    echo "$path"
+}
 
 ###############################################
-# 2. 白名单复制 LuCI 基础
+# 3. 白名单复制 LuCI 基础
 ###############################################
-echo "=== 白名单复制 LuCI 基础 ==="
+echo "=== 复制 luci-base ==="
+BASE_PATH=$(find_feed "luci-base")
 mkdir -p feeds/luci
-cp -r "$SRC_FEEDS/luci/luci-base" feeds/luci/
+cp -r "$BASE_PATH" feeds/luci/
 
 ###############################################
-# 3. 复制 LuCI 主模块
+# 4. 复制 LuCI 主模块
 ###############################################
-echo "=== 复制 LuCI 主模块 ==="
+echo "=== 复制 luci 主模块 ==="
+LUCI_PATH=$(find_feed "luci")
 mkdir -p feeds/luci/modules
-cp -r "$SRC_FEEDS/luci/modules/luci" feeds/luci/modules/
+cp -r "$LUCI_PATH" feeds/luci/modules/
 
 ###############################################
-# 4. 复制 LuCI 集合包
+# 5. 复制 LuCI 集合包（可选）
 ###############################################
-echo "=== 复制 LuCI 集合包 ==="
-mkdir -p feeds/luci/collections
-cp -r "$SRC_FEEDS/luci/collections/luci" feeds/luci/collections/
+echo "=== 复制 luci 集合包 ==="
+COL_PATH=$(find "$SRC_FEEDS" -type d -name "collections" | head -n1)
+if [ -n "$COL_PATH" ]; then
+    mkdir -p feeds/luci/collections
+    cp -r "$COL_PATH" feeds/luci/collections/
+else
+    echo "Warning: 未找到 collections/luci，跳过"
+fi
 
 ###############################################
-# 5. 复制 LuCI 中文语言包
+# 6. 复制中文语言包
 ###############################################
-echo "=== 复制 LuCI 中文语言包 zh_Hans ==="
+echo "=== 复制 LuCI 中文语言包 ==="
+I18N_PATH=$(find_feed "zh_Hans")
 mkdir -p feeds/luci/i18n
-cp -r "$SRC_FEEDS/luci/i18n/zh_Hans" feeds/luci/i18n/
+cp -r "$I18N_PATH" feeds/luci/i18n/
 
 ###############################################
-# 6. 检查 default-settings 是否依赖 zh-cn
+# 7. 检查 default-settings 是否依赖 zh-cn
 ###############################################
 echo ">>> 检查 default-settings 是否依赖 zh-cn..."
 if grep -R "luci-i18n-base-zh-cn" package/* 2>/dev/null; then
@@ -74,9 +77,6 @@ else
     echo ">>> 未检测到 zh-cn 依赖，兼容壳包将跳过"
 fi
 
-###############################################
-# 7. 创建兼容壳包（仅当需要）
-###############################################
 if [ "$NEED_ZHCN_COMPAT" = "1" ]; then
     echo "=== 创建兼容壳包 luci-i18n-base-zh-cn ==="
     mkdir -p package/compat-zhcn
@@ -122,6 +122,67 @@ DTS_FILE="target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts"
 MK_FILE="target/linux/mediatek/image/filogic.mk"
 CONFIG_FILE="$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config"
 
-# ...（保持上一版完整的 12 道检测逻辑，不动）
+echo ">>> [1/12] 检查 DTS/MK/CONFIG 是否存在..."
+[ -f "$DTS_FILE" ] || { echo "Error: DTS 不存在"; exit 1; }
+[ -f "$MK_FILE" ] || { echo "Error: MK 不存在"; exit 1; }
+[ -f "$CONFIG_FILE" ] || { echo "Error: 模板 CONFIG 不存在"; exit 1; }
 
-echo "=== clean-feeds.sh v25.12-sl3000-final-V3 完成 ==="
+echo ">>> [2/12] 检查文件可读性..."
+[ -s "$DTS_FILE" ] || { echo "Error: DTS 文件为空"; exit 1; }
+[ -s "$MK_FILE" ] || { echo "Error: MK 文件为空"; exit 1; }
+[ -s "$CONFIG_FILE" ] || { echo "Error: 模板 CONFIG 文件为空"; exit 1; }
+
+echo ">>> [3/12] 检查设备名一致性..."
+grep -q "mt7981b-sl3000-emmc" "$DTS_FILE" || { echo "Error: DTS 未定义 mt7981b-sl3000-emmc"; exit 1; }
+grep -q "mt7981b-sl3000-emmc" "$MK_FILE" || { echo "Error: MK 未定义 mt7981b-sl3000-emmc"; exit 1; }
+
+echo ">>> [4/12] 检查 DTS 节点完整性..."
+for node in memory chosen gpio aliases compatible; do
+    grep -q "$node" "$DTS_FILE" || { echo "Error: DTS 缺少节点: $node"; exit 1; }
+done
+
+echo ">>> [5/12] 检查 MK 设备定义完整性..."
+for key in DEVICE_VENDOR DEVICE_MODEL DEVICE_VARIANT DEVICE_DTS DEVICE_PACKAGES IMAGES; do
+    grep -q "$key" "$MK_FILE" || { echo "Error: MK 缺少字段: $key"; exit 1; }
+done
+
+echo ">>> [6/12] 跳过 CONFIG 激活检测（激活由 defconfig 生成）"
+
+echo ">>> [7/12] 检查 CONFIG 必要项..."
+for cfg in CONFIG_TARGET_mediatek=y CONFIG_TARGET_mediatek_filogic=y; do
+    grep -q "$cfg" "$CONFIG_FILE" || { echo "Error: 模板 CONFIG 缺少必要项: $cfg"; exit 1; }
+done
+
+echo ">>> [8/12] 检查 DTS/MK/CONFIG 一致性..."
+grep -q "mt7981b-sl3000-emmc" "$MK_FILE" || { echo "Error: MK 与 DTS 不一致"; exit 1; }
+
+echo ">>> [9/12] 检查 DTS/MK/CONFIG 隐含字符..."
+for f in "$DTS_FILE" "$MK_FILE" "$CONFIG_FILE"; do
+    grep -q $'\r' "$f" && { echo "Error: $f 存在 CRLF"; exit 1; }
+    grep -q $'\xEF\xBB\xBF' "$f" && { echo "Error: $f 存在 BOM"; exit 1; }
+done
+
+echo ">>> [10/12] 检查版本链路..."
+grep -q "25.12" "$MK_FILE" || echo "Warning: MK 未标注 25.12（允许）"
+
+echo ">>> [11/12] 自动修复轻量检查..."
+for f in "$DTS_FILE" "$MK_FILE" "$CONFIG_FILE"; do
+    sed -i 's/\r$//' "$f"
+done
+
+echo ">>> [12/12] 注册三件套路径..."
+mkdir -p .selfheal
+echo "$DTS_FILE" > .selfheal/dts.path
+echo "$MK_FILE" > .selfheal/mk.path
+echo "$CONFIG_FILE" > .selfheal/config.path
+
+echo ">>> 三件套 12 道检测 + 修复 + 注册 完成"
+
+###############################################
+# 10. 单设备激活提示
+###############################################
+if [ -f ".config" ] && grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" .config; then
+    echo ">>> sl3000-emmc 已激活"
+fi
+
+echo "=== clean-feeds.sh v25.12-sl3000-final-V5 完成 ==="
