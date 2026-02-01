@@ -1,19 +1,19 @@
 #!/bin/bash
 set -e
 
-echo ">>> [自愈体系] clean-feeds.sh v25.12-sl3000-final-V7 启动"
+echo ">>> [自愈体系] clean-feeds.sh v25.12-sl3000-final-V10 启动"
 
 SRC_FEEDS="$PWD/feeds"
 echo ">>> 使用模板源 FEEDS: $SRC_FEEDS"
 
 rm -rf feeds/*
-mkdir -p feeds
+mkdir -p feeds/luci
 
 ###############################################
-# 1. 复制 LuCI 基础包
+# 1. 复制 LuCI 基础库（真实路径）
 ###############################################
 echo "=== 复制 luci-base ==="
-cp -r "$SRC_FEEDS/luci/luci-base" feeds/luci/
+cp -r "$SRC_FEEDS/luci/libs/luci-base" feeds/luci/
 
 ###############################################
 # 2. 复制 LuCI 模块
@@ -37,19 +37,11 @@ mkdir -p feeds/luci/i18n
 cp -r "$SRC_FEEDS/luci/i18n/zh_Hans" feeds/luci/i18n/
 
 ###############################################
-# 5. 检查 default-settings 是否依赖 zh-cn
+# 5. default-settings zh-cn 兼容壳包
 ###############################################
 echo ">>> 检查 default-settings 是否依赖 zh-cn..."
 if grep -R "luci-i18n-base-zh-cn" package/* 2>/dev/null; then
-    NEED_ZHCN_COMPAT=1
-    echo ">>> 检测到 zh-cn 旧依赖，启用兼容壳包"
-else
-    NEED_ZHCN_COMPAT=0
-    echo ">>> 未检测到 zh-cn 依赖，兼容壳包将跳过"
-fi
-
-if [ "$NEED_ZHCN_COMPAT" = "1" ]; then
-    echo "=== 创建兼容壳包 luci-i18n-base-zh-cn ==="
+    echo ">>> 检测到 zh-cn 旧依赖，创建兼容壳包"
     mkdir -p package/compat-zhcn
     cat > package/compat-zhcn/Makefile << 'EOF'
 include $(TOPDIR)/rules.mk
@@ -73,6 +65,8 @@ endef
 
 $(eval $(call BuildPackage,luci-i18n-base-zh-cn))
 EOF
+else
+    echo ">>> 未检测到 zh-cn 依赖，跳过兼容壳包"
 fi
 
 ###############################################
@@ -156,4 +150,4 @@ if [ -f ".config" ] && grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emm
     echo ">>> sl3000-emmc 已激活"
 fi
 
-echo "=== clean-feeds.sh v25.12-sl3000-final-V7 完成 ==="
+echo "=== clean-feeds.sh v25.12-sl3000-final-V10 完成 ==="
