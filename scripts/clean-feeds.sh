@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo ">>> [自愈体系] clean-feeds.sh v25.12-sl3000 启动"
+echo ">>> [自愈体系] clean-feeds.sh v25.12-sl3000-final 启动"
 
 # ================================
 # 1. 清空 feeds
@@ -48,13 +48,13 @@ echo "=== 禁用所有底层库依赖（libev/libsodium/libudns/boost 等） ===
 echo "=== 禁用 golang / rust ==="
 
 # ================================
-# 8. 三件套自动检测
+# 8. 三件套自动检测（官方目录）
 # ================================
 echo ">>> [三件套] 自动检测与自愈注册启动..."
 
-DTS_FILE=$(find "$GITHUB_WORKSPACE/sl3000/dts" -name "*.dts" | head -n 1)
-MK_FILE=$(find "$GITHUB_WORKSPACE/sl3000/mk" -name "*.mk" | head -n 1)
-CONFIG_FILE=$(find "$GITHUB_WORKSPACE/sl3000/config" -name "*.config" | head -n 1)
+DTS_FILE="target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts"
+MK_FILE="target/linux/mediatek/image/filogic.mk"
+CONFIG_FILE="sl3000/config/sl3000.config"
 
 if [ ! -f "$DTS_FILE" ] || [ ! -f "$MK_FILE" ]; then
     echo "Error: 未找到 DTS 或 MK 补丁："
