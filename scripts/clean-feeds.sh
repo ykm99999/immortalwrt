@@ -31,9 +31,9 @@ cp -r package/feeds/luci/modules/* feeds/luci/modules/ 2>/dev/null || true
 # ================================
 # 5. 复制 LuCI 中文语言包
 # ================================
-echo "=== 复制 LuCI 中文语言包（default-settings 必需） ==="
+echo "=== 复制 LuCI 中文语言包（25.12 正确命名 zh_Hans） ==="
 mkdir -p feeds/luci/i18n
-cp -r package/feeds/luci/i18n/*zh-cn* feeds/luci/i18n/ 2>/dev/null || true
+cp -r package/feeds/luci/i18n/*zh_Hans* feeds/luci/i18n/ 2>/dev/null || true
 
 # ================================
 # 6. 禁用科学上网相关包
@@ -57,7 +57,7 @@ MK_FILE=$(find "$GITHUB_WORKSPACE/sl3000/mk" -name "*.mk" | head -n 1)
 CONFIG_FILE=$(find "$GITHUB_WORKSPACE/sl3000/config" -name "*.config" | head -n 1)
 
 if [ ! -f "$DTS_FILE" ] || [ ! -f "$MK_FILE" ]; then
-    echo "Error:  未找到 DTS 或 MK 补丁："
+    echo "Error: 未找到 DTS 或 MK 补丁："
     echo "  DTS: $DTS_FILE"
     echo "  MK : $MK_FILE"
     exit 1
