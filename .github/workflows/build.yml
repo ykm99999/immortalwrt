@@ -27,8 +27,6 @@ jobs:
         with:
           path: repo
           fetch-depth: 1
-          lfs: false
-          submodules: false
 
       # ============================================================
       # 1. Prepare build directory
@@ -52,7 +50,7 @@ jobs:
             "${{ env.WORK_DIR }}"
 
       # ============================================================
-      # 3. Restore dl cache（极大提升构建速度）
+      # 3. Restore dl cache
       # ============================================================
       - name: Restore dl cache
         uses: actions/cache@v4
@@ -62,7 +60,7 @@ jobs:
           restore-keys: dl-cache-
 
       # ============================================================
-      # 4. Restore toolchain cache（按分支区分）
+      # 4. Restore toolchain cache
       # ============================================================
       - name: Restore toolchain cache
         uses: actions/cache@v4
@@ -74,7 +72,7 @@ jobs:
           restore-keys: toolchain-cache-
 
       # ============================================================
-      # 5. Install dependencies（锁定 gcc 版本）
+      # 5. Install dependencies
       # ============================================================
       - name: Install dependencies
         run: |
@@ -94,7 +92,7 @@ jobs:
           echo "CCACHE_MAXSIZE=2G" >> $GITHUB_ENV
 
       # ============================================================
-      # 6. Restore ccache（修复 key）
+      # 6. Restore ccache
       # ============================================================
       - name: Restore ccache
         uses: actions/cache@v4
@@ -104,12 +102,22 @@ jobs:
           restore-keys: ccache-2512
 
       # ============================================================
-      # 7. 三件套闭环
+      # 7. feeds update/install（关键修复）
+      # ============================================================
+      - name: Update & Install Feeds（关键步骤）
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          echo ">>> 执行 feeds update/install..."
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          echo ">>> feeds 初始化完成"
+
+      # ============================================================
+      # 8. 三件套闭环
       # ============================================================
       - name: Copy DTS + Override MK
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          echo ">>> Copy DTS + Override MK..."
           cp -v "$GITHUB_WORKSPACE/repo/target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts" \
                 target/linux/mediatek/dts/
           cp -v "$GITHUB_WORKSPACE/repo/target/linux/mediatek/image/filogic.mk" \
@@ -128,7 +136,7 @@ jobs:
           make defconfig
 
       # ============================================================
-      # 8. 构建链（fail-fast）
+      # 9. 构建链（fail-fast）
       # ============================================================
       - name: Build tools
         working-directory: ${{ env.WORK_DIR }}
@@ -153,22 +161,17 @@ jobs:
           test ${PIPESTATUS[0]} -eq 0 || exit 1
 
       # ============================================================
-      # 9. 校验固件结构 + 生成 sha256sum
+      # 10. 校验固件结构 + 生成 sha256sum
       # ============================================================
       - name: Verify final firmware
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          echo ">>> Checking final firmware..."
-          ls -lh bin/targets/mediatek/filogic/*sl3000* || (echo "未生成 sl3000 固件"; exit 1)
-
-          echo ">>> 检查是否存在 sysupgrade 固件..."
-          ls bin/targets/mediatek/filogic/*sl3000*sysupgrade*.bin >/dev/null 2>&1 || (echo "未找到 sysupgrade 固件"; exit 1)
-
-          echo ">>> 生成 sha256sum..."
+          ls -lh bin/targets/mediatek/filogic/*sl3000* || exit 1
+          ls bin/targets/mediatek/filogic/*sl3000*sysupgrade*.bin >/dev/null 2>&1 || exit 1
           sha256sum bin/targets/mediatek/filogic/*sl3000* > sha256sums.txt
 
       # ============================================================
-      # 10. 上传构建日志 + 指纹 + 固件
+      # 11. 上传构建日志 + 固件
       # ============================================================
       - name: Upload build log
         if: always()
@@ -187,7 +190,7 @@ jobs:
             ${{ env.WORK_DIR }}/.buildinfo
 
       # ============================================================
-      # 11. Release
+      # 12. Release
       # ============================================================
       - name: Release SL3000 Firmware
         uses: softprops/action-gh-release@v2
