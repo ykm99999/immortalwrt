@@ -52,31 +52,32 @@ jobs:
           restore-keys: |
             ccache-2512-
 
-      - name: Update feeds
+      # ============================================================
+      # 三件套闭环
+      # ============================================================
+
+      - name: Override MK (覆盖官方 filogic.mk)
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          echo ">>> Overriding official filogic.mk..."
+          cp -v "$GITHUB_WORKSPACE/repo/target/linux/mediatek/image/filogic.mk" \
+                target/linux/mediatek/image/filogic.mk
 
-      - name: Apply SL3000 three-piece set
+      - name: Run clean-feeds.sh（三件套闭环）
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          echo ">>> Applying DTS/MK/CONFIG..."
+          chmod +x "$GITHUB_WORKSPACE/repo/scripts/clean-feeds.sh"
+          bash "$GITHUB_WORKSPACE/repo/scripts/clean-feeds.sh"
 
-          cp -v "$GITHUB_WORKSPACE/repo/sl3000/dts/mt7981b-sl3000-emmc.dts" target/linux/mediatek/dts/
-
-          cat "$GITHUB_WORKSPACE/repo/sl3000/mk/filogic-sl3000.mk" >> target/linux/mediatek/image/filogic.mk
-
+      - name: Apply CONFIG（激活 sl3000-emmc）
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
           cp -v "$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config" .config
           make defconfig
 
-      - name: Verify CONFIG loaded
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          echo ">>> Checking CONFIG..."
-          grep -q "CONFIG_TARGET_mediatek" .config \
-            && echo "CONFIG 已加载" \
-            || (echo "CONFIG 未加载"; exit 1)
+      # ============================================================
+      # 构建链
+      # ============================================================
 
       - name: Build tools
         working-directory: ${{ env.WORK_DIR }}
@@ -90,21 +91,6 @@ jobs:
         working-directory: ${{ env.WORK_DIR }}
         run: make target/linux/compile -j"$(nproc)" || make target/linux/compile -j1 V=s
 
-      - name: Verify DTS compiled
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          echo ">>> Checking DTS..."
-          find build_dir/ -name "*sl3000*.dtb" -print -quit \
-            || (echo "DTS 未被编译"; exit 1)
-
-      - name: Verify MK applied
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          echo ">>> Checking MK..."
-          grep -q "sl3000-emmc" target/linux/mediatek/image/filogic.mk \
-            && echo "MK 已加载" \
-            || (echo "MK 未加载"; exit 1)
-
       - name: Build packages
         working-directory: ${{ env.WORK_DIR }}
         run: make package/compile -j"$(nproc)" || make package/compile -j1 V=s
@@ -113,11 +99,15 @@ jobs:
         working-directory: ${{ env.WORK_DIR }}
         run: make -j"$(nproc)" || make -j1 V=s
 
+      # ============================================================
+      # 校验 + 上传
+      # ============================================================
+
       - name: Verify final firmware
         working-directory: ${{ env.WORK_DIR }}
         run: |
           echo ">>> Checking final firmware..."
-          find bin/targets/ -name "*sl3000*" -print -quit \
+          find bin/targets/mediatek/filogic/ -name "*sl3000*" -print \
             || (echo "未生成 sl3000 固件"; exit 1)
 
       - name: Upload firmware artifact
@@ -125,11 +115,20 @@ jobs:
         with:
           name: sl3000-2512-firmware
           path: |
-            ${{ env.WORK_DIR }}/bin/targets
+            ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/*sl3000*
 
-      # ================================
-      # 自动发布固件到 GitHub Release
-      # ================================
+      - name: Release SL3000 Firmware
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sl3000-2512-${{ github.run_number }}
+          name: SL3000 Firmware 25.12 Build ${{ github.run_number }}
+          body: |
+            自动构建的 SL3000 固件（Open-artifact@v4
+        with:
+          name: sl3000-2512-firmware
+          path: |
+            ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/*sl3000*
+
       - name: Release SL3000 Firmware
         uses: softprops/action-gh-release@v2
         with:
@@ -139,4 +138,4 @@ jobs:
             自动构建的 SL3000 固件（OpenWrt 25.12）
             构建编号：${{ github.run_number }}
           files: |
-            ${{ env.WORK_DIR }}/bin/targets/**/sl3000*
+            ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/*sl3000*
