@@ -1,72 +1,43 @@
 #!/bin/bash
 set -e
 
-echo ">>> [自愈体系] clean-feeds.sh v25.12-sl3000-final-V5 启动"
+echo ">>> [自愈体系] clean-feeds.sh v25.12-sl3000-final-V7 启动"
 
-###############################################
-# 0. 定义模板源 FEEDS（修复路径）
-###############################################
 SRC_FEEDS="$PWD/feeds"
 echo ">>> 使用模板源 FEEDS: $SRC_FEEDS"
 
-###############################################
-# 1. 清空 feeds
-###############################################
 rm -rf feeds/*
 mkdir -p feeds
 
 ###############################################
-# 2. 动态查找函数
-###############################################
-find_feed() {
-    local pkg="$1"
-    local path
-    path=$(find "$SRC_FEEDS" -type d -name "$pkg" | head -n1)
-    if [ -z "$path" ]; then
-        echo "Error: 未找到 $pkg"
-        exit 1
-    fi
-    echo "$path"
-}
-
-###############################################
-# 3. 白名单复制 LuCI 基础
+# 1. 复制 LuCI 基础包
 ###############################################
 echo "=== 复制 luci-base ==="
-BASE_PATH=$(find_feed "luci-base")
-mkdir -p feeds/luci
-cp -r "$BASE_PATH" feeds/luci/
+cp -r "$SRC_FEEDS/luci/luci-base" feeds/luci/
 
 ###############################################
-# 4. 复制 LuCI 主模块
+# 2. 复制 LuCI 模块
 ###############################################
-echo "=== 复制 luci 主模块 ==="
-LUCI_PATH=$(find_feed "luci")
+echo "=== 复制 LuCI 模块 ==="
 mkdir -p feeds/luci/modules
-cp -r "$LUCI_PATH" feeds/luci/modules/
+cp -r "$SRC_FEEDS/luci/modules/"* feeds/luci/modules/
 
 ###############################################
-# 5. 复制 LuCI 集合包（可选）
+# 3. 复制 LuCI 集合包
 ###############################################
-echo "=== 复制 luci 集合包 ==="
-COL_PATH=$(find "$SRC_FEEDS" -type d -name "collections" | head -n1)
-if [ -n "$COL_PATH" ]; then
-    mkdir -p feeds/luci/collections
-    cp -r "$COL_PATH" feeds/luci/collections/
-else
-    echo "Warning: 未找到 collections/luci，跳过"
-fi
+echo "=== 复制 LuCI 集合包 ==="
+mkdir -p feeds/luci/collections
+cp -r "$SRC_FEEDS/luci/collections/"* feeds/luci/collections/
 
 ###############################################
-# 6. 复制中文语言包
+# 4. 复制 LuCI 中文语言包
 ###############################################
 echo "=== 复制 LuCI 中文语言包 ==="
-I18N_PATH=$(find_feed "zh_Hans")
 mkdir -p feeds/luci/i18n
-cp -r "$I18N_PATH" feeds/luci/i18n/
+cp -r "$SRC_FEEDS/luci/i18n/zh_Hans" feeds/luci/i18n/
 
 ###############################################
-# 7. 检查 default-settings 是否依赖 zh-cn
+# 5. 检查 default-settings 是否依赖 zh-cn
 ###############################################
 echo ">>> 检查 default-settings 是否依赖 zh-cn..."
 if grep -R "luci-i18n-base-zh-cn" package/* 2>/dev/null; then
@@ -105,7 +76,7 @@ EOF
 fi
 
 ###############################################
-# 8. feeds 污染检测
+# 6. feeds 污染检测
 ###############################################
 echo ">>> 检查 feeds 是否被污染..."
 if find feeds -type f | grep -v "luci" | grep -q .; then
@@ -114,7 +85,7 @@ if find feeds -type f | grep -v "luci" | grep -q .; then
 fi
 
 ###############################################
-# 9. 三件套自动检测（旗舰版 12 道检测）
+# 7. 三件套自动检测（旗舰版 12 道检测）
 ###############################################
 echo ">>> [三件套] 自动检测与自愈注册启动..."
 
@@ -179,10 +150,10 @@ echo "$CONFIG_FILE" > .selfheal/config.path
 echo ">>> 三件套 12 道检测 + 修复 + 注册 完成"
 
 ###############################################
-# 10. 单设备激活提示
+# 8. 单设备激活提示
 ###############################################
 if [ -f ".config" ] && grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" .config; then
     echo ">>> sl3000-emmc 已激活"
 fi
 
-echo "=== clean-feeds.sh v25.12-sl3000-final-V5 完成 ==="
+echo "=== clean-feeds.sh v25.12-sl3000-final-V7 完成 ==="
