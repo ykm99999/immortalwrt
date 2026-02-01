@@ -1,75 +1,51 @@
 #!/bin/bash
 set -e
 
-echo ">>> [自愈体系] clean-feeds.sh v25.12-sl3000-auto-luci-path 启动"
+echo ">>> [自愈体系] clean-feeds.sh v25.12-sl3000-final-V12 启动"
 
-SRC_FEEDS="$PWD/feeds"
-echo ">>> 使用模板源 FEEDS: $SRC_FEEDS"
+# ImmortalWrt 25.12 的 LuCI 不在 feeds，而是在 package/luci
+SRC_LUCI="$PWD/package/luci"
+DEST_FEEDS="$PWD/feeds/luci"
 
-if [ ! -d "$SRC_FEEDS" ]; then
-    echo "Error: 源 feeds 目录不存在: $SRC_FEEDS"
+echo ">>> LuCI 源路径: $SRC_LUCI"
+
+if [ ! -d "$SRC_LUCI" ]; then
+    echo "Error: 未找到 LuCI 源目录: $SRC_LUCI"
     exit 1
 fi
 
-echo ">>> 当前 feeds 目录结构（顶层）:"
-ls -R "$SRC_FEEDS" || true
-
-rm -rf feeds/*
-mkdir -p feeds/luci
+# 清理并创建 feeds/luci
+rm -rf "$DEST_FEEDS"
+mkdir -p "$DEST_FEEDS"
 
 ###############################################
-# 1. 自动探测 luci-base 真实路径
+# 1. 复制 luci-base（真实路径）
 ###############################################
-echo ">>> 自动查找 luci-base 目录..."
-LUCI_BASE_SRC="$(find "$SRC_FEEDS" -maxdepth 5 -type d -name 'luci-base' | head -n 1 || true)"
-
-if [ -z "$LUCI_BASE_SRC" ]; then
-    echo "Error: 在 $SRC_FEEDS 下未找到 luci-base 目录"
-    echo ">>> 调试信息：当前 feeds/luci 结构如下："
-    if [ -d "$SRC_FEEDS/luci" ]; then
-        ls -R "$SRC_FEEDS/luci" || true
-    else
-        echo "Warning: $SRC_FEEDS/luci 目录不存在"
-    fi
-    exit 1
-fi
-
-echo ">>> 检测到 luci-base 真实路径: $LUCI_BASE_SRC"
 echo "=== 复制 luci-base ==="
-cp -r "$LUCI_BASE_SRC" feeds/luci/
+cp -r "$SRC_LUCI/libs/luci-base" "$DEST_FEEDS/"
 
 ###############################################
-# 2. 复制 LuCI 模块（如果存在）
+# 2. 复制 LuCI 模块
 ###############################################
-if [ -d "$SRC_FEEDS/luci/modules" ]; then
-    echo "=== 复制 LuCI 模块 ==="
-    mkdir -p feeds/luci/modules
-    cp -r "$SRC_FEEDS/luci/modules/"* feeds/luci/modules/ || true
-else
-    echo ">>> 未找到 $SRC_FEEDS/luci/modules，跳过模块复制"
-fi
+echo "=== 复制 LuCI 模块 ==="
+mkdir -p "$DEST_FEEDS/modules"
+cp -r "$SRC_LUCI/modules/"* "$DEST_FEEDS/modules/"
 
 ###############################################
-# 3. 复制 LuCI 集合包（如果存在）
+# 3. 复制 LuCI 集合包
 ###############################################
-if [ -d "$SRC_FEEDS/luci/collections" ]; then
-    echo "=== 复制 LuCI 集合包 ==="
-    mkdir -p feeds/luci/collections
-    cp -r "$SRC_FEEDS/luci/collections/"* feeds/luci/collections/ || true
-else
-    echo ">>> 未找到 $SRC_FEEDS/luci/collections，跳过集合包复制"
-fi
+echo "=== 复制 LuCI 集合包 ==="
+mkdir -p "$DEST_FEEDS/collections"
+cp -r "$SRC_LUCI/collections/"* "$DEST_FEEDS/collections/"
 
 ###############################################
-# 4. 复制 LuCI 中文语言包（如果存在）
+# 4. 复制 LuCI 中文语言包
 ###############################################
-if [ -d "$SRC_FEEDS/luci/i18n/zh_Hans" ]; then
-    echo "=== 复制 LuCI 中文语言包 zh_Hans ==="
-    mkdir -p feeds/luci/i18n
-    cp -r "$SRC_FEEDS/luci/i18n/zh_Hans" feeds/luci/i18n/
-else
-    echo ">>> 未找到 $SRC_FEEDS/luci/i18n/zh_Hans，跳过中文语言包复制"
-fi
+echo "=== 复制 LuCI 中文语言包 ==="
+mkdir -p "$DEST_FEEDS/i18n"
+cp -r "$SRC_LUCI/i18n/zh_Hans" "$DEST_FEEDS/i18n/"
+
+echo ">>> LuCI 复制完成（来自 package/luci，而非 feeds/luci）"
 
 ###############################################
 # 5. default-settings zh-cn 兼容壳包
@@ -105,7 +81,7 @@ else
 fi
 
 ###############################################
-# 6. feeds 污染检测（保留）
+# 6. feeds 污染检测
 ###############################################
 echo ">>> 检查 feeds 是否被污染..."
 if find feeds -type f | grep -v "luci" | grep -q .; then
@@ -114,7 +90,7 @@ if find feeds -type f | grep -v "luci" | grep -q .; then
 fi
 
 ###############################################
-# 7. 三件套 12 道检测（保持你原逻辑）
+# 7. 三件套自动检测（保持你原版 12 道检测）
 ###############################################
 echo ">>> [三件套] 自动检测与自愈注册启动..."
 
@@ -178,11 +154,4 @@ echo "$CONFIG_FILE" > .selfheal/config.path
 
 echo ">>> 三件套 12 道检测 + 修复 + 注册 完成"
 
-###############################################
-# 8. 单设备激活提示
-###############################################
-if [ -f ".config" ] && grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" .config; then
-    echo ">>> sl3000-emmc 已激活"
-fi
-
-echo "=== clean-feeds.sh v25.12-sl3000-auto-luci-path 完成 ==="
+echo "=== clean-feeds.sh v25.12-sl3000-final-V12 完成 ==="
