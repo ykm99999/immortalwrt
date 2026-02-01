@@ -33,6 +33,24 @@ jobs:
         run: |
           git clone --depth=1 -b "${{ env.SOURCE_BRANCH }}" "${{ env.SOURCE_REPO }}" "${{ env.WORK_DIR }}"
 
+      # ============================================================
+      # 强制清理缓存（新增）
+      # ============================================================
+      - name: Force clean build cache（强制清理缓存）
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          echo ">>> 强制清理 OpenWrt 构建缓存..."
+          rm -rf build_dir
+          rm -rf staging_dir
+          rm -rf tmp
+          rm -rf dl/*
+
+          echo ">>> 强制清理 ccache..."
+          rm -rf ${{ env.CCACHE_DIR }}
+          mkdir -p ${{ env.CCACHE_DIR }}
+
+          echo ">>> 缓存清理完成（构建环境已完全干净）"
+
       - name: Install dependencies
         run: |
           sudo apt-get update
