@@ -54,7 +54,7 @@ echo ">>> [三件套] 自动检测与自愈注册启动..."
 
 DTS_FILE="target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts"
 MK_FILE="target/linux/mediatek/image/filogic.mk"
-CONFIG_FILE="$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config"   # ★ 修复
+CONFIG_FILE="$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config"   # ★ 模板 config（正确）
 
 # --------------------------------
 # ① 文件存在性检测
@@ -62,7 +62,7 @@ CONFIG_FILE="$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config"   # ★ 修复
 echo ">>> [1/12] 检查 DTS/MK/CONFIG 是否存在..."
 [ -f "$DTS_FILE" ] || { echo "Error: DTS 不存在"; exit 1; }
 [ -f "$MK_FILE" ] || { echo "Error: MK 不存在"; exit 1; }
-[ -f "$CONFIG_FILE" ] || { echo "Error: CONFIG 不存在"; exit 1; }
+[ -f "$CONFIG_FILE" ] || { echo "Error: 模板 CONFIG 不存在"; exit 1; }
 
 # --------------------------------
 # ② 文件可读性检测
@@ -70,16 +70,20 @@ echo ">>> [1/12] 检查 DTS/MK/CONFIG 是否存在..."
 echo ">>> [2/12] 检查文件可读性..."
 [ -s "$DTS_FILE" ] || { echo "Error: DTS 文件为空"; exit 1; }
 [ -s "$MK_FILE" ] || { echo "Error: MK 文件为空"; exit 1; }
-[ -s "$CONFIG_FILE" ] || { echo "Error: CONFIG 文件为空"; exit 1; }
+[ -s "$CONFIG_FILE" ] || { echo "Error: 模板 CONFIG 文件为空"; exit 1; }
 
 # --------------------------------
-# ③ 设备名一致性检测
+# ③ 设备名一致性检测（模板阶段）
 # --------------------------------
 echo ">>> [3/12] 检查设备名一致性..."
-grep -q "sl3000-emmc" "$MK_FILE" || { echo "Error: MK 未定义 sl3000-emmc"; exit 1; }
-grep -q "mt7981b-sl3000-emmc" "$DTS_FILE" || { echo "Error: DTS 未定义 mt7981b-sl3000-emmc"; exit 1; }
-grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" "$CONFIG_FILE" || {
-    echo "Error: CONFIG 未激活 sl3000-emmc"; exit 1;
+grep -q "sl3000-emmc" "$CONFIG_FILE" || {
+    echo "Error: 模板 CONFIG 未包含 sl3000-emmc"; exit 1;
+}
+grep -q "mt7981b-sl3000-emmc" "$DTS_FILE" || {
+    echo "Error: DTS 未定义 mt7981b-sl3000-emmc"; exit 1;
+}
+grep -q "mt7981b-sl3000-emmc" "$MK_FILE" || {
+    echo "Error: MK 未定义 mt7981b-sl3000-emmc"; exit 1;
 }
 
 # --------------------------------
@@ -99,19 +103,16 @@ for key in DEVICE_VENDOR DEVICE_MODEL DEVICE_VARIANT DEVICE_DTS DEVICE_PACKAGES 
 done
 
 # --------------------------------
-# ⑥ CONFIG 激活检测
+# ⑥ CONFIG 激活检测（模板阶段跳过）
 # --------------------------------
-echo ">>> [6/12] 检查 CONFIG 激活状态..."
-grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" "$CONFIG_FILE" || {
-    echo "Error: CONFIG 未激活 sl3000-emmc"; exit 1;
-}
+echo ">>> [6/12] 跳过 CONFIG 激活检测（激活由 defconfig 生成）"
 
 # --------------------------------
-# ⑦ CONFIG 必要项检测
+# ⑦ CONFIG 必要项检测（模板）
 # --------------------------------
 echo ">>> [7/12] 检查 CONFIG 必要项..."
 for cfg in CONFIG_TARGET_mediatek=y CONFIG_TARGET_mediatek_filogic=y; do
-    grep -q "$cfg" "$CONFIG_FILE" || { echo "Error: CONFIG 缺少必要项: $cfg"; exit 1; }
+    grep -q "$cfg" "$CONFIG_FILE" || { echo "Error: 模板 CONFIG 缺少必要项: $cfg"; exit 1; }
 done
 
 # --------------------------------
@@ -133,7 +134,6 @@ done
 # ⑩ 版本链路检测
 # --------------------------------
 echo ">>> [10/12] 检查版本链路..."
-grep -q "6.12" "$DTS_FILE" || echo "Warning: DTS 未标注 6.12（允许）"
 grep -q "25.12" "$MK_FILE" || echo "Warning: MK 未标注 25.12（允许）"
 
 # --------------------------------
@@ -156,7 +156,7 @@ echo "$CONFIG_FILE" > .selfheal/config.path
 echo ">>> 三件套 12 道检测 + 修复 + 注册 完成"
 
 # ================================
-# 10. 单设备激活提示（构建后生效）
+# 10. 单设备激活提示（构建后 defconfig 才会生效）
 # ================================
 if [ -f ".config" ] && grep -q "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" .config; then
     echo ">>> sl3000-emmc 已激活"
