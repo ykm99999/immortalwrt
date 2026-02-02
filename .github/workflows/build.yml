@@ -10,62 +10,50 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-    - name: 1. 检出本地配置仓库
+    - name: 1. 检出配置仓库
       uses: actions/checkout@v4
 
-    - name: 2. 最大化清理磁盘空间 (128G eMMC 镜像需大空间)
+    - name: 2. 清理磁盘空间
       uses: jlumbroso/free-disk-space@main
       with:
         tool-cache: false
         android: true
         dotnet: true
 
-    - name: 3. 安装工厂级环境
+    - name: 3. 安装编译依赖
       run: |
         sudo -E apt-get update
         sudo -E apt-get install -y $(curl -fsSL https://is.gd/depends_static_ubuntu_2204)
         sudo timedatectl set-timezone "$TZ"
 
-    - name: 4. 克隆 ImmortalWrt 源码
+    - name: 4. 克隆源码
       run: git clone -b openwrt-25.12 --single-branch https://github.com/immortalwrt/immortalwrt openwrt
 
-    - name: 5. 执行自愈脚本 (V7.5)
+    - name: 5. 运行自愈脚本 (V7.6)
       run: |
+        # 进入源码目录执行脚本，脚本会自动回溯父目录寻找配置
         cd openwrt
         chmod +x ../scripts/clean-feeds.sh
         ../scripts/clean-feeds.sh
-      env:
-        GITHUB_WORKSPACE: ${{ github.workspace }}
 
-    - name: 6. 预编译工具链 (关键：防止 Go/C 环境冲突)
+    - name: 6. 预编译核心工具
       run: |
         cd openwrt
         make tools/install -j$(nproc) || make tools/install V=s
         make toolchain/install -j$(nproc) || make toolchain/install V=s
 
-    - name: 7. 最终固件合成
+    - name: 7. 编译固件
       run: |
         cd openwrt
-        # 针对 Passwall/Docker 的全核冲刺
         make -j$(nproc) || make -j1 V=s
 
-    - name: 8. 归档发布镜像
+    - name: 8. 上传固件
       if: success()
-      run: |
-        mkdir -p publish
-        cp openwrt/bin/targets/mediatek/filogic/*factory.bin publish/
-        cp openwrt/bin/targets/mediatek/filogic/*sysupgrade.itb publish/
-        cd publish && sha256sum *.bin > sha256sums.txt
-
-    - name: 9. 发布至 Release
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: SL3000-ULTIMATE-v${{ github.run_number }}
-        files: publish/*
-        body: |
-          ### SL3000 AX3000 旗舰版固件 (V7.5)
-          - **核心**: MT7981B + 1GB RAM + 128GB eMMC
-          - **功能**: Passwall 2 + Docker + GPT 分区表
-          - **自愈**: 已解决 PHP8/Zabbix 死锁，自动修正 6.12 内核 DTS 路径
+        tag_name: SL3000-v${{ github.run_number }}
+        files: |
+          openwrt/bin/targets/mediatek/filogic/*factory.bin
+          openwrt/bin/targets/mediatek/filogic/*sysupgrade.itb
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
