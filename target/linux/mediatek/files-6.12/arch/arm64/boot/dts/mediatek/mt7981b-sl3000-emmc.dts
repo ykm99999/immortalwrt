@@ -59,6 +59,15 @@
 			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
 		};
 	};
+
+	reg_3p3v: regulator-3p3v {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-3.3V";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
 };
 
 &eth {
@@ -132,14 +141,3 @@
 &wifi { status = "okay"; };
 &usb_phy { status = "okay"; };
 &xhci { status = "okay"; };
-
-/ {
-	reg_3p3v: regulator-3p3v {
-		compatible = "regulator-fixed";
-		regulator-name = "fixed-3.3V";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-};
