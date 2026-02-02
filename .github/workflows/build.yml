@@ -1,76 +1,45 @@
-name: SL3000-Final-Build
+name: SL3000-Factory-Flagship
 
 on:
   workflow_dispatch:
-
-env:
-  TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 1. 检出配置仓库
+      - name: 1. 检出配置
         uses: actions/checkout@v4
 
-      - name: 2. 彻底释放磁盘空间
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-
-      - name: 3. 安装工厂环境 (本地依赖注入)
+      - name: 2. 工厂环境依赖安装
         run: |
           sudo -E apt-get update
-          sudo -E apt-get install -y \
-            build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
-            gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip \
-            zlib1g-dev file libelf-dev libncurses-dev python3 python3-pyelftools \
-            python3-setuptools qemu-utils subversion swig xz-utils patch \
-            device-tree-compiler
+          sudo -E apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file libelf-dev libncurses-dev python3 python3-pyelftools qemu-utils swig xz-utils patch device-tree-compiler
           sudo -E apt-get clean
 
-      - name: 4. 克隆源码 (ImmortalWrt 25.12)
-        run: |
-          git clone -b openwrt-25.12 --single-branch https://github.com/immortalwrt/immortalwrt openwrt
+      - name: 3. 源码检出 (ImmortalWrt)
+        run: git clone -b openwrt-25.12 --single-branch https://github.com/immortalwrt/immortalwrt openwrt
 
-      - name: 5. 执行环境自愈 (V10.3)
+      - name: 4. 深度注入与自愈 (V11.0)
         run: |
-          # 修复 Git 认证错误，防止脚本执行到半路报 fatal Username
-          git config --global url."https://github.com/".insteadOf git@github.com:
-          git config --global url."https://github.com/".insteadOf git://github.com/
-          
           cd openwrt
           chmod +x ../scripts/clean-feeds.sh
-          # 这里不带 set -e 运行脚本，确保顽固性报错不中断流程
           ../scripts/clean-feeds.sh
 
-      - name: 6. 预编译工具链
+      - name: 5. 预编译工具链
         run: |
           cd openwrt
-          # 先单独安装工具链，可以有效减少主进程冲突
           make tools/install -j$(nproc) || make tools/install V=s
           make toolchain/install -j$(nproc) || make toolchain/install V=s
 
-      - name: 7. 执行全量固件编译
+      - name: 6. 旗舰固件全量编译
         run: |
           cd openwrt
-          # 对于 1GB 内存的 SL3000，使用全核编译
+          # 针对 MT7981B 进行 O3 优化加速
           make -j$(nproc) || make -j1 V=s
 
-      - name: 8. 整理镜像并发布
+      - name: 7. 发布工厂镜像
         if: success()
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: SL3000-v${{ github.run_number }}
-          files: |
-            openwrt/bin/targets/mediatek/filogic/*factory.bin
-            openwrt/bin/targets/mediatek/filogic/*sysupgrade.itb
-          body: |
-            ### SL3000 (MT7981B) 旗舰定制版
-            - **内核**: 6.12 (GPT Partition)
-            - **硬件**: 1GB RAM / 128GB eMMC
-            - **功能**: Docker, Passwall 2, TurboACC
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: SL3000-Factory-v${{ github.run_number }}
+          files: openwrt/bin/targets/mediatek/filogic/*.itb
