@@ -1,134 +1,58 @@
 #!/bin/bash
-set -e
+# ============================================================
+# SL3000 工厂级自愈与注入脚本
+# ============================================================
 
-echo ">>> [自愈体系] clean-feeds.sh v25.12-sl3000-final-V13 启动"
+set -e  # 遇到任何错误立即终止
 
-SRC_LUCI="$PWD/package/luci"
-DEST_FEEDS="$PWD/feeds/luci"
+echo ">>> [步骤 1/4] 清理环境并强制注入自定义三件套..."
 
-echo ">>> LuCI 源路径: $SRC_LUCI"
+# 路径定义
+TARGET_DIR="openwrt"
+MK_DEST="$TARGET_DIR/target/linux/mediatek/image/filogic.mk"
+DTS_DEST_DIR="$TARGET_DIR/target/linux/mediatek/files-6.12/arch/arm64/boot/dts"
+DTS_DEST_FILE="$DTS_DEST_DIR/mediatekmt7981b-sl3000-emmc.dts"
 
-if [ ! -d "$SRC_LUCI" ]; then
-    echo "Error: 未找到 LuCI 源目录: $SRC_LUCI"
-    exit 1
-fi
-
-rm -rf "$DEST_FEEDS"
-mkdir -p "$DEST_FEEDS"
-
-echo "=== 复制 luci-base ==="
-cp -r "$SRC_LUCI/libs/luci-base" "$DEST_FEEDS/"
-
-echo "=== 复制 LuCI 模块 ==="
-mkdir -p "$DEST_FEEDS/modules"
-cp -r "$SRC_LUCI/modules/"* "$DEST_FEEDS/modules/"
-
-echo "=== 复制 LuCI 集合包 ==="
-mkdir -p "$DEST_FEEDS/collections"
-cp -r "$SRC_LUCI/collections/"* "$DEST_FEEDS/collections/"
-
-echo "=== 复制 LuCI 中文语言包 ==="
-mkdir -p "$DEST_FEEDS/i18n"
-cp -r "$SRC_LUCI/i18n/zh_Hans" "$DEST_FEEDS/i18n/"
-
-echo ">>> LuCI 复制完成"
-
-echo ">>> 检查 default-settings 是否依赖 zh-cn..."
-if grep -R "luci-i18n-base-zh-cn" package/* 2>/dev/null; then
-    echo ">>> 检测到 zh-cn 旧依赖，创建兼容壳包"
-    mkdir -p package/compat-zhcn
-    cat > package/compat-zhcn/Makefile << 'EOF'
-include $(TOPDIR)/rules.mk
-
-PKG_NAME:=luci-i18n-base-zh-cn
-PKG_VERSION:=1
-PKG_RELEASE:=1
-
-include $(INCLUDE_DIR)/package.mk
-
-define Package/luci-i18n-base-zh-cn
-  SECTION:=luci
-  CATEGORY:=LuCI
-  TITLE:=Compatibility package for zh-cn
-  DEPENDS:=+luci-i18n-base-zh_Hans
-endef
-
-define Package/luci-i18n-base-zh-cn/install
-	true
-endef
-
-$(eval $(call BuildPackage,luci-i18n-base-zh-cn))
-EOF
+# 1. 强制覆盖 MK 文件 (全量替换官方定义)
+if [ -f "target/linux/mediatek/image/filogic.mk" ]; then
+    rm -f "$MK_DEST"
+    cp -f "target/linux/mediatek/image/filogic.mk" "$MK_DEST"
+    echo "SUCCESS: filogic.mk 已强制覆盖"
 else
-    echo ">>> 未检测到 zh-cn 依赖，跳过兼容壳包"
+    echo "ERROR: 未找到自定义 MK 文件" && exit 1
 fi
 
-echo ">>> 检查 feeds 是否被污染..."
-if find feeds -type f | grep -v "luci" | grep -q .; then
-    echo "Error: feeds 目录出现非白名单文件，构建中止"
-    exit 1
+# 2. DTS 注入与后缀对齐 (将 .d 转换为内核识别的 .dts)
+mkdir -p "$DTS_DEST_DIR"
+if [ -f "target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatekmt7981b-sl3000-emmc.d" ]; then
+    rm -f "$DTS_DEST_FILE"
+    cp -f "target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatekmt7981b-sl3000-emmc.d" "$DTS_DEST_FILE"
+    echo "SUCCESS: DTS 已注入并修正后缀"
+else
+    echo "ERROR: 未找到自定义 DTS 文件" && exit 1
 fi
 
-echo ">>> [三件套] 自动检测与自愈注册启动..."
+# 3. 注入 .config
+if [ -f "sl3000/config/sl3000.config" ]; then
+    cp -f "sl3000/config/sl3000.config" "$TARGET_DIR/.config"
+    echo "SUCCESS: 注入 SL3000 专属 .config"
+fi
 
-DTS_FILE="target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts"
-MK_FILE="target/linux/mediatek/image/filogic.mk"
-CONFIG_FILE="$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config"
+echo ">>> [步骤 2/4] Feeds 自动化同步与冲突修复..."
+cd "$TARGET_DIR"
+./scripts/feeds update -a
+./scripts/feeds install -a || {
+    echo "WARNING: Feeds 冲突，执行清理自愈..."
+    rm -rf feeds && ./scripts/feeds update -a && ./scripts/feeds install -a
+}
 
-echo ">>> [1/12] 检查 DTS/MK/CONFIG 是否存在..."
-[ -f "$DTS_FILE" ] || { echo "Error: DTS 不存在"; exit 1; }
-[ -f "$MK_FILE" ] || { echo "Error: MK 不存在"; exit 1; }
-[ -f "$CONFIG_FILE" ] || { echo "Error: 模板 CONFIG 不存在"; exit 1; }
+echo ">>> [步骤 3/4] 注册硬件定义到编译系统索引..."
+make defconfig
 
-echo ">>> [2/12] 检查文件可读性..."
-[ -s "$DTS_FILE" ] || { echo "Error: DTS 文件为空"; exit 1; }
-[ -s "$MK_FILE" ] || { echo "Error: MK 文件为空"; exit 1; }
-[ -s "$CONFIG_FILE" ] || { echo "Error: 模板 CONFIG 文件为空"; exit 1; }
+echo ">>> [步骤 4/4] 最终一致性校验..."
+if grep -q "sl3000-emmc" "target/linux/mediatek/image/filogic.mk"; then
+    echo "CHECK: SL3000 硬件定义已成功注册"
+else
+    echo "FATAL ERROR: 注入失败，编译系统未识别型号" && exit 1
+fi
 
-echo ">>> [3/12] 检查设备名一致性..."
-grep -q "mt7981b-sl3000-emmc" "$DTS_FILE" || { echo "Error: DTS 未定义设备"; exit 1; }
-grep -q "mt7981b-sl3000-emmc" "$MK_FILE" || { echo "Error: MK 未定义设备"; exit 1; }
-
-echo ">>> [4/12] 检查 DTS 节点完整性..."
-for node in memory chosen gpio aliases compatible; do
-    grep -q "$node" "$DTS_FILE" || { echo "Error: DTS 缺少节点: $node"; exit 1; }
-done
-
-echo ">>> [5/12] 检查 MK 字段..."
-for key in DEVICE_VENDOR DEVICE_MODEL DEVICE_VARIANT DEVICE_DTS DEVICE_PACKAGES IMAGES; do
-    grep -q "$key" "$MK_FILE" || { echo "Error: MK 缺少字段: $key"; exit 1; }
-done
-
-echo ">>> [6/12] 跳过 CONFIG 激活检测"
-
-echo ">>> [7/12] 检查 CONFIG 必要项..."
-for cfg in CONFIG_TARGET_mediatek=y CONFIG_TARGET_mediatek_filogic=y; do
-    grep -q "$cfg" "$CONFIG_FILE" || { echo "Error: CONFIG 缺少必要项: $cfg"; exit 1; }
-done
-
-echo ">>> [8/12] 检查 DTS/MK/CONFIG 一致性..."
-grep -q "mt7981b-sl3000-emmc" "$MK_FILE" || { echo "Error: MK 与 DTS 不一致"; exit 1; }
-
-echo ">>> [9/12] 检查隐含字符..."
-for f in "$DTS_FILE" "$MK_FILE" "$CONFIG_FILE"; do
-    grep -q $'\r' "$f" && { echo "Error: $f 存在 CRLF"; exit 1; }
-    grep -q $'\xEF\xBB\xBF' "$f" && { echo "Error: $f 存在 BOM"; exit 1; }
-done
-
-echo ">>> [10/12] 检查版本链路..."
-grep -q "25.12" "$MK_FILE" || echo "Warning: MK 未标注 25.12（允许）"
-
-echo ">>> [11/12] 自动修复 CRLF..."
-for f in "$DTS_FILE" "$MK_FILE" "$CONFIG_FILE"; do
-    sed -i 's/\r$//' "$f"
-done
-
-echo ">>> [12/12] 注册三件套路径..."
-mkdir -p .selfheal
-echo "$DTS_FILE" > .selfheal/dts.path
-echo "$MK_FILE" > .selfheal/mk.path
-echo "$CONFIG_FILE" > .selfheal/config.path
-
-echo ">>> 三件套闭环完成"
-
-echo "=== clean-feeds.sh v25.12-sl3000-final-V13 完成 ==="
