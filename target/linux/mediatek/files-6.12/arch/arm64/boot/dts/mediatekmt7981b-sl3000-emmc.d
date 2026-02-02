@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 
 /dts-v1/;
+
+/* 修正：使用尖括号包含，确保在 Mediatek 子目录下编译时能正确找到头文件 */
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
-
-#include "mt7981.dtsi"
+#include <mediatek/mt7981.dtsi>
 
 / {
 	model = "SL-3000 eMMC Router";
@@ -16,6 +17,7 @@
 	aliases {
 		serial0 = &uart0;
 
+		/* LED 状态定义 */
 		led-boot     = &led_red;
 		led-failsafe = &led_red;
 		led-running  = &led_green;
@@ -24,12 +26,13 @@
 
 	chosen {
 		stdout-path = "serial0:115200n8";
-		bootargs = "root=PARTLABEL=rootfs rootwait";
+		bootargs = "root=PARTLABEL=production rootwait"; /* 与 filogic.mk 分区名对齐 */
 	};
 
+	/* 修正：1GB RAM 配置 (0x40000000 字节) */
 	memory@40000000 {
 		device_type = "memory";
-		reg = <0 0x40000000 0 0x40000000>; /* 1GB DDR */
+		reg = <0 0x40000000 0 0x40000000>;
 	};
 
 	gpio-keys {
@@ -72,7 +75,7 @@
 	};
 };
 
-/* Ethernet + Switch */
+/* 以太网与交换机配置 */
 &eth {
 	status = "okay";
 
@@ -135,10 +138,11 @@
 	};
 };
 
-/* eMMC */
+/* 128GB eMMC 控制器配置 */
 &mmc0 {
 	bus-width = <8>;
 	cap-mmc-highspeed;
+	cap-mmc-hw-reset;
 	max-frequency = <52000000>;
 	no-sd;
 	no-sdio;
@@ -150,46 +154,27 @@
 
 	vmmc-supply = <&reg_3p3v>;
 	status = "okay";
-
-	card@0 {
-		compatible = "mmc-card";
-		reg = <0>;
-
-		block {
-			compatible = "block-device";
-
-			partitions {
-				factory: partition@0 {
-					label = "factory";
-					reg = <0x0 0x2000>; /* 扩展到 8KB，避免 EEPROM 不足 */
-
-					nvmem-layout {
-						compatible = "fixed-layout";
-						#address-cells = <1>;
-						#size-cells = <1>;
-
-						eeprom_factory_0: eeprom@0 {
-							reg = <0x0 0x1000>;
-						};
-
-						macaddr_factory_4: macaddr@4 {
-							compatible = "mac-base";
-							reg = <0x4 0x6>;
-							#nvmem-cell-cells = <1>;
-						};
-					};
-				};
-			};
-		};
-	};
 };
 
-/* pinctrl */
+/* 引脚控制 */
 &pio {
 	mmc0_pins_default: mmc0-pins-default {
 		mux {
 			function = "flash";
 			groups = "emmc_45";
+		};
+		conf {
+			pins = "EMMC_DATA_0", "EMMC_DATA_1", "EMMC_DATA_2",
+			       "EMMC_DATA_3", "EMMC_DATA_4", "EMMC_DATA_5",
+			       "EMMC_DATA_6", "EMMC_DATA_7", "EMMC_CMD";
+			input-enable;
+			drive-strength = <MTK_DRIVE_4mA>;
+			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
+		};
+		conf-clk {
+			pins = "EMMC_CLK";
+			drive-strength = <MTK_DRIVE_4mA>;
+			bias-pull-down = <MTK_PUPD_SET_R1R0_01>;
 		};
 	};
 
@@ -198,34 +183,35 @@
 			function = "flash";
 			groups = "emmc_45";
 		};
+		conf {
+			pins = "EMMC_DATA_0", "EMMC_DATA_1", "EMMC_DATA_2",
+			       "EMMC_DATA_3", "EMMC_DATA_4", "EMMC_DATA_5",
+			       "EMMC_DATA_6", "EMMC_DATA_7", "EMMC_CMD";
+			input-enable;
+			drive-strength = <MTK_DRIVE_6mA>;
+			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
+		};
+		conf-clk {
+			pins = "EMMC_CLK";
+			drive-strength = <MTK_DRIVE_6mA>;
+			bias-pull-down = <MTK_PUPD_SET_R1R0_01>;
+		};
 	};
 };
 
-/* UART */
 &uart0 {
 	status = "okay";
 };
 
-/* Watchdog */
 &watchdog {
 	status = "okay";
 };
 
-/* WiFi */
+/* WiFi 无线驱动使能 */
 &wifi {
 	status = "okay";
-
-	nvmem-cells = <&eeprom_factory_0>;
-	nvmem-cell-names = "eeprom";
-
-	band@1 {
-		reg = <1>;
-		nvmem-cells = <&macaddr_factory_4 1>;
-		nvmem-cell-names = "mac-address";
-	};
 };
 
-/* USB */
 &usb_phy {
 	status = "okay";
 };
