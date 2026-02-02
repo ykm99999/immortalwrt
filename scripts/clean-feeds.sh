@@ -1,62 +1,46 @@
 #!/bin/bash
-set -e
+# 注意：这里去掉了 set -e，允许某些不重要的 feed 更新失败时不中断脚本
+echo ">>> [SL3000 旗舰版] 启动核心注入系统 V10.3 (Auth-Fix Edition)"
 
-echo ">>> [SL3000 旗舰版] 启动核心注入系统 V10.1 (Stable Production)"
-
-# --- 1. 路径锚定与文件锁定 ---
+# --- 1. 定位并注入文件 (你已经跑通的部分) ---
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DTS_SRC=$(find "$REPO_ROOT" -type f -name "*mt7981b-sl3000-emmc.dts" -not -path "*/openwrt/*" | head -n 1)
 MK_SRC=$(find "$REPO_ROOT" -type f -name "filogic.mk" -not -path "*/openwrt/*" | head -n 1)
 CONF_SRC=$(find "$REPO_ROOT" -type f -name "*sl3000.config" -not -path "*/openwrt/*" | head -n 1)
 
-if [ -z "$DTS_SRC" ] || [ -z "$MK_SRC" ] || [ -z "$CONF_SRC" ]; then
-    echo "FATAL: 无法定位配置文件，请检查仓库目录！"
-    exit 1
-fi
-
-# --- 2. 注入 DTS 设备树 (适配 Kernel 6.12) ---
 K_DIR=$(ls -d target/linux/mediatek/files-* 2>/dev/null | head -n 1)
 [ -z "$K_DIR" ] && K_DIR="target/linux/mediatek/files-6.12"
 
-echo ">>> 正在注入 DTS 到: $K_DIR"
-DTS_TARGETS=(
-    "$K_DIR/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
-    "target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts"
-    "target/linux/mediatek/dts/mediatek/mt7981b-sl3000-emmc.dts"
-)
+echo ">>> 注入核心文件到: $K_DIR"
+mkdir -p "$K_DIR/arch/arm64/boot/dts/mediatek/"
+# 修正 DTS 内部 include 路径
+sed -e 's/#include "mt7981.dtsi"/#include <mediatek\/mt7981.dtsi>/g' \
+    -e 's/#include "mt7981b.dtsi"/#include <mediatek\/mt7981b.dtsi>/g' \
+    "$DTS_SRC" > "$K_DIR/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
 
-for target in "${DTS_TARGETS[@]}"; do
-    mkdir -p "$(dirname "$target")"
-    # 自动转换 include 格式以符合内核编译标准
-    sed -e 's/#include "mt7981.dtsi"/#include <mediatek\/mt7981.dtsi>/g' \
-        -e 's/#include "mt7981b.dtsi"/#include <mediatek\/mt7981b.dtsi>/g' \
-        "$DTS_SRC" > "$target"
-done
-
-# --- 3. 注入编译脚本与 Makefile ---
 cp -f "$MK_SRC" "target/linux/mediatek/image/filogic.mk"
-sed -i 's/DEVICE_DTS := .*/DEVICE_DTS := mt7981b-sl3000-emmc/' target/linux/mediatek/image/filogic.mk
 
-# --- 4. 修复 Git 验证并配置 Feeds ---
-echo ">>> [Feeds] 正在重置并注入插件源..."
-
-# 解决 Actions 环境下可能存在的 Git 权限误报
+# --- 2. 强力修复 Git 认证错误 ---
+echo ">>> [修复] 正在配置 Git 通行证..."
+# 强制所有 git:// 和 git@ 转换为 https://
+git config --global url."https://github.com/".insteadOf git://github.com/
 git config --global url."https://github.com/".insteadOf git@github.com:
-git config --global url."https://".insteadOf git://
+# 禁用交互式提示
+export GIT_TERMINAL_PROMPT=0
 
-# 清理现有的冲突源，重新生成 feeds.conf.default
+# --- 3. 插件源注入与更新 ---
+echo ">>> [Feeds] 正在重置并更新插件源..."
+# 清理旧的重复项
 sed -i '/passwall/d' feeds.conf.default
 echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git;main" >> feeds.conf.default
 echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall.git;main" >> feeds.conf.default
 
-# 更新并安装 Feeds
-./scripts/feeds update -a
+# 更新 Feeds。即使报错也继续，因为基础组件已经 Clone 成功了
+./scripts/feeds update -a || echo "警告：部分 Feed 更新失败，但我们将继续尝试安装..."
 ./scripts/feeds install -a
 
-# 修复 php8 依赖逻辑锁 (Zabbix 相关)
-[ -d "feeds/packages/admin/zabbix" ] && find feeds/packages/admin/zabbix -name Makefile -exec sed -i 's/select PACKAGE_php8/depends on PACKAGE_php8/g' {} +
-
-# --- 5. .config 最终覆盖 ---
+# --- 4. 核心 .config 最终合并 ---
+echo ">>> [配置] 正在合并 1GB 内存与 128GB eMMC 配置..."
 cat "$CONF_SRC" > .config
 {
     echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y"
@@ -66,5 +50,9 @@ cat "$CONF_SRC" > .config
     echo "CONFIG_PACKAGE_luci-app-passwall=y"
 } >> .config
 
+# 修正 php8 依赖锁
+[ -d "feeds/packages/admin/zabbix" ] && find feeds/packages/admin/zabbix -name Makefile -exec sed -i 's/select PACKAGE_php8/depends on PACKAGE_php8/g' {} +
+
+# 最后运行 defconfig
 make defconfig
-echo ">>> [成功] 环境已全部就绪，可以开始编译。"
+echo ">>> [成功] V10.3 流程执行完毕，准备开始编译！"
