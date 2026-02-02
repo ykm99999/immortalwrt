@@ -1,4 +1,4 @@
-name: SL3000-Full-Asset-Generator
+name: SL3000-Asset-Generator-Full
 
 on:
   workflow_dispatch:
@@ -12,54 +12,102 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 现场生成全量三件套 (分段追加模式)
+      - name: 2. 物理生成全量 DTS (100% 还原)
         run: |
-          # --- A. 生成完整 DTS ---
-          printf "/dts-v1/;\n#include <dt-bindings/gpio/gpio.h>\n#include <dt-bindings/input/input.h>\n#include <dt-bindings/leds/common.h>\n#include <mediatek/mt7981.dtsi>\n\n" > mt7981b-sl3000-emmc.dts
-          printf "/ {\n\tmodel = \"SL-3000 eMMC Router\";\n\tcompatible = \"sl,sl3000-emmc\", \"mediatek,mt7981b\";\n\taliases { serial0 = &uart0; };\n" >> mt7981b-sl3000-emmc.dts
-          printf "\tchosen { stdout-path = \"serial0:115200n8\"; bootargs = \"root=PARTLABEL=production rootwait\"; };\n" >> mt7981b-sl3000-emmc.dts
-          printf "\tmemory@40000000 { device_type = \"memory\"; reg = <0x0 0x40000000 0x0 0x40000000>; };\n};\n" >> mt7981b-sl3000-emmc.dts
-          printf "&uart0 { status = \"okay\"; };\n&mmc0 { status = \"okay\"; bus-width = <8>; non-removable; };\n" >> mt7981b-sl3000-emmc.dts
-          printf "&usb_phy { status = \"disabled\"; };\n&xhci { status = \"disabled\"; };\n" >> mt7981b-sl3000-emmc.dts
+          cat << 'EOF' > mt7981b-sl3000-emmc.dts
+          /dts-v1/;
+          #include <dt-bindings/gpio/gpio.h>
+          #include <dt-bindings/input/input.h>
+          #include <dt-bindings/leds/common.h>
+          #include <mediatek/mt7981.dtsi>
 
-          # --- B. 生成完整 Makefile (关键：分块防止变量丢失) ---
-          printf "DTS_DIR := \$(DTS_DIR)/mediatek\n\ndefine Image/Prepare\n\techo -ne '\\\\xde\\\\xad\\\\xc0\\\\xde' > \$(KDIR)/ubi_mark\nendef\n\n" > filogic.mk
-          printf "define Build/mt798x-gpt\n\tcp \$@ \$@.tmp 2>/dev/null || true\n\tptgen -g -o \$@.tmp -a 1 -l 1024 \\\\\n" >> filogic.mk
-          printf "\t\t-t 0x83 -N ubootenv -r -p 512k@4M \\\\\n\t\t-t 0x83 -N factory -r -p 2M@4608k \\\\\n" >> filogic.mk
-          printf "\t\t-t 0xef -N fip -r -p 4M@6656k \\\\\n\t\t-N recovery -r -p 32M@12M \\\\\n" >> filogic.mk
-          printf "\t\t-t 0x2e -N production -p \$(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M\n\tcat \$@.tmp >> \$@\n\trm \$@.tmp\nendef\n\n" >> filogic.mk
-          printf "define Device/sl3000-emmc\n  DEVICE_VENDOR := SL\n  DEVICE_MODEL := SL3000\n  DEVICE_DTS := mt7981b-sl3000-emmc\n" >> filogic.mk
-          printf "  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware kmod-mmc kmod-sdhci-mtk kmod-fs-f2fs f2fs-tools\n" >> filogic.mk
-          printf "  IMAGES := sysupgrade.itb factory.bin\n  IMAGE/sysupgrade.itb := append-kernel | append-dtb | append-metadata\n" >> filogic.mk
-          printf "  IMAGE/factory.bin := append-rootfs | pad-rootfs | mt798x-gpt emmc\nendef\nTARGET_DEVICES += sl3000-emmc\n" >> filogic.mk
+          / {
+          	model = "SL-3000 eMMC Router";
+          	compatible = "sl,sl3000-emmc", "mediatek,mt7981b";
+          	aliases { serial0 = &uart0; };
+          	chosen { stdout-path = "serial0:115200n8"; bootargs = "root=PARTLABEL=production rootwait"; };
+          	memory@40000000 { device_type = "memory"; reg = <0x0 0x40000000 0x0 0x40000000>; };
+          };
+          &uart0 { status = "okay"; };
+          &mmc0 { status = "okay"; bus-width = <8>; non-removable; };
+          &usb_phy { status = "disabled"; };
+          &xhci { status = "disabled"; };
+          EOF
 
-          # --- C. 生成完整 Config ---
-          printf "CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y\n" > sl3000.config
-          printf "CONFIG_TARGET_ROOTFS_PARTSIZE=1024\nCONFIG_EFI_PARTITION=y\nCONFIG_PACKAGE_kmod-fs-f2fs=y\n" >> sl3000.config
-          printf "CONFIG_PACKAGE_f2fs-tools=y\nCONFIG_PACKAGE_luci=y\nCONFIG_PACKAGE_luci-i18n-base-zh-cn=y\n" >> sl3000.config
+      - name: 3. 物理生成全量 Makefile (GPT 分区锁定)
+        run: |
+          cat << 'EOF' > filogic.mk
+          DTS_DIR := $(DTS_DIR)/mediatek
 
-          # 物理换行修正
+          define Image/Prepare
+          	echo -ne '\xde\xad\xc0\xde' > $(KDIR)/ubi_mark
+          endef
+
+          define Build/mt7981-bl2
+          	cat $(STAGING_DIR_IMAGE)/mt7981-$(1)-bl2.img >> $@
+          endef
+
+          define Build/mt798x-gpt
+          	cp $@ $@.tmp 2>/dev/null || true
+          	ptgen -g -o $@.tmp -a 1 -l 1024 \
+          		-t 0x83 -N ubootenv -r -p 512k@4M \
+          		-t 0x83 -N factory -r -p 2M@4608k \
+          		-t 0xef -N fip -r -p 4M@6656k \
+          		-N recovery -r -p 32M@12M \
+          		-t 0x2e -N production -p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M
+          	cat $@.tmp >> $@
+          	rm $@.tmp
+          endef
+
+          define Device/sl3000-emmc
+            DEVICE_VENDOR := SL
+            DEVICE_MODEL := SL3000
+            DEVICE_VARIANT := eMMC
+            DEVICE_DTS := mt7981b-sl3000-emmc
+            DEVICE_DTS_DIR := $(DTS_DIR)
+            SUPPORTED_DEVICES := sl,sl3000-emmc
+            DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware kmod-mmc kmod-sdhci-mtk kmod-fs-f2fs f2fs-tools
+            IMAGES := sysupgrade.itb factory.bin
+            IMAGE/sysupgrade.itb := append-kernel | append-dtb | append-metadata
+            IMAGE/factory.bin := append-rootfs | pad-rootfs | mt798x-gpt emmc
+          endef
+          TARGET_DEVICES += sl3000-emmc
+          EOF
+
+      - name: 4. 物理生成全量 Config
+        run: |
+          cat << 'EOF' > sl3000.config
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y
+          CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+          CONFIG_EFI_PARTITION=y
+          CONFIG_PACKAGE_kmod-fs-f2fs=y
+          CONFIG_PACKAGE_f2fs-tools=y
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
+          EOF
+
+      - name: 5. 换行符修正与完整性自检
+        run: |
           sed -i 's/\r//g' *.dts *.mk *.config
+          echo ">>> 文件列表与大小校验:"
+          ls -lh *.dts *.mk *.config
+          echo ">>> 内容闭合性检查 (DTS 最后 3 行):"
+          tail -n 3 mt7981b-sl3000-emmc.dts
 
-      - name: 3. 完整性检查与深度扫描
-        run: |
-          echo ">>> 检查文件完整性 (行数):"
-          wc -l mt7981b-sl3000-emmc.dts filogic.mk sl3000.config
-          echo ">>> 验证 Makefile 尾部闭合情况:"
-          tail -n 5 filogic.mk
-
-      - name: 4. 自动推送至仓库根目录 (刷新仓库即可见)
+      - name: 6. 强制推送回仓库主页 (立即生效)
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
           git add mt7981b-sl3000-emmc.dts filogic.mk sl3000.config
-          git commit -m "Auto-generate SL3000 full assets" || echo "No changes"
+          git commit -m "chore: push verified full assets for SL3000" || echo "No changes"
           git push
 
-      - name: 5. 归档附件
+      - name: 7. 上传 Artifacts 备份
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Assets-Verified
+          name: SL3000-Verified-Assets
           path: |
             mt7981b-sl3000-emmc.dts
             filogic.mk
