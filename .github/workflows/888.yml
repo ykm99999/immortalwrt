@@ -1,0 +1,33 @@
+name: SL3000-Quick-Asset-Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 2. 运行工厂生成脚本
+        run: |
+          chmod +x ./scripts/factory-init.sh
+          ./scripts/factory-init.sh
+
+      - name: 3. 语法深度自检
+        run: |
+          sudo apt-get install -y device-tree-compiler
+          echo ">>> 正在验证 DTS 语法..."
+          # 模拟基本头文件环境进行校验
+          dtc -I dts -O dtb -o /dev/null mt7981b-sl3000-emmc.dts || exit 1
+          echo "✅ 语法校验 100% 通过"
+
+      - name: 4. 打包并发布附件
+        uses: actions/upload-artifact@v4
+        with:
+          name: SL3000-Ready-Files
+          path: |
+            mt7981b-sl3000-emmc.dts
+            filogic.mk
+            sl3000.config
