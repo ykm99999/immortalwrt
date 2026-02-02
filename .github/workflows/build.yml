@@ -1,7 +1,7 @@
 name: SL3000-Ultimate-Factory-Build
 
 on:
-  workflow_dispatch: # 手动触发
+  workflow_dispatch: # 手动点击运行
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
@@ -12,10 +12,10 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-    - name: 1. 检出本地配置
+    - name: 1. 检出本地配置仓库
       uses: actions/checkout@v4
 
-    - name: 2. 磁盘最大化清理 (释放 35GB+)
+    - name: 2. 最大化磁盘空间 (释放 35GB+)
       uses: jlumbroso/free-disk-space@main
       with:
         tool-cache: true
@@ -23,27 +23,35 @@ jobs:
         dotnet: true
         swap-storage: true
 
-    - name: 3. 部署编译依赖
+    - name: 3. 部署编译环境
       run: |
         sudo -E apt-get update
+        # 自动获取并安装所有必要的静态编译依赖
         sudo -E apt-get install -y $(curl -fsSL https://is.gd/depends_static_ubuntu_2204)
         sudo timedatectl set-timezone "$TZ"
 
-    - name: 4. 克隆 ImmortalWrt 源码
-      run: git clone -b $REPO_BRANCH --single-branch $REPO_URL openwrt
-
-    - name: 5. 执行权限修复与自愈注入
+    - name: 4. 克隆源码
       run: |
-        chmod +x scripts/clean-feeds.sh
-        ./scripts/clean-feeds.sh
+        git clone -b $REPO_BRANCH --single-branch $REPO_URL openwrt
 
-    - name: 6. 缓存机制
+    - name: 5. 运行 V5.1 自愈脚本 (核心注入与修复)
+      # 此步骤必须在 make download 之前，以修正包依赖和路径
+      run: |
+        cd openwrt
+        chmod +x ../scripts/clean-feeds.sh
+        ../scripts/clean-feeds.sh
+      env:
+        GITHUB_WORKSPACE: ${{ github.workspace }}
+
+    - name: 6. 缓存管理 (加速二次编译)
       uses: actions/cache@v3
       with:
         path: openwrt/dl
-        key: ${{ runner.os }}-sl3000-${{ env.REPO_BRANCH }}
+        key: ${{ runner.os }}-sl3000-${{ env.REPO_BRANCH }}-${{ hashFiles('**/config') }}
+        restore-keys: |
+          ${{ runner.os }}-sl3000-${{ env.REPO_BRANCH }}-
 
-    - name: 7. 预下载软件包
+    - name: 7. 下载软件包
       run: |
         cd openwrt
         make download -j16
@@ -53,11 +61,11 @@ jobs:
       id: compile
       run: |
         cd openwrt
-        # 全核编译，报错则自动单线程输出日志
+        # 尝试 16 核并发编译，若失败则切换单核输出详细错误日志
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: 9. 发布至 Release
+    - name: 9. 整理并发布固件
       if: steps.compile.outputs.status == 'success'
       uses: softprops/action-gh-release@v1
       with:
@@ -67,9 +75,11 @@ jobs:
           openwrt/bin/targets/mediatek/filogic/*sysupgrade.itb
           openwrt/bin/targets/mediatek/filogic/*.sha256sum
         body: |
-          ### SL3000 AX3000 旗舰版固件
-          - **硬件规格**: MT7981B + 1GB RAM + 128GB eMMC
-          - **内核版本**: 6.12
-          - **特性**: 已修正 DTS Include 路径，开启 GPT 分区支持。
+          ### SL3000 AX3000 旗舰版固件 (6.12 内核)
+          - **硬件适配**: MT7981B + 1GB DDR4 + 128GB eMMC
+          - **自愈日志**: 
+            - [x] 修复了 Zabbix/PHP8 的 Kconfig 循环依赖
+            - [x] 修正了 DTS 包含路径与 1GB 内存定义
+            - [x] 注入了 GPT 分区表生成的 filogic.mk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
