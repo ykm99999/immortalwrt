@@ -1,89 +1,56 @@
 name: SL3000-Asset-Generator
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手动触发运行
 
 jobs:
-  generate:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: 1. 检出仓库
+      - name: 1. 检出代码
         uses: actions/checkout@v4
 
-      - name: 2. 现场生成三件套 (不依赖外部脚本)
+      - name: 2. 赋予脚本执行权限
+        run: chmod +x ./scripts/factory-init.sh
+
+      - name: 3. 执行生成脚本
+        run: ./scripts/factory-init.sh
+        shell: bash
+
+      - name: 4. 深度验证完整性 (核心修复步)
         run: |
-          echo ">>> 开始原地生成资产..."
+          echo ">>> 正在执行物理校验..."
           
-          # 生成 DTS
-          cat << 'EOF' > mt7981b-sl3000-emmc.dts
-          /dts-v1/;
-          #include <dt-bindings/gpio/gpio.h>
-          #include <mediatek/mt7981.dtsi>
-          / {
-            model = "SL-3000 eMMC Router";
-            compatible = "sl,sl3000-emmc", "mediatek,mt7981b";
-            memory@40000000 { device_type = "memory"; reg = <0x0 0x40000000 0x0 0x40000000>; };
-          };
-          &uart0 { status = "okay"; };
-          &mmc0 { status = "okay"; bus-width = <8>; non-removable; };
-          EOF
+          # 检查文件是否存在
+          files=("mt7981b-sl3000-emmc.dts" "filogic.mk" "sl3000.config")
+          for f in "${files[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "❌ 错误: 关键文件 $f 未生成！"
+              exit 1
+            fi
+          done
 
-          # 生成 Makefile
-          cat << 'EOF' > filogic.mk
-          DTS_DIR := $(DTS_DIR)/mediatek
-          define Build/mt798x-gpt
-            cp $@ $@.tmp 2>/dev/null || true
-            ptgen -g -o $@.tmp -a 1 -l 1024 \
-              -t 0x83 -N ubootenv -r -p 512k@4M \
-              -t 0xef -N fip -r -p 4M@6656k \
-              -t 0x2e -N production -p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M
-            cat $@.tmp >> $@
-            rm $@.tmp
-          endef
-          define Device/sl3000-emmc
-            DEVICE_VENDOR := SL
-            DEVICE_MODEL := SL3000
-            DEVICE_DTS := mt7981b-sl3000-emmc
-            IMAGE/factory.bin := append-rootfs | pad-rootfs | mt798x-gpt emmc
-          endef
-          TARGET_DEVICES += sl3000-emmc
-          EOF
+          # 检查 DTS 是否包含核心节点 (防止截断)
+          if ! grep -q "model =" mt7981b-sl3000-emmc.dts; then
+            echo "❌ 错误: DTS 内容不完整！"
+            exit 1
+          fi
 
-          # 生成 Config
-          cat << 'EOF' > sl3000.config
-          CONFIG_TARGET_mediatek=y
-          CONFIG_TARGET_mediatek_filogic=y
-          CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y
-          EOF
+          # 检查 Makefile 是否包含 GPT 逻辑
+          if ! grep -q "mt798x-gpt" filogic.mk; then
+            echo "❌ 错误: Makefile 逻辑缺失！"
+            exit 1
+          fi
 
-          # 强制清理换行符
-          sed -i 's/\r//g' *.dts *.mk *.config
-          echo ">>> 资产生成完毕！"
+          echo "✅ 所有文件校验通过，结构完整。"
+          ls -lh *.dts *.mk *.config
 
-      - name: 3. 强制确认文件位置
-        run: |
-          echo "--- 当前目录列表 ---"
-          ls -F
-          echo "--- 检查目标文件 ---"
-          [ -f mt7981b-sl3000-emmc.dts ] && echo "DTS Found"
-          [ -f filogic.mk ] && echo "MK Found"
-          [ -f sl3000.config ] && echo "Config Found"
-
-      - name: 4. 提交并推送文件回仓库 (让文件直接出现在你的仓库里)
-        run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-          git add mt7981b-sl3000-emmc.dts filogic.mk sl3000.config
-          git commit -m "Auto-generate SL3000 assets [skip ci]" || echo "No changes to commit"
-          git push
-
-      - name: 5. 上传 Artifact (作为备份附件)
+      - name: 5. 自动上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Quick-Assets
+          name: SL3000-Complete-Assets
           path: |
             mt7981b-sl3000-emmc.dts
             filogic.mk
             sl3000.config
+          retention-days: 7
