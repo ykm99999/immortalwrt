@@ -10,53 +10,48 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 1. 检出仓库
+      - name: 1. 检出配置仓库
         uses: actions/checkout@v4
 
-      - name: 2. 彻底释放磁盘空间
+      - name: 2. 释放磁盘空间
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: false
           android: true
           dotnet: true
 
-      - name: 3. 安装工厂环境
+      - name: 3. 安装编译依赖
         run: |
           sudo -E apt-get update
           sudo -E apt-get install -y $(curl -fsSL https://is.gd/depends_static_ubuntu_2204)
 
-      - name: 4. 克隆源码 (ImmortalWrt 25.12)
+      - name: 4. 克隆源码 (ImmortalWrt)
         run: git clone -b openwrt-25.12 --single-branch https://github.com/immortalwrt/immortalwrt openwrt
 
-      - name: 5. 执行自愈与注入 (V8.0)
+      - name: 5. 执行环境注入 (V9.0)
         run: |
           cd openwrt
           chmod +x ../scripts/clean-feeds.sh
           ../scripts/clean-feeds.sh
 
-      - name: 6. 预编译工具链 (关键防错)
+      - name: 6. 编译工具链
         run: |
           cd openwrt
           make tools/install -j$(nproc) || make tools/install V=s
           make toolchain/install -j$(nproc) || make toolchain/install V=s
 
-      - name: 7. 执行全量固件编译
+      - name: 7. 编译固件
         run: |
           cd openwrt
           make -j$(nproc) || make -j1 V=s
 
-      - name: 8. 整理镜像并发布
+      - name: 8. 上传并发布固件
         if: success()
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: SL3000-PRO-v${{ github.run_number }}
+          tag_name: SL3000-v${{ github.run_number }}
           files: |
             openwrt/bin/targets/mediatek/filogic/*factory.bin
             openwrt/bin/targets/mediatek/filogic/*sysupgrade.itb
-          body: |
-            ### SL3000 旗舰定制固件
-            - **硬件规格**: 1GB RAM / 128GB eMMC
-            - **预装功能**: Passwall 2, Docker, 1GB RootFS
-            - **构建信息**: 基于 Kernel 6.12, 已修复 GPT 分区逻辑。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
