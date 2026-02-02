@@ -6,29 +6,84 @@ on:
 jobs:
   generate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 运行脚本并强制输出
+      - name: 2. 现场生成三件套 (不依赖外部脚本)
         run: |
-          chmod +x ./scripts/factory-init.sh
-          ./scripts/factory-init.sh
-        shell: bash
+          echo ">>> 开始原地生成资产..."
+          
+          # 生成 DTS
+          cat << 'EOF' > mt7981b-sl3000-emmc.dts
+          /dts-v1/;
+          #include <dt-bindings/gpio/gpio.h>
+          #include <mediatek/mt7981.dtsi>
+          / {
+            model = "SL-3000 eMMC Router";
+            compatible = "sl,sl3000-emmc", "mediatek,mt7981b";
+            memory@40000000 { device_type = "memory"; reg = <0x0 0x40000000 0x0 0x40000000>; };
+          };
+          &uart0 { status = "okay"; };
+          &mmc0 { status = "okay"; bus-width = <8>; non-removable; };
+          EOF
 
-      - name: 3. 深度搜索文件 (Debug)
+          # 生成 Makefile
+          cat << 'EOF' > filogic.mk
+          DTS_DIR := $(DTS_DIR)/mediatek
+          define Build/mt798x-gpt
+            cp $@ $@.tmp 2>/dev/null || true
+            ptgen -g -o $@.tmp -a 1 -l 1024 \
+              -t 0x83 -N ubootenv -r -p 512k@4M \
+              -t 0xef -N fip -r -p 4M@6656k \
+              -t 0x2e -N production -p $(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M
+            cat $@.tmp >> $@
+            rm $@.tmp
+          endef
+          define Device/sl3000-emmc
+            DEVICE_VENDOR := SL
+            DEVICE_MODEL := SL3000
+            DEVICE_DTS := mt7981b-sl3000-emmc
+            IMAGE/factory.bin := append-rootfs | pad-rootfs | mt798x-gpt emmc
+          endef
+          TARGET_DEVICES += sl3000-emmc
+          EOF
+
+          # 生成 Config
+          cat << 'EOF' > sl3000.config
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y
+          EOF
+
+          # 强制清理换行符
+          sed -i 's/\r//g' *.dts *.mk *.config
+          echo ">>> 资产生成完毕！"
+
+      - name: 3. 强制确认文件位置
         run: |
-          echo "正在全目录搜索生成的文件..."
-          find . -maxdepth 2 -name "*.dts"
-          find . -maxdepth 2 -name "*.mk"
-          find . -maxdepth 2 -name "*.config"
+          echo "--- 当前目录列表 ---"
+          ls -F
+          echo "--- 检查目标文件 ---"
+          [ -f mt7981b-sl3000-emmc.dts ] && echo "DTS Found"
+          [ -f filogic.mk ] && echo "MK Found"
+          [ -f sl3000.config ] && echo "Config Found"
 
-      - name: 4. 打包并上传资产
+      - name: 4. 提交并推送文件回仓库 (让文件直接出现在你的仓库里)
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add mt7981b-sl3000-emmc.dts filogic.mk sl3000.config
+          git commit -m "Auto-generate SL3000 assets [skip ci]" || echo "No changes to commit"
+          git push
+
+      - name: 5. 上传 Artifact (作为备份附件)
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Assets-Pack
-          # 使用通配符，确保无论在哪都能抓到
+          name: SL3000-Quick-Assets
           path: |
-            ./*.dts
-            ./*.mk
-            ./*.config
+            mt7981b-sl3000-emmc.dts
+            filogic.mk
+            sl3000.config
