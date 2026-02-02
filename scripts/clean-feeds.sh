@@ -1,34 +1,44 @@
 #!/bin/bash
+# ============================================================
+# SL3000 工厂级修复脚本 (针对 Kernel 6.12 路径纠偏)
+# ============================================================
+
 set -e
 
-echo ">>> [SL3000 工厂级注入] 正在对齐 1GB RAM + 128GB eMMC 硬件定义..."
-
+echo ">>> [1/4] 环境预处理与路径对齐..."
 TOPDIR=$(pwd)/openwrt
-# 目标路径：内核 6.12 强制要求在 mediatek 子目录下编译
-DEST_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
-mkdir -p "$TOPDIR/$DEST_DIR"
+# 目标路径：6.12 内核强制要求在 dts/mediatek 子目录下编译
+DTS_DEST_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
+mkdir -p "$TOPDIR/$DTS_DEST_DIR"
 
-# 1. 注入 DTS 并执行全链路修正
-# A. 修正 include 引用方式
-# B. 确保 1GB 内存 (1024MB) 定义正确
+echo ">>> [2/4] 注入 DTS 并执行全链路 Include 修正..."
+# 逻辑：
+# 1. 将 #include "mt7981.dtsi" 修正为 <mediatek/mt7981.dtsi>
+# 2. 将 #include "mt7981b.dtsi" 修正为 <mediatek/mt7981b.dtsi>
+# 这样即使没有相对路径，编译器也能通过全局搜索路径找到基础文件
 sed -e 's/#include "mt7981.dtsi"/#include <mediatek\/mt7981.dtsi>/g' \
-    -e 's/reg = <0 0x40000000 0 0x20000000>;/reg = <0 0x40000000 0 0x40000000>;/g' \
+    -e 's/#include "mt7981b.dtsi"/#include <mediatek\/mt7981b.dtsi>/g' \
     "target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatekmt7981b-sl3000-emmc.d" \
-    > "$TOPDIR/$DEST_DIR/mt7981b-sl3000-emmc.dts"
+    > "$TOPDIR/$DTS_DEST_DIR/mt7981b-sl3000-emmc.dts"
 
-# 2. 强制覆盖 Makefile 定义 (使用你提供的包含 GPT/GL-Metadata 的版本)
+echo ">>> [3/4] 强制覆盖平台 Makefile (filogic.mk)..."
 mkdir -p "$TOPDIR/target/linux/mediatek/image/"
 cp -f "target/linux/mediatek/image/filogic.mk" "$TOPDIR/target/linux/mediatek/image/filogic.mk"
 
-# 3. 注入编译配置并开启 eMMC 支持
-cp -f "sl3000/config/sl3000.config" "$TOPDIR/.config"
-echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024" >> "$TOPDIR/.config" # 设置 1GB 根分区预留
+# 注入 .config
+if [ -f "sl3000/config/sl3000.config" ]; then
+    cp -f "sl3000/config/sl3000.config" "$TOPDIR/.config"
+fi
 
-# 4. 同步 Feeds
+echo ">>> [4/4] Feeds 同步与硬件索引注册..."
 cd "$TOPDIR"
-./scripts/feeds update -a && ./scripts/feeds install -a
-
-# 5. 注册硬件到索引
+./scripts/feeds update -a
+./scripts/feeds install -a
 make defconfig
 
-echo ">>> 注入成功。DTS 已修正为: $DEST_DIR/mt7981b-sl3000-emmc.dts"
+# 最终自检
+if grep -q "sl3000-emmc" ".config"; then
+    echo "SUCCESS: SL3000 硬件链路已打通！"
+else
+    echo "ERROR: 硬件定义未生效，请检查 filogic.mk" && exit 1
+fi
