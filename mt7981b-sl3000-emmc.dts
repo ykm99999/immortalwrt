@@ -1,0 +1,10 @@
+/dts-v1/;
+#include <dt-bindings/gpio/gpio.h>
+#include <mediatek/mt7981.dtsi>
+/ {
+  model = "SL-3000 eMMC Router";
+  compatible = "sl,sl3000-emmc", "mediatek,mt7981b";
+  memory@40000000 { device_type = "memory"; reg = <0x0 0x40000000 0x0 0x40000000>; };
+};
+&uart0 { status = "okay"; };
+&mmc0 { status = "okay"; bus-width = <8>; non-removable; };
