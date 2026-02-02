@@ -1,7 +1,7 @@
-name: SL3000-Factory-Ultimate-Fixed
+name: SL3000-Ultimate-Factory-Build
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 手动触发
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
@@ -12,10 +12,10 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-    - name: 1. 检出仓库
+    - name: 1. 检出本地配置
       uses: actions/checkout@v4
 
-    - name: 2. 极致磁盘清理 (针对 Mediatek 编译链优化)
+    - name: 2. 磁盘最大化清理 (释放 35GB+)
       uses: jlumbroso/free-disk-space@main
       with:
         tool-cache: true
@@ -23,7 +23,7 @@ jobs:
         dotnet: true
         swap-storage: true
 
-    - name: 3. 环境准备
+    - name: 3. 部署编译依赖
       run: |
         sudo -E apt-get update
         sudo -E apt-get install -y $(curl -fsSL https://is.gd/depends_static_ubuntu_2204)
@@ -32,46 +32,44 @@ jobs:
     - name: 4. 克隆 ImmortalWrt 源码
       run: git clone -b $REPO_BRANCH --single-branch $REPO_URL openwrt
 
-    - name: 5. 【自愈核心】赋权并执行注入脚本
+    - name: 5. 执行权限修复与自愈注入
       run: |
         chmod +x scripts/clean-feeds.sh
         ./scripts/clean-feeds.sh
 
-    - name: 6. 缓存管理
+    - name: 6. 缓存机制
       uses: actions/cache@v3
       with:
         path: openwrt/dl
-        key: ${{ runner.os }}-sl3000-${{ env.REPO_BRANCH }}-${{ hashFiles('**/feeds.conf.default') }}
+        key: ${{ runner.os }}-sl3000-${{ env.REPO_BRANCH }}
 
-    - name: 7. 软件包预下载
+    - name: 7. 预下载软件包
       run: |
         cd openwrt
         make download -j16
         find dl -size -1024c -exec rm -f {} \;
 
-    - name: 8. 执行编译 (全链路监控)
+    - name: 8. 执行全核编译
       id: compile
       run: |
         cd openwrt
-        # 针对 1GB RAM 设备，通常涉及较多插件，使用全核编译
+        # 全核编译，报错则自动单线程输出日志
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: 9. 固件收集与自动发布
+    - name: 9. 发布至 Release
       if: steps.compile.outputs.status == 'success'
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: SL3000-v${{ github.run_number }}
+        tag_name: SL3000-PRO-v${{ github.run_number }}
         files: |
           openwrt/bin/targets/mediatek/filogic/*factory.bin
           openwrt/bin/targets/mediatek/filogic/*sysupgrade.itb
           openwrt/bin/targets/mediatek/filogic/*.sha256sum
         body: |
-          ### SL3000 Pro (AX3000) 工厂级固件
-          - **CPU**: MT7981B
-          - **RAM**: 1GB 
-          - **Flash**: 128GB eMMC
-          - **内核**: 6.12 (ImmortalWrt 25.12)
-          - **修复**: 解决了 DTS 编译路径找不到的问题
+          ### SL3000 AX3000 旗舰版固件
+          - **硬件规格**: MT7981B + 1GB RAM + 128GB eMMC
+          - **内核版本**: 6.12
+          - **特性**: 已修正 DTS Include 路径，开启 GPT 分区支持。
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
