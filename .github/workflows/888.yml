@@ -1,36 +1,47 @@
-name: SL3000-Asset-Generator
+name: SL3000-Full-Asset-Generator
 
 on:
   workflow_dispatch:
 
 jobs:
-  generator:
+  generate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: 1. Checkout Repository
+      - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. Execute Factory Script
+      - name: 2. 现场生成三件套 (printf 物理锁定)
         run: |
-          chmod +x ./scripts/factory-init.sh
-          ./scripts/factory-init.sh
-        shell: bash
+          # --- 1. 生成 DTS ---
+          printf "/dts-v1/;\n#include <dt-bindings/gpio/gpio.h>\n#include <mediatek/mt7981.dtsi>\n\n/ {\n\tmodel = \"SL-3000 eMMC Router\";\n\tcompatible = \"sl,sl3000-emmc\", \"mediatek,mt7981b\";\n\tchosen { stdout-path = \"serial0:115200n8\"; };\n\tmemory@40000000 { device_type = \"memory\"; reg = <0x0 0x40000000 0x0 0x40000000>; };\n};\n&uart0 { status = \"okay\"; };\n&mmc0 { status = \"okay\"; bus-width = <8>; non-removable; };\n&usb_phy { status = \"disabled\"; };\n&xhci { status = \"disabled\"; };\n" > mt7981b-sl3000-emmc.dts
 
-      - name: 3. Path & File Verification
+          # --- 2. 生成 Makefile (核心修复：双转义处理) ---
+          printf "DTS_DIR := \$(DTS_DIR)/mediatek\n\ndefine Image/Prepare\n\techo -ne '\\\\xde\\\\xad\\\\xc0\\\\xde' > \$(KDIR)/ubi_mark\nendef\n\ndefine Build/mt798x-gpt\n\tcp \$@ \$@.tmp 2>/dev/null || true\n\tptgen -g -o \$@.tmp -a 1 -l 1024 \\\\\n\t\t-t 0x83 -N ubootenv -r -p 512k@4M \\\\\n\t\t-t 0x83 -N factory -r -p 2M@4608k \\\\\n\t\t-t 0xef -N fip -r -p 4M@6656k \\\\\n\t\t-N recovery -r -p 32M@12M \\\\\n\t\t-t 0x2e -N production -p \$(CONFIG_TARGET_ROOTFS_PARTSIZE)M@64M\n\tcat \$@.tmp >> \$@\n\trm \$@.tmp\nendef\n\ndefine Device/sl3000-emmc\n  DEVICE_VENDOR := SL\n  DEVICE_MODEL := SL3000\n  DEVICE_DTS := mt7981b-sl3000-emmc\n  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware kmod-mmc kmod-sdhci-mtk kmod-fs-f2fs f2fs-tools\n  IMAGES := sysupgrade.itb factory.bin\n  IMAGE/sysupgrade.itb := append-kernel | append-dtb | append-metadata\n  IMAGE/factory.bin := append-rootfs | pad-rootfs | mt798x-gpt emmc\nendef\nTARGET_DEVICES += sl3000-emmc\n" > filogic.mk
+
+          # --- 3. 生成 Config ---
+          printf "CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y\nCONFIG_TARGET_ROOTFS_PARTSIZE=1024\nCONFIG_EFI_PARTITION=y\nCONFIG_PACKAGE_kmod-fs-f2fs=y\nCONFIG_PACKAGE_f2fs-tools=y\nCONFIG_PACKAGE_luci=y\nCONFIG_PACKAGE_luci-i18n-base-zh-cn=y\n" > sl3000.config
+
+      - name: 3. 完整性物理扫描
         run: |
-          echo ">>> 正在根目录搜索资产..."
-          if [ -f "mt7981b-sl3000-emmc.dts" ] && [ -f "filogic.mk" ] && [ -f "sl3000.config" ]; then
-            echo "✅ 资产已定位在根目录。"
-          else
-            echo "❌ 资产生成失败，正在尝试全盘深度搜索..."
-            find . -name "*.dts" -o -name "*.mk" -o -name "*.config"
-            exit 1
-          fi
+          echo ">>> 检查文件行数:"
+          wc -l mt7981b-sl3000-emmc.dts filogic.mk sl3000.config
+          echo ">>> 检查 Makefile 里的 GPT 逻辑是否被截断:"
+          grep "production" filogic.mk
 
-      - name: 4. Upload Assets
+      - name: 4. 提交回仓库 (自动刷新仓库主页可见)
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add mt7981b-sl3000-emmc.dts filogic.mk sl3000.config
+          git commit -m "Auto-refresh SL3000 assets" || echo "No changes"
+          git push
+
+      - name: 5. 附件归档
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Clean-Assets
+          name: SL3000-Assets
           path: |
             mt7981b-sl3000-emmc.dts
             filogic.mk
