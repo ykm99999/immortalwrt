@@ -4,6 +4,10 @@ define Image/Prepare
 	echo -ne '\xde\xad\xc0\xde' > $(KDIR)/ubi_mark
 endef
 
+define Build/mt7981-bl2
+	cat $(STAGING_DIR_IMAGE)/mt7981-$(1)-bl2.img >> $@
+endef
+
 define Build/mt798x-gpt
 	cp $@ $@.tmp 2>/dev/null || true
 	ptgen -g -o $@.tmp -a 1 -l 1024 \
@@ -19,8 +23,11 @@ endef
 define Device/sl3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := SL3000
+  DEVICE_VARIANT := eMMC
   DEVICE_DTS := mt7981b-sl3000-emmc
-  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware kmod-mmc kmod-sdhci-mtk kmod-fs-f2fs f2fs-tools
+  DEVICE_DTS_DIR := $(DTS_DIR)
+  SUPPORTED_DEVICES := sl,sl3000-emmc
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware kmod-mmc kmod-sdhci-mtk kmod-fs-f2fs f2fs-tools
   IMAGES := sysupgrade.itb factory.bin
   IMAGE/sysupgrade.itb := append-kernel | append-dtb | append-metadata
   IMAGE/factory.bin := append-rootfs | pad-rootfs | mt798x-gpt emmc
