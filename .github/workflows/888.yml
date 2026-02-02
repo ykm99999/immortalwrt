@@ -7,24 +7,28 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Checkout
+      - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. Run Script
+      - name: 2. 运行脚本并强制输出
         run: |
           chmod +x ./scripts/factory-init.sh
           ./scripts/factory-init.sh
         shell: bash
 
-      - name: 3. Verify
+      - name: 3. 深度搜索文件 (Debug)
         run: |
-          ls -l mt7981b-sl3000-emmc.dts filogic.mk sl3000.config
+          echo "正在全目录搜索生成的文件..."
+          find . -maxdepth 2 -name "*.dts"
+          find . -maxdepth 2 -name "*.mk"
+          find . -maxdepth 2 -name "*.config"
 
-      - name: 4. Upload
+      - name: 4. 打包并上传资产
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Assets
+          name: SL3000-Assets-Pack
+          # 使用通配符，确保无论在哪都能抓到
           path: |
-            mt7981b-sl3000-emmc.dts
-            filogic.mk
-            sl3000.config
+            ./*.dts
+            ./*.mk
+            ./*.config
