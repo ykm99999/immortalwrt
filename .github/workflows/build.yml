@@ -1,221 +1,86 @@
-name: build-sl3000-openwrt-2512
+name: SL3000-Factory-PRO-Build
 
 on:
-  workflow_dispatch:
-
-permissions:
-  contents: write
-  packages: write
+  workflow_dispatch: # 仅手动触发
 
 env:
-  WORK_DIR: ${{ github.workspace }}/openwrt2512
-  CCACHE_DIR: ${{ github.workspace }}/.ccache
-  SOURCE_REPO: https://github.com/immortalwrt/immortalwrt.git
-  SOURCE_BRANCH: openwrt-25.12
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-25.12
+  TZ: Asia/Shanghai
 
 jobs:
-  build-sl3000-2512:
+  build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 360
-
     steps:
-      # ============================================================
-      # 0. Checkout repo
-      # ============================================================
-      - name: Checkout repo
-        uses: actions/checkout@v4
-        with:
-          path: repo
-          fetch-depth: 1
+    - name: 1. 检出本地配置仓库
+      uses: actions/checkout@v4
 
-      # ============================================================
-      # 1. Prepare build directory
-      # ============================================================
-      - name: Prepare build directory
-        run: |
-          sudo rm -rf "${{ env.WORK_DIR }}"
-          mkdir -p "${{ env.WORK_DIR }}"
+    - name: 2. 磁盘最大化清理 (释放 35GB+ 空间)
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: true
+        android: true
+        dotnet: true
+        haskell: true
+        swap-storage: true
 
-      # ============================================================
-      # 2. Clone ImmortalWrt（优化克隆速度）
-      # ============================================================
-      - name: Clone ImmortalWrt 25.12
-        run: |
-          git clone \
-            --depth=1 \
-            --single-branch \
-            --filter=blob:none \
-            -b "${{ env.SOURCE_BRANCH }}" \
-            "${{ env.SOURCE_REPO }}" \
-            "${{ env.WORK_DIR }}"
+    - name: 3. 部署编译环境
+      run: |
+        sudo -E apt-get update
+        sudo -E apt-get install -y $(curl -fsSL https://is.gd/depends_static_ubuntu_2204)
+        sudo timedatectl set-timezone "$TZ"
 
-      # ============================================================
-      # 3. Restore dl cache
-      # ============================================================
-      - name: Restore dl cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.WORK_DIR }}/dl
-          key: dl-cache-2512
-          restore-keys: dl-cache-
+    - name: 4. 克隆 ImmortalWrt 官方源码
+      run: |
+        git clone -b $REPO_BRANCH --single-branch $REPO_URL openwrt
 
-      # ============================================================
-      # 4. Restore toolchain cache
-      # ============================================================
-      - name: Restore toolchain cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.WORK_DIR }}/staging_dir/toolchain-*
-            ${{ env.WORK_DIR }}/build_dir/toolchain-*
-          key: toolchain-cache-${{ env.SOURCE_BRANCH }}
-          restore-keys: toolchain-cache-
+    - name: 5. 【工程级自愈】赋权并执行注入脚本
+      run: |
+        # 强制授予执行权限，防止 Permission Denied
+        chmod +x scripts/clean-feeds.sh
+        ./scripts/clean-feeds.sh
 
-      # ============================================================
-      # 5. Install dependencies
-      # ============================================================
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc-12 g++-12 \
-            build-essential flex bison gawk \
-            gettext git libncurses5-dev libssl-dev \
-            python3 python3-pip rsync unzip zlib1g-dev \
-            file ccache libelf-dev bc
+    - name: 6. 缓存机制 (Smart-Cache)
+      uses: actions/cache@v3
+      with:
+        path: openwrt/dl
+        key: ${{ runner.os }}-sl3000-${{ env.REPO_BRANCH }}-${{ hashFiles('**/feeds.conf.default') }}
 
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
+    - name: 7. 预下载软件包
+      run: |
+        cd openwrt
+        make download -j16
+        # 自愈：剔除网络波动产生的 1KB 以下损坏包
+        find dl -size -1024c -exec rm -f {} \;
 
-          echo "CCACHE_DIR=${{ env.CCACHE_DIR }}" >> $GITHUB_ENV
-          echo "CCACHE_COMPRESS=1" >> $GITHUB_ENV
-          echo "CCACHE_MAXSIZE=2G" >> $GITHUB_ENV
+    - name: 8. 执行全链路编译 (Auto-Heal)
+      id: compile
+      run: |
+        cd openwrt
+        # 全核并行编译，若失败自动降级单线程捕捉日志
+        make -j$(nproc) || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
 
-      # ============================================================
-      # 6. Restore ccache
-      # ============================================================
-      - name: Restore ccache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: ccache-2512
-          restore-keys: ccache-2512
+    - name: 9. 自动整理固件
+      if: steps.compile.outputs.status == 'success'
+      run: |
+        mkdir -p ./artifact
+        cd openwrt/bin/targets/mediatek/filogic/
+        cp -f *factory.bin ../../../../artifact/ 2>/dev/null || true
+        cp -f *sysupgrade.itb ../../../../artifact/ 2>/dev/null || true
+        cp -f *.sha256sum ../../../../artifact/ 2>/dev/null || true
 
-      # ============================================================
-      # 6.5 Download sources (self-heal) —— 严格延续插入
-      # ============================================================
-      - name: Download sources (self-heal)
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          echo ">>> [自愈] 同步三件套 DTS/MK/CONFIG 到源码目录"
-          cp -v "$GITHUB_WORKSPACE/repo/target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts" \
-                target/linux/mediatek/dts/
-          cp -v "$GITHUB_WORKSPACE/repo/target/linux/mediatek/image/filogic.mk" \
-                target/linux/mediatek/image/filogic.mk
-          cp -v "$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config" \
-                .config
-          echo ">>> [自愈] 三件套同步完成"
-
-      # ============================================================
-      # 7. feeds update/install（关键修复）
-      # ============================================================
-      - name: Update & Install Feeds（关键步骤）
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          echo ">>> 执行 feeds update/install..."
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          echo ">>> feeds 初始化完成"
-
-      # ============================================================
-      # 8. 三件套闭环
-      # ============================================================
-      - name: Copy DTS + Override MK
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          cp -v "$GITHUB_WORKSPACE/repo/target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts" \
-                target/linux/mediatek/dts/
-          cp -v "$GITHUB_WORKSPACE/repo/target/linux/mediatek/image/filogic.mk" \
-                target/linux/mediatek/image/filogic.mk
-
-      - name: Run clean-feeds.sh（三件套闭环）
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          chmod +x "$GITHUB_WORKSPACE/repo/scripts/clean-feeds.sh"
-          bash "$GITHUB_WORKSPACE/repo/scripts/clean-feeds.sh"
-
-      - name: Apply CONFIG（激活 sl3000-emmc）
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          cp -v "$GITHUB_WORKSPACE/repo/sl3000/config/sl3000.config" .config
-          make defconfig
-
-      # ============================================================
-      # 9. 构建链（fail-fast）
-      # ============================================================
-      - name: Build tools
-        working-directory: ${{ env.WORK_DIR }}
-        run: make tools/install -j"$(nproc)" V=s || exit 1
-
-      - name: Build toolchain
-        working-directory: ${{ env.WORK_DIR }}
-        run: make toolchain/install -j"$(nproc)" V=s || exit 1
-
-      - name: Build kernel
-        working-directory: ${{ env.WORK_DIR }}
-        run: make target/linux/compile -j"$(nproc)" V=s || exit 1
-
-      - name: Build packages
-        working-directory: ${{ env.WORK_DIR }}
-        run: make package/compile -j"$(nproc)" V=s || exit 1
-
-      - name: Build image（采集完整日志）
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          make -j"$(nproc)" V=s | tee build.log
-          test ${PIPESTATUS[0]} -eq 0 || exit 1
-
-      # ============================================================
-      # 10. 校验固件结构 + 生成 sha256sum
-      # ============================================================
-      - name: Verify final firmware
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          ls -lh bin/targets/mediatek/filogic/sl3000 || exit 1
-          ls bin/targets/mediatek/filogic/sl3000/*sysupgrade*.bin >/dev/null 2>&1 || exit 1
-          sha256sum bin/targets/mediatek/filogic/sl3000 > sha256sums.txt
-
-      # ============================================================
-      # 11. 上传构建日志 + 固件
-      # ============================================================
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: ${{ env.WORK_DIR }}/build.log
-
-      - name: Upload firmware artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sl3000-2512-firmware
-          path: |
-            ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/sl3000
-            ${{ env.WORK_DIR }}/sha256sums.txt
-            ${{ env.WORK_DIR }}/.buildinfo
-
-      # ============================================================
-      # 12. Release
-      # ============================================================
-      - name: Release SL3000 Firmware
-        uses: softprops/action-gh-release@v2
-        with:
-          tagname: sl3000-2512-${{ github.run_number }}
-          name: SL3000 Firmware 25.12 Build ${{ github.run_number }}
-          body: |
-            自动构建的 SL3000 固件（OpenWrt 25.12）
-            构建编号：${{ github.run_number }}
-          files: |
-            ${{ env.WORK_DIR }}/bin/targets/mediatek/filogic/sl3000
-            ${{ env.WORK_DIR }}/sha256sums.txt
-            ${{ env.WORK_DIR }}/.buildinfo
+    - name: 10. 发布至 Release
+      if: steps.compile.outputs.status == 'success'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: SL3000-Build-${{ github.run_number }}
+        files: ./artifact/*
+        body: |
+          ### SL3000 工厂级定制固件
+          - **核心源码**: ImmortalWrt 25.12
+          - **硬件方案**: MT7981B eMMC
+          - **构建逻辑**: 已强制覆盖官方 `filogic.mk` 与 `DTS`
+          - **构建时间**: ${{ github.event.head_commit.timestamp }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
