@@ -28,9 +28,7 @@ jobs:
 
       - name: 3. Clone Sources
         run: |
-          # 克隆源码到 immortalwrt 目录
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
-          # 克隆你的三件套仓库到 custom-repo 目录
           git clone https://github.com/${{ github.repository }}.git ${{ env.ASSET_DIR }}
 
       - name: 4. Execute Auto-Merge (V31.0)
@@ -38,33 +36,20 @@ jobs:
         env:
           CUSTOM_ASSETS: ${{ env.ASSET_DIR }}
         run: |
-          # 确保脚本权限并运行
-          cp ${{ env.ASSET_DIR }}/scripts/clean-feeds.sh ./
+          cp -v ${{ env.ASSET_DIR }}/scripts/clean-feeds.sh ./
           chmod +x clean-feeds.sh
           ./clean-feeds.sh
 
       - name: 5. Kernel Hook & Path Fix
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 准备内核源码
           make target/linux/prepare -j$(nproc)
-          
-          # 动态寻找真实的 DTS 目录并再次注入（双重保险）
           REAL_K_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$REAL_K_DIR" ]; then
             TEMP_DTS=$(find target/linux/mediatek/files-* -name "mt7981b-sl3000-emmc.dts" | head -n 1)
-            cp -v "$TEMP_DTS" "$REAL_K_DIR/"
-            # 在 Makefile 中注册，确保参与编译
+            [ -f "$TEMP_DTS" ] && cp -v "$TEMP_DTS" "$REAL_K_DIR/"
+            # 修正 sed 语法：在 Makefile 注册 dtb
             sed -i '/mt7981-rfb.dtb/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$REAL_K_DIR/Makefile"
-          fi
-          
-          # 核心修复：建立 rootfs 路径兼容性链接，防止 mksquashfs 找不到目录
-          # 探测真实的 rootfs 目录名并建立软链接
-          cd build_dir/target-aarch64_cortex-a53_musl
-          REAL_ROOTFS=$(ls -d root-* | head -n 1)
-          if [ -n "$REAL_ROOTFS" ] && [ "$REAL_ROOTFS" != "root-mediatek" ]; then
-            ln -sf "$REAL_ROOTFS" root-mediatek
-            echo "✅ Created link: root-mediatek -> $REAL_ROOTFS"
           fi
 
       - name: 6. Build Toolchain
@@ -76,8 +61,19 @@ jobs:
       - name: 7. Final Compilation
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 最终安装与编译
-          make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
+          # 运行内核编译并强制对齐路径
+          make target/linux/install -j$(nproc) || true
+          
+          # 暴力对齐 root-mediatek 路径补丁
+          BUILD_PARENT=$(find build_dir -name "target-aarch64_cortex-a53_musl" -type d | head -n 1)
+          if [ -d "$BUILD_PARENT" ]; then
+            cd "$BUILD_PARENT"
+            REAL_ROOT=$(ls -d root-* 2>/dev/null | grep -v "mediatek$" | head -n 1)
+            [ -n "$REAL_ROOT" ] && ln -sf "$REAL_ROOT" root-mediatek
+            cd -
+          fi
+          
+          # 执行最终打包
           make -j$(nproc) || make -j1 V=s
 
       - name: 8. Release Assets
