@@ -1,70 +1,82 @@
-name: SL3000-Auto-Release
+name: SL3000-Auto-Release-V17
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
-  TZ: Asia/Shanghai
+  WORKDIR: ${{ github.workspace }}/immortalwrt
+  SOURCE_REPO: https://github.com/immortalwrt/immortalwrt.git
+  SOURCE_BRANCH: openwrt-25.12
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-
     steps:
-      - name: 1. 检出仓库
-        uses: actions/checkout@v4
-
-      - name: 2. 极致磁盘清理
+      - name: 1. Maximize Space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
-          sudo apt-get autoremove -y
-          sudo apt-get clean
+          sudo docker system prune -af --volumes
 
-      - name: 3. 安装工厂构建依赖
+      - name: 2. Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib \
-          gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev \
-          file libelf-dev libncurses-dev python3-pyelftools qemu-utils swig device-tree-compiler
+          sudo apt-get install -y build-essential clang flex bison gawk m4 libtool-bin rsync \
+          unzip wget curl patch git-core gettext libncurses-dev zlib1g-dev libssl-dev \
+          libelf-dev python3 python3-pip ccache device-tree-compiler bc dos2unix
 
-      - name: 4. 克隆 ImmortalWrt 源码
-        run: git clone -b openwrt-25.12 --single-branch https://github.com/immortalwrt/immortalwrt openwrt
-
-      - name: 5. 执行 SL3000 自愈合并脚本
+      - name: 3. Clone Sources
         run: |
-          cd openwrt
-          chmod +x ../scripts/clean-feeds.sh
-          ../scripts/clean-feeds.sh
+          git clone --depth=1 -b ${{ env.SOURCE_BRANCH }} ${{ env.SOURCE_REPO }} ${{ env.WORKDIR }}
+          git clone https://github.com/${{ github.repository }}.git custom-repo
 
-      - name: 6. 预编译工具链 (关键阶段)
+      - name: 4. Execute Auto-Merge (V17.0)
+        working-directory: ${{ env.WORKDIR }}
         run: |
-          cd openwrt
+          cp ${{ github.workspace }}/custom-repo/scripts/clean-feeds.sh ./
+          chmod +x clean-feeds.sh
+          ./clean-feeds.sh
+
+      - name: 5. Kernel Physical Injection & Hook
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          echo ">>> 正在执行内核编译层拦截..."
+          # 准备内核源码目录
+          make target/linux/prepare -j$(nproc)
+          
+          # 寻找编译过程中真实的 DTS 路径并再次同步，防止补丁被覆盖
+          REAL_K_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
+          if [ -n "$REAL_K_DIR" ]; then
+            # 找到脚本刚才生成的 DTS 文件
+            TEMP_DTS=$(find target/linux/mediatek/files-* -name "mt7981b-sl3000-emmc.dts" | head -n 1)
+            cp -v "$TEMP_DTS" "$REAL_K_DIR/"
+            
+            # 物理级 Makefile 加塞
+            sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$REAL_K_DIR/Makefile"
+            
+            # 核心：修复编译器 Include 路径找不到头文件的报错
+            find build_dir -name "Makefile.lib" -exec sed -i "s|DTC_FLAGS += |DTC_FLAGS += -i $REAL_K_DIR |" {} + 2>/dev/null || true
+          fi
+
+      - name: 6. Build Tools & Toolchain
+        working-directory: ${{ env.WORKDIR }}
+        run: |
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 7. 执行全量固件编译
+      - name: 7. Full Compilation (Final)
+        working-directory: ${{ env.WORKDIR }}
         run: |
-          cd openwrt
+          # 并行编译内核及目标
+          make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
+          make target/install -j$(nproc)
           make -j$(nproc) || make -j1 V=s
 
-      - name: 8. 整理固件产物
+      - name: 8. Release Assets
         if: success()
-        run: |
-          mkdir -p publish
-          find openwrt/bin/targets/mediatek/filogic/ -type f -name "*sl3000*" -exec cp {} ./publish/ \;
-          echo "BUILD_TIME=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
-
-      - name: 9. 自动发布到 Release
-        uses: softprops/action-gh-release@v1
-        if: success()
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: SL3000-${{ env.BUILD_TIME }}
-          files: ./publish/*
-          body: |
-            ### 🛠️ SL3000 旗舰版固件 (基于 ImmortalWrt 25.12)
-            - **固件类型**: factory / sysupgrade
-            - **自愈状态**: DTS 结构校验通过 ✅
-            - **驱动集成**: eMMC, F2FS, GPT Partition
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: SL3000-EMMC-${{ github.run_number }}
+          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
