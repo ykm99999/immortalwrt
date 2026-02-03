@@ -1,4 +1,4 @@
-name: SL3000-Auto-Release-V21
+name: SL3000-Auto-Release-V22
 
 on:
   workflow_dispatch:
@@ -33,30 +33,34 @@ jobs:
           git clone --depth=1 -b ${{ env.SOURCE_BRANCH }} ${{ env.SOURCE_REPO }} ${{ env.WORKDIR }}
           git clone https://github.com/${{ github.repository }}.git ${{ env.ASSET_DIR }}
 
-      - name: 4. Execute Auto-Merge (V21.0)
+      - name: 4. Execute Auto-Merge (V22.0)
         working-directory: ${{ env.WORKDIR }}
         env:
           CUSTOM_ASSETS: ${{ env.ASSET_DIR }}
         run: |
-          git config --global url."https://".insteadOf git://
           cp ${{ env.ASSET_DIR }}/scripts/clean-feeds.sh ./
           chmod +x clean-feeds.sh
           ./clean-feeds.sh
 
-      - name: 5. Kernel Physical Hook (Flattened)
+      - name: 5. Kernel Physical Hook (Deep Injection)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          echo ">>> 启动物理级编译环境修正..."
+          echo ">>> 启动内核源码级拦截..."
           make target/linux/prepare -j$(nproc)
           
-          # 定位内核构建目录并强制替换为“无依赖全量化 DTS”
+          # 寻找真正的内核构建目录 (例如 build_dir/target.../linux-6.12.x)
           REAL_K_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$REAL_K_DIR" ]; then
+            # 1. 物理覆盖 DTS 到编译核心区
             TEMP_DTS=$(find target/linux/mediatek/files-* -name "mt7981b-sl3000-emmc.dts" | head -n 1)
             cp -v "$TEMP_DTS" "$REAL_K_DIR/"
             
-            # 物理注册 Makefile
+            # 2. 修改 Makefile 使其包含新机型
             sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$REAL_K_DIR/Makefile"
+            
+            # 3. 关键：链接头文件目录，确保 DTC 能找到 <dt-bindings/...>
+            # 内核编译时通常在上级目录寻找 include
+            ln -sf ../../../../../include/dt-bindings "$REAL_K_DIR/include-dt-bindings"
           fi
 
       - name: 6. Build Toolchain
@@ -68,14 +72,12 @@ jobs:
       - name: 7. Final Compilation
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 内核编译阶段
           make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
-          # 整体打包
           make -j$(nproc) || make -j1 V=s
 
       - name: 8. Release Assets
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: SL3000-V21-${{ github.run_number }}
+          tag_name: SL3000-V22-${{ github.run_number }}
           files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
