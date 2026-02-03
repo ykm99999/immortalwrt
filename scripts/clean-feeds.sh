@@ -1,64 +1,42 @@
 #!/bin/bash
 # ============================================================
-# SL3000 V26.0 终极缝合版：针对功能完整版 DTS 深度定制
+# SL3000 V28.0：官方路径对齐版 [彻底修复 Include 报错]
 # ============================================================
 set -e
 
-echo ">>> [SL3000 V26.0] 启动深度物理缝合逻辑..."
+echo ">>> [SL3000 V28.0] 启动注入任务..."
 
 # --- 1. 定位资产 ---
 DTS_SRC="${CUSTOM_ASSETS}/mt7981b-sl3000-emmc.dts"
 MK_SRC="${CUSTOM_ASSETS}/filogic.mk"
 CONF_SRC="${CUSTOM_ASSETS}/sl3000.config"
 
-# --- 2. 核心：物理缝合（Flattening）DTS 依赖 ---
+# --- 2. DTS 预处理：对齐官方引用格式 ---
+# 官方 RFB 源码证明了同目录下引用 "mt7981b.dtsi" 是可行的
+# 我们将你的 DTS 引用统一修改为双引号本地引用
 K_DIR=$(ls -d target/linux/mediatek/files-* 2>/dev/null | sort -V | tail -n 1)
 [ -z "$K_DIR" ] && K_DIR="target/linux/mediatek/files-6.12"
 DTS_DEST_DIR="$K_DIR/arch/arm64/boot/dts/mediatek"
 mkdir -p "$DTS_DEST_DIR"
 
-BASE_DTSI="$DTS_DEST_DIR/mt7981.dtsi"
+echo ">>> [对齐] 正在转换 DTS 引用为官方 RFB 格式..."
+sed -e 's/#include <mediatek\/mt7981.dtsi>/#include "mt7981b.dtsi"/g' \
+    -e 's/#include "mediatek\/mt7981.dtsi"/#include "mt7981b.dtsi"/g' \
+    -e 's/#include <mediatek\/mt7981b.dtsi>/#include "mt7981b.dtsi"/g' \
+    -e 's/#include "mt7981.dtsi"/#include "mt7981b.dtsi"/g' \
+    "$DTS_SRC" | tr -d '\r' > "$DTS_DEST_DIR/mt7981b-sl3000-emmc.dts"
 
-if [ -f "$BASE_DTSI" ]; then
-    echo ">>> [物理缝合] 正在将 mt7981.dtsi 内容展开并入主文件..."
-    
-    # a. 提取系统头文件
-    grep "dt-bindings" "$DTS_SRC" | sort | uniq > dts_merged.dts
-    echo "/dts-v1/;" >> dts_merged.dts
-    
-    # b. 注入内核原厂基础定义 (剔除重复头标记)
-    grep -v "/dts-v1/;" "$BASE_DTSI" >> dts_merged.dts
-    
-    # c. 注入用户自定义节点 (从 / { 开始的内容)
-    sed -n '/^\/ {/,$p' "$DTS_SRC" >> dts_merged.dts
-    
-    # d. 彻底清理所有可能冲突的 include 行
-    sed -i '/#include <mediatek\/mt7981.dtsi>/d' dts_merged.dts
-    sed -i '/#include "mt7981.dtsi"/d' dts_merged.dts
-
-    mv dts_merged.dts "$DTS_DEST_DIR/mt7981b-sl3000-emmc.dts"
-    echo "✅ [成功] DTS 已转化为独立的全量源码文件。"
-else
-    echo "❌ [错误] 在 $DTS_DEST_DIR 找不到基础文件 mt7981.dtsi"
-    exit 1
-fi
-
-# --- 3. 注册机型与 Makefile ---
-K_MAKEFILE="$DTS_DEST_DIR/Makefile"
-if [ -f "$K_MAKEFILE" ]; then
-    grep -q "mt7981b-sl3000-emmc.dtb" "$K_MAKEFILE" || \
-    sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_MAKEFILE"
-fi
-
-# 修正 filogic.mk：添加必要的内核模块支持
+# --- 3. 固件 Makefile 与配置合并 ---
+# 注入 eMMC 和 交换机 驱动支持
 sed -i '/DEVICE_PACKAGES/ s/$/ kmod-mmc kmod-sdhci-mtk kmod-fs-f2fs f2fs-tools kmod-mt7531/' "$MK_SRC"
 cp -f "$MK_SRC" "target/linux/mediatek/image/filogic.mk"
 
-# 写入配置
+# 生成基础配置
 cat "$CONF_SRC" > .config
 echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
 
-# Feeds 逻辑同步
+# --- 4. Feeds 同步 ---
 ./scripts/feeds update -a && ./scripts/feeds install -a
 make defconfig
-echo "✅ [任务完成] V26.0 注入与自愈全部成功！"
+
+echo "✅ [配置完成] DTS 已放置于待命目录，准备进行物理拦截。"
