@@ -3,6 +3,9 @@ name: SL3000-Auto-Release
 on:
   workflow_dispatch:
 
+env:
+  TZ: Asia/Shanghai
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -13,50 +16,55 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘清理与空间释放
+      - name: 2. 极致磁盘清理
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
           sudo apt-get autoremove -y
           sudo apt-get clean
 
-      - name: 3. 安装工具链 (含 DTC)
+      - name: 3. 安装工厂构建依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib \
           gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev \
-          device-tree-compiler qemu-utils
+          file libelf-dev libncurses-dev python3-pyelftools qemu-utils swig device-tree-compiler
 
       - name: 4. 克隆 ImmortalWrt 源码
         run: git clone -b openwrt-25.12 --single-branch https://github.com/immortalwrt/immortalwrt openwrt
 
-      - name: 5. 执行三件套合并脚本
+      - name: 5. 执行 SL3000 自愈合并脚本
         run: |
           cd openwrt
           chmod +x ../scripts/clean-feeds.sh
           ../scripts/clean-feeds.sh
 
-      - name: 6. 预编译工具链
+      - name: 6. 预编译工具链 (关键阶段)
         run: |
           cd openwrt
-          make tools/install -j$(nproc) || make tools/install V=s
-          make toolchain/install -j$(nproc) || make toolchain/install V=s
+          make tools/install -j$(nproc)
+          make toolchain/install -j$(nproc)
 
       - name: 7. 执行全量固件编译
         run: |
           cd openwrt
           make -j$(nproc) || make -j1 V=s
 
-      - name: 8. 整理产物
+      - name: 8. 整理固件产物
         if: success()
         run: |
           mkdir -p publish
-          find openwrt/bin/targets/mediatek/filogic/ -type f -name "*sl3000*" | xargs -I {} cp {} ./publish/
+          find openwrt/bin/targets/mediatek/filogic/ -type f -name "*sl3000*" -exec cp {} ./publish/ \;
           echo "BUILD_TIME=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
 
-      - name: 9. 自动发布 Release
+      - name: 9. 自动发布到 Release
         uses: softprops/action-gh-release@v1
         if: success()
         with:
           tag_name: SL3000-${{ env.BUILD_TIME }}
           files: ./publish/*
+          body: |
+            ### 🛠️ SL3000 旗舰版固件 (基于 ImmortalWrt 25.12)
+            - **固件类型**: factory / sysupgrade
+            - **自愈状态**: DTS 结构校验通过 ✅
+            - **驱动集成**: eMMC, F2FS, GPT Partition
           token: ${{ secrets.GITHUB_TOKEN }}
