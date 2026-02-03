@@ -1,4 +1,4 @@
-name: SL3000-Auto-Release-V18
+name: SL3000-Auto-Release-V19
 
 on:
   workflow_dispatch:
@@ -33,12 +33,13 @@ jobs:
           git clone --depth=1 -b ${{ env.SOURCE_BRANCH }} ${{ env.SOURCE_REPO }} ${{ env.WORKDIR }}
           git clone https://github.com/${{ github.repository }}.git ${{ env.ASSET_DIR }}
 
-      - name: 4. Execute Auto-Merge (V18.0)
+      - name: 4. Execute Auto-Merge (V19.0)
         working-directory: ${{ env.WORKDIR }}
         env:
           CUSTOM_ASSETS: ${{ env.ASSET_DIR }}
         run: |
-          # 拷贝脚本并运行，脚本现在知道去哪里找资产了
+          # 核心修复：防止 Git 认证弹窗
+          git config --global url."https://".insteadOf git://
           cp ${{ env.ASSET_DIR }}/scripts/clean-feeds.sh ./
           chmod +x clean-feeds.sh
           ./clean-feeds.sh
@@ -46,6 +47,7 @@ jobs:
       - name: 5. Kernel Physical Hook
         working-directory: ${{ env.WORKDIR }}
         run: |
+          echo ">>> 执行内核物理拦截..."
           make target/linux/prepare -j$(nproc)
           REAL_K_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$REAL_K_DIR" ]; then
@@ -61,9 +63,10 @@ jobs:
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 7. Full Compilation
+      - name: 7. Final Compilation
         working-directory: ${{ env.WORKDIR }}
         run: |
+          # 编译内核并捕获详细错误
           make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
           make -j$(nproc) || make -j1 V=s
 
@@ -71,5 +74,5 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: SL3000-EMMC-${{ github.run_number }}
+          tag_name: SL3000-V19-${{ github.run_number }}
           files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
