@@ -23,10 +23,10 @@ define Device/sl3000-emmc
   DEVICE_DTS := mt7981b-sl3000-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)
   SUPPORTED_DEVICES := sl,sl3000-emmc
-  DEVICE_PACKAGES := kmod-mmc kmod-sdhci-mtk kmod-fs-f2fs f2fs-tools kmod-mt7981-firmware
+  DEVICE_PACKAGES := kmod-mmc kmod-sdhci-mtk kmod-fs-f2fs f2fs-tools kmod-mt7981-firmware kmod-mt7531
+  KERNEL := append-kernel | pad-to 64k | append-dtb
   IMAGES := factory.bin sysupgrade.bin
   IMAGE/factory.bin := append-rootfs | pad-rootfs | mt798x-gpt
   IMAGE/sysupgrade.bin := append-rootfs | pad-rootfs | check-size
-  KERNEL := append-kernel | pad-to 64k | append-dtb
 endef
 TARGET_DEVICES += sl3000-emmc
