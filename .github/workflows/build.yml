@@ -1,7 +1,14 @@
-name: SL3000-Auto-Release-V30
+name: SL3000-Auto-Release-V31
 
 on:
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  WORKDIR: ${{ github.workspace }}/immortalwrt
+  ASSET_DIR: ${{ github.workspace }}/custom-repo
 
 jobs:
   build:
@@ -21,45 +28,61 @@ jobs:
 
       - name: 3. Clone Sources
         run: |
-          git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git immortalwrt
-          git clone https://github.com/${{ github.repository }}.git custom-repo
+          # 克隆源码到 immortalwrt 目录
+          git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
+          # 克隆你的三件套仓库到 custom-repo 目录
+          git clone https://github.com/${{ github.repository }}.git ${{ env.ASSET_DIR }}
 
-      - name: 4. Execute Auto-Merge (V30.0)
-        working-directory: ${{ github.workspace }}/immortalwrt
+      - name: 4. Execute Auto-Merge (V31.0)
+        working-directory: ${{ env.WORKDIR }}
         env:
-          CUSTOM_ASSETS: ${{ github.workspace }}/custom-repo
+          CUSTOM_ASSETS: ${{ env.ASSET_DIR }}
         run: |
-          cp ${{ env.CUSTOM_ASSETS }}/scripts/clean-feeds.sh ./
+          # 确保脚本权限并运行
+          cp ${{ env.ASSET_DIR }}/scripts/clean-feeds.sh ./
           chmod +x clean-feeds.sh
           ./clean-feeds.sh
 
-      - name: 5. Kernel Hook & Rootfs Link
-        working-directory: ${{ github.workspace }}/immortalwrt
+      - name: 5. Kernel Hook & Path Fix
+        working-directory: ${{ env.WORKDIR }}
         run: |
+          # 准备内核源码
           make target/linux/prepare -j$(nproc)
+          
+          # 动态寻找真实的 DTS 目录并再次注入（双重保险）
           REAL_K_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$REAL_K_DIR" ]; then
             TEMP_DTS=$(find target/linux/mediatek/files-* -name "mt7981b-sl3000-emmc.dts" | head -n 1)
             cp -v "$TEMP_DTS" "$REAL_K_DIR/"
+            # 在 Makefile 中注册，确保参与编译
             sed -i '/mt7981-rfb.dtb/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$REAL_K_DIR/Makefile"
           fi
           
-          # 【核心修复】建立 rootfs 路径兼容性链接
+          # 核心修复：建立 rootfs 路径兼容性链接，防止 mksquashfs 找不到目录
+          # 探测真实的 rootfs 目录名并建立软链接
           cd build_dir/target-aarch64_cortex-a53_musl
-          [ ! -d "root-mediatek" ] && ln -sf root-mediatek_filogic root-mediatek
-          echo "✅ Rootfs path link created."
+          REAL_ROOTFS=$(ls -d root-* | head -n 1)
+          if [ -n "$REAL_ROOTFS" ] && [ "$REAL_ROOTFS" != "root-mediatek" ]; then
+            ln -sf "$REAL_ROOTFS" root-mediatek
+            echo "✅ Created link: root-mediatek -> $REAL_ROOTFS"
+          fi
 
-      - name: 6. Build
-        working-directory: ${{ github.workspace }}/immortalwrt
+      - name: 6. Build Toolchain
+        working-directory: ${{ env.WORKDIR }}
         run: |
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
+
+      - name: 7. Final Compilation
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          # 最终安装与编译
           make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
           make -j$(nproc) || make -j1 V=s
 
-      - name: 7. Release Assets
+      - name: 8. Release Assets
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: SL3000-V30-${{ github.run_number }}
-          files: ${{ github.workspace }}/immortalwrt/bin/targets/mediatek/filogic/*.bin
+          tag_name: SL3000-V31-${{ github.run_number }}
+          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
