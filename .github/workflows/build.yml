@@ -1,4 +1,4 @@
-name: SL3000-Auto-Release-V26
+name: SL3000-Auto-Release-V28
 
 on:
   workflow_dispatch:
@@ -33,7 +33,7 @@ jobs:
           git clone --depth=1 -b ${{ env.SOURCE_BRANCH }} ${{ env.SOURCE_REPO }} ${{ env.WORKDIR }}
           git clone https://github.com/${{ github.repository }}.git ${{ env.ASSET_DIR }}
 
-      - name: 4. Execute Auto-Merge (V26.0)
+      - name: 4. Execute Auto-Merge (V28.0)
         working-directory: ${{ env.WORKDIR }}
         env:
           CUSTOM_ASSETS: ${{ env.ASSET_DIR }}
@@ -42,22 +42,26 @@ jobs:
           chmod +x clean-feeds.sh
           ./clean-feeds.sh
 
-      - name: 5. Kernel Physical Hook (Flattened Mode)
+      - name: 5. Kernel Physical Injection & Hook
         working-directory: ${{ env.WORKDIR }}
         run: |
-          echo ">>> 启动内核编译环境物理拦截..."
+          echo ">>> 正在释放内核源码并同步物理路径..."
           make target/linux/prepare -j$(nproc)
           
-          # 定位 build_dir 内部真实的内核源码树
+          # 动态定位 build_dir 下真实的 Mediatek DTS 目录
           REAL_K_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
+          
           if [ -n "$REAL_K_DIR" ]; then
-            # 找到 Step 4 缝合好的独立版 DTS
+            # 从 Step 4 准备好的目录将对齐后的 DTS 拷贝进源码树
             TEMP_DTS=$(find target/linux/mediatek/files-* -name "mt7981b-sl3000-emmc.dts" | head -n 1)
             cp -v "$TEMP_DTS" "$REAL_K_DIR/"
             
-            # 物理注册 Makefile 以防被重置
-            sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$REAL_K_DIR/Makefile"
-            echo "✅ 物理拦截完成：独立版 DTS 已覆盖构建区。"
+            # 物理注册 Makefile：紧跟在官方 rfb 后面
+            sed -i '/mt7981-rfb.dtb/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$REAL_K_DIR/Makefile"
+            
+            echo "✅ [物理注入成功] DTS 已进入编译序列。"
+          else
+            echo "❌ 严重错误：未找到内核构建目录！" && exit 1
           fi
 
       - name: 6. Build Toolchain
@@ -76,5 +80,5 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: SL3000-V26-${{ github.run_number }}
+          tag_name: SL3000-V28-${{ github.run_number }}
           files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
