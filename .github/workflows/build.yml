@@ -1,4 +1,4 @@
-name: SL3000-Auto-Release-V17
+name: SL3000-Auto-Release-V18
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ permissions:
 
 env:
   WORKDIR: ${{ github.workspace }}/immortalwrt
+  ASSET_DIR: ${{ github.workspace }}/custom-repo
   SOURCE_REPO: https://github.com/immortalwrt/immortalwrt.git
   SOURCE_BRANCH: openwrt-25.12
 
@@ -30,48 +31,40 @@ jobs:
       - name: 3. Clone Sources
         run: |
           git clone --depth=1 -b ${{ env.SOURCE_BRANCH }} ${{ env.SOURCE_REPO }} ${{ env.WORKDIR }}
-          git clone https://github.com/${{ github.repository }}.git custom-repo
+          git clone https://github.com/${{ github.repository }}.git ${{ env.ASSET_DIR }}
 
-      - name: 4. Execute Auto-Merge (V17.0)
+      - name: 4. Execute Auto-Merge (V18.0)
         working-directory: ${{ env.WORKDIR }}
+        env:
+          CUSTOM_ASSETS: ${{ env.ASSET_DIR }}
         run: |
-          cp ${{ github.workspace }}/custom-repo/scripts/clean-feeds.sh ./
+          # 拷贝脚本并运行，脚本现在知道去哪里找资产了
+          cp ${{ env.ASSET_DIR }}/scripts/clean-feeds.sh ./
           chmod +x clean-feeds.sh
           ./clean-feeds.sh
 
-      - name: 5. Kernel Physical Injection & Hook
+      - name: 5. Kernel Physical Hook
         working-directory: ${{ env.WORKDIR }}
         run: |
-          echo ">>> 正在执行内核编译层拦截..."
-          # 准备内核源码目录
           make target/linux/prepare -j$(nproc)
-          
-          # 寻找编译过程中真实的 DTS 路径并再次同步，防止补丁被覆盖
           REAL_K_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$REAL_K_DIR" ]; then
-            # 找到脚本刚才生成的 DTS 文件
             TEMP_DTS=$(find target/linux/mediatek/files-* -name "mt7981b-sl3000-emmc.dts" | head -n 1)
             cp -v "$TEMP_DTS" "$REAL_K_DIR/"
-            
-            # 物理级 Makefile 加塞
             sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$REAL_K_DIR/Makefile"
-            
-            # 核心：修复编译器 Include 路径找不到头文件的报错
             find build_dir -name "Makefile.lib" -exec sed -i "s|DTC_FLAGS += |DTC_FLAGS += -i $REAL_K_DIR |" {} + 2>/dev/null || true
           fi
 
-      - name: 6. Build Tools & Toolchain
+      - name: 6. Build Toolchain
         working-directory: ${{ env.WORKDIR }}
         run: |
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 7. Full Compilation (Final)
+      - name: 7. Full Compilation
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 并行编译内核及目标
           make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
-          make target/install -j$(nproc)
           make -j$(nproc) || make -j1 V=s
 
       - name: 8. Release Assets
