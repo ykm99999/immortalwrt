@@ -57,27 +57,22 @@ jobs:
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 7. Final Compilation
+      - name: 7. Final Compilation (修复依赖与路径)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 1. 执行内核级安装
-          make target/linux/install -j$(nproc) || true
+          # 必须先安装内核，否则 mt76 驱动编译会报 Error 1
+          make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
           
-          # 2. 【核心修复】强行对齐 root-mediatek 路径
-          # 解决第 134 次构建中 mksquashfs 找不到目录的报错
+          # 【核心补丁】暴力对齐 root-mediatek 路径
           BUILD_PARENT=$(find build_dir -name "target-aarch64_cortex-a53_musl" -type d | head -n 1)
           if [ -d "$BUILD_PARENT" ]; then
             cd "$BUILD_PARENT"
-            # 自动探测系统生成的 root 目录，并链接到打包脚本需要的名字上
             REAL_ROOT=$(ls -d root-* 2>/dev/null | grep -v "mediatek$" | head -n 1)
-            if [ -n "$REAL_ROOT" ]; then
-              ln -snf "$REAL_ROOT" root-mediatek
-              echo "✅ 已完成路径对齐: root-mediatek -> $REAL_ROOT"
-            fi
+            [ -n "$REAL_ROOT" ] && ln -snf "$REAL_ROOT" root-mediatek
             cd -
           fi
           
-          # 3. 开启最终全量编译
+          # 执行全量打包
           make -j$(nproc) || make -j1 V=s
 
       - name: 8. Release Assets
