@@ -1,44 +1,62 @@
 #!/bin/bash
 set -e
 
-echo ">>> [SL3000 Ultimate-Fix] 启动物理缝合与环境劫持..."
+echo ">>> [SL3000 Final-Standard] 启动硬路径物理缝合..."
 
+# --- 1. 定位资源 ---
 ROOT_DIR=$(pwd)
-[ -z "$GITHUB_WORKSPACE" ] && GITHUB_WORKSPACE=$(cd ..; pwd)
-SRC_DIR=$(find "$GITHUB_WORKSPACE" -maxdepth 2 -type d -name "*custom-repo*" | head -n 1)
+# 确保 SRC_DIR 精准指向克隆下来的 custom-repo
+SRC_DIR="${GITHUB_WORKSPACE}/custom-repo"
 
-# 1. 环境工具劫持 (延续成功基因，跳过工具编译)
+# 硬编码标准路径 (ImmortalWrt 固定目录结构)
+# 优先查找 6.12 目录，备选 6.6
+ORIGIN_DTSI="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek/mt7981.dtsi"
+[ ! -f "$ORIGIN_DTSI" ] && ORIGIN_DTSI="target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/mt7981.dtsi"
+
+# 确定目标写入目录
+K_DIR=$(ls -d target/linux/mediatek/files-* 2>/dev/null | sort -V | tail -n 1)
+DTS_DEST_DIR="$K_DIR/arch/arm64/boot/dts/mediatek"
+mkdir -p "$DTS_DEST_DIR"
+DTS_DEST="$DTS_DEST_DIR/mt7981b-sl3000-emmc.dts"
+
+# 定位你的 DTS (增加容错定位)
+DTS_SRC=$(find "$SRC_DIR" -type f -name "*sl3000*.dts" | head -n 1)
+
+# --- 2. 工具劫持 (延续成功逻辑) ---
+echo "🔗 执行工具链劫持..."
 mkdir -p staging_dir/host/bin staging_dir/host/stamp
 for tool in m4 flex bison; do
     ln -snf /usr/bin/$tool staging_dir/host/bin/$tool
 done
-ln -snf /usr/bin/flex staging_dir/host/bin/lex
 touch staging_dir/host/.tools_install_y staging_dir/host/stamp/.tools_compile_y staging_dir/host/stamp/.m4_installed
 
-# 2. DTS 物理缝合 (彻底解决 No such file 报错)
-K_DIR=$(ls -d target/linux/mediatek/files-* 2>/dev/null | sort -V | tail -n 1)
-[ -z "$K_DIR" ] && K_DIR="target/linux/mediatek/files-6.12"
-DTS_DEST_DIR="$K_DIR/arch/arm64/boot/dts/mediatek"
-mkdir -p "$DTS_DEST_DIR"
+# --- 3. 物理缝合 (修复 sed "can't read" 错误) ---
+if [ -f "$ORIGIN_DTSI" ] && [ -f "$DTS_SRC" ]; then
+    echo "🛠️ 正在缝合: $ORIGIN_DTSI + $DTS_SRC"
+    {
+        echo '/dts-v1/;'
+        echo '#include <dt-bindings/leds/common.h>'
+        echo '#include <dt-bindings/input/input.h>'
+        # 提取基础 DTSI 内容 (过滤掉重复的头)
+        sed -E '/\/dts-v1\/;|#include/d' "$ORIGIN_DTSI"
+        echo -e "\n/* --- SL3000 1GB CUSTOM SECTION --- */\n"
+        # 提取你的自定义 DTS 内容
+        tr -d '\r' < "$DTS_SRC" | sed -E '/\/dts-v1\/;|#include/d'
+    } > "$DTS_DEST"
+    echo "✅ DTS 物理缝合完成: $DTS_DEST"
+else
+    echo "❌ 致命错误: 找不到关键 DTS 文件!"
+    echo "检查点 1 (源码 DTSI): $ORIGIN_DTSI"
+    echo "检查点 2 (用户 DTS): $DTS_SRC"
+    # 输出当前目录结构辅助调试
+    ls -R target/linux/mediatek/files-* 2>/dev/null | head -n 20
+    exit 1
+fi
 
-# 找到系统原始的 dtsi
-ORIGIN_DTSI=$(find target/linux/mediatek/ -name "mt7981.dtsi" | head -n 1)
-DTS_SRC=$(find "$SRC_DIR" -type f -name "*sl3000*.dts" | head -n 1)
-
-echo "🛠️ 正在将 dtsi 内容物理注入 dts..."
-{
-    echo '/dts-v1/;'
-    echo '#include <dt-bindings/leds/common.h>'
-    echo '#include <dt-bindings/input/input.h>'
-    # 注入原始 dtsi 内容（去掉开头的版本声明和包含行）
-    sed -E '/\/dts-v1\/;|#include/d' "$ORIGIN_DTSI"
-    echo -e "\n/* --- SL3000 1GB SECTION --- */\n"
-    # 注入你的自定义内容（去掉包含 mt7981.dtsi 的那行）
-    tr -d '\r' < "$DTS_SRC" | sed -E '/\/dts-v1\/;|#include/d'
-} > "$DTS_DEST_DIR/mt7981b-sl3000-emmc.dts"
-
-# 3. 注入 1GB 扩容配置与设备 Makefile
+# --- 4. 配置注入与 Feeds ---
 ./scripts/feeds update -a && ./scripts/feeds install -a
+./scripts/feeds install jq
+
 touch .config
 cat <<EOT > .config
 CONFIG_TARGET_mediatek=y
