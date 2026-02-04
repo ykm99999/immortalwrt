@@ -1,83 +1,61 @@
-name: SL3000-Auto-Release-V31
+name: SL3000-Final-Release
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 env:
-  WORKDIR: ${{ github.workspace }}/immortalwrt
-  ASSET_DIR: ${{ github.workspace }}/custom-repo
+  WORKDIR: immortalwrt
+  ASSET_DIR: custom-repo
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 1. Maximize Space
+      - name: 1. Prepare Environment
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
-          sudo docker system prune -af --volumes
-
-      - name: 2. Install Dependencies
-        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison gawk m4 libtool-bin rsync \
-          unzip wget curl patch git-core gettext libncurses-dev zlib1g-dev libssl-dev \
-          libelf-dev python3 python3-pip ccache device-tree-compiler bc dos2unix
+          sudo apt-get install -y build-essential clang flex bison gawk m4 rsync unzip device-tree-compiler bc dos2unix
 
-      - name: 3. Clone Sources
+      - name: 2. Clone Sources
         run: |
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
           git clone https://github.com/${{ github.repository }}.git ${{ env.ASSET_DIR }}
 
-      - name: 4. Execute Auto-Merge (V31.0)
+      - name: 3. Run Ultimate Patch
         working-directory: ${{ env.WORKDIR }}
         env:
-          CUSTOM_ASSETS: ${{ env.ASSET_DIR }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}
         run: |
-          cp -v ${{ env.ASSET_DIR }}/scripts/clean-feeds.sh ./
+          cp -v ../${{ env.ASSET_DIR }}/scripts/clean-feeds.sh ./
           chmod +x clean-feeds.sh
           ./clean-feeds.sh
 
-      - name: 5. Kernel Hook & Path Fix
-        working-directory: ${{ env.WORKDIR }}
-        run: |
-          make target/linux/prepare -j$(nproc)
-          REAL_K_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
-          if [ -n "$REAL_K_DIR" ]; then
-            TEMP_DTS=$(find target/linux/mediatek/files-* -name "mt7981b-sl3000-emmc.dts" | head -n 1)
-            [ -f "$TEMP_DTS" ] && cp -v "$TEMP_DTS" "$REAL_K_DIR/"
-            sed -i '/mt7981-rfb.dtb/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$REAL_K_DIR/Makefile"
-          fi
-
-      - name: 6. Build Toolchain
+      - name: 4. Build Foundation
         working-directory: ${{ env.WORKDIR }}
         run: |
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
+          # 先行安装内核以生成镜像依赖
+          make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
 
-      - name: 7. Final Compilation (修复依赖与路径)
+      - name: 5. Align Path & Final Pack
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 必须先安装内核，否则 mt76 驱动编译会报 Error 1
-          make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
-          
-          # 【核心补丁】暴力对齐 root-mediatek 路径
+          # 找到真实的编译输出根目录
           BUILD_PARENT=$(find build_dir -name "target-aarch64_cortex-a53_musl" -type d | head -n 1)
           if [ -d "$BUILD_PARENT" ]; then
             cd "$BUILD_PARENT"
+            # 暴力对齐：将任何 root-* 目录链接为 root-mediatek
             REAL_ROOT=$(ls -d root-* 2>/dev/null | grep -v "mediatek$" | head -n 1)
             [ -n "$REAL_ROOT" ] && ln -snf "$REAL_ROOT" root-mediatek
             cd -
           fi
-          
-          # 执行全量打包
+          # 执行最终全量编译打包
           make -j$(nproc) || make -j1 V=s
 
-      - name: 8. Release Assets
-        if: success()
-        uses: softprops/action-gh-release@v2
+      - name: 6. Upload
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: SL3000-V31-${{ github.run_number }}
-          files: "${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin"
+          name: SL3000-1GB-Final
+          path: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
