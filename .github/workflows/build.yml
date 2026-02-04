@@ -48,7 +48,6 @@ jobs:
           if [ -n "$REAL_K_DIR" ]; then
             TEMP_DTS=$(find target/linux/mediatek/files-* -name "mt7981b-sl3000-emmc.dts" | head -n 1)
             [ -f "$TEMP_DTS" ] && cp -v "$TEMP_DTS" "$REAL_K_DIR/"
-            # 修正 sed 语法：在 Makefile 注册 dtb
             sed -i '/mt7981-rfb.dtb/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$REAL_K_DIR/Makefile"
           fi
 
@@ -61,19 +60,24 @@ jobs:
       - name: 7. Final Compilation
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 运行内核编译并强制对齐路径
+          # 1. 执行内核级安装
           make target/linux/install -j$(nproc) || true
           
-          # 暴力对齐 root-mediatek 路径补丁
+          # 2. 【核心修复】强行对齐 root-mediatek 路径
+          # 解决第 134 次构建中 mksquashfs 找不到目录的报错
           BUILD_PARENT=$(find build_dir -name "target-aarch64_cortex-a53_musl" -type d | head -n 1)
           if [ -d "$BUILD_PARENT" ]; then
             cd "$BUILD_PARENT"
+            # 自动探测系统生成的 root 目录，并链接到打包脚本需要的名字上
             REAL_ROOT=$(ls -d root-* 2>/dev/null | grep -v "mediatek$" | head -n 1)
-            [ -n "$REAL_ROOT" ] && ln -sf "$REAL_ROOT" root-mediatek
+            if [ -n "$REAL_ROOT" ]; then
+              ln -snf "$REAL_ROOT" root-mediatek
+              echo "✅ 已完成路径对齐: root-mediatek -> $REAL_ROOT"
+            fi
             cd -
           fi
           
-          # 执行最终打包
+          # 3. 开启最终全量编译
           make -j$(nproc) || make -j1 V=s
 
       - name: 8. Release Assets
@@ -81,4 +85,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: SL3000-V31-${{ github.run_number }}
-          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
+          files: "${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin"
