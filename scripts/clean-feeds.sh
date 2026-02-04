@@ -1,54 +1,58 @@
 #!/bin/bash
 set -e
 
-echo ">>> [SL3000 BRUTE-FORCE V5] 正在执行全代码注入..."
+echo ">>> [SL3000 SLAM-FIX] 正在执行暴力缝合与路径映射..."
 
-# --- 1. 定位资源 ---
-SRC_DIR="${GITHUB_WORKSPACE}/custom-repo"
-# 找到你发给我的这段 DTS 文件
-DTS_SRC=$(find "$SRC_DIR" -type f -name "*sl3000*.dts" | head -n 1)
+ROOT_DIR=$(pwd)
+[ -z "$GITHUB_WORKSPACE" ] && GITHUB_WORKSPACE=$(cd ..; pwd)
+SRC_DIR=$(find "$GITHUB_WORKSPACE" -maxdepth 2 -type d -name "*sl3000*" | head -n 1)
 
-# 暴力创建目标路径
-DTS_DEST_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
-mkdir -p "$DTS_DEST_DIR"
-DTS_DEST="$DTS_DEST_DIR/mt7981b-sl3000-emmc.dts"
-
-# --- 2. 暴力清洗 DTS (消除所有 include 依赖) ---
-echo "🛠️ 正在将 DTS 转换为独立版..."
-{
-    echo '/dts-v1/;'
-    # 注入必备的内核常量定义，不再引用外部 dtsi
-    echo '#include <dt-bindings/leds/common.h>'
-    echo '#include <dt-bindings/input/input.h>'
-    echo '#include <dt-bindings/interrupt-controller/arm-gic.h>'
-    echo '#include <dt-bindings/clock/mt7981-clk.h>'
-    echo '#include <dt-bindings/gpio/gpio.h>'
-    
-    # 读取你的 DTS 内容，但过滤掉那行致命的 #include "mt7981b.dtsi"
-    # 同时将内存 0x20000000 (512MB) 修改为 0x40000000 (1GB)
-    sed -E '/mt7981b.dtsi|#include ".*"/d' "$DTS_SRC" | \
-    sed 's/0x20000000/0x40000000/g'
-} > "$DTS_DEST"
-
-# --- 3. 强制覆盖镜像生成规则 (filogic.mk) ---
-MK_DEST="target/linux/mediatek/image/filogic.mk"
+DTS_SRC=$(find "$SRC_DIR" -type f -name "*mt7981b-sl3000-emmc.dts" | head -n 1)
 MK_SRC=$(find "$SRC_DIR" -type f -name "filogic.mk" | head -n 1)
-[ -f "$MK_SRC" ] && cp -fv "$MK_SRC" "$MK_DEST"
 
-# --- 4. 工具劫持 ---
-mkdir -p staging_dir/host/bin staging_dir/host/stamp
-for tool in m4 flex bison; do
-    ln -snf /usr/bin/$tool staging_dir/host/bin/$tool
-done
+# --- 1. 宿主机工具伪装 (解决编译早期报错) ---
+mkdir -p staging_dir/host/bin
+for t in m4 flex bison; do ln -sf /usr/bin/$t staging_dir/host/bin/$t; done
+ln -sf /usr/bin/flex staging_dir/host/bin/lex
 touch staging_dir/host/.tools_install_y staging_dir/host/stamp/.tools_compile_y
 
-# --- 5. 配置锁定与 Feeds ---
+# --- 2. DTS 物理缝合 ---
+BASE_DTSI=$(find "$ROOT_DIR/target/linux/mediatek" -name "mt7981.dtsi" | head -n 1)
+INC_DIR=$(dirname "$BASE_DTSI")
+DTS_DEST="$INC_DIR/mt7981b-sl3000-emmc.dts"
+
+echo "🔨 正在将依赖物理注入 DTS..."
+{
+    echo '/dts-v1/;'
+    grep "#include" "$BASE_DTSI" | head -n 20
+    echo '#include <dt-bindings/leds/common.h>'
+    echo '#include <dt-bindings/input/input.h>'
+    sed -E '/\/dts-v1\/;|#include/d' "$BASE_DTSI"
+    echo -e "\n/* --- SL3000 CUSTOM --- */\n"
+    tr -d '\r' < "$DTS_SRC" | sed -E '/\/dts-v1\/;|#include|mt7981.dtsi/d'
+} > "$DTS_DEST"
+
+# 关键修复：同步到 target 覆盖层，这是镜像构建的第一参考源
+FILES_DIR="$ROOT_DIR/target/linux/mediatek/files/arch/arm64/boot/dts/mediatek"
+mkdir -p "$FILES_DIR"
+cp -fv "$DTS_DEST" "$FILES_DIR/"
+
+# --- 3. 配置锁定 ---
 ./scripts/feeds update -a && ./scripts/feeds install -a
+[ -f "$MK_SRC" ] && cp -fv "$MK_SRC" "target/linux/mediatek/image/filogic.mk"
+
 cat <<EOT > .config
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
 CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y
 CONFIG_TARGET_KERNEL_PARTSIZE=128
 CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+CONFIG_PACKAGE_kmod-mmc=y
+CONFIG_PACKAGE_kmod-sdhci-mtk=y
+CONFIG_PACKAGE_f2fs-tools=y
+CONFIG_PACKAGE_kmod-fs-f2fs=y
+CONFIG_TARGET_ROOTFS_INITRAMFS=n
 EOT
+
 make defconfig
+echo "✅ [脚本] 缝合与配置已锁定。"
