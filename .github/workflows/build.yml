@@ -15,11 +15,22 @@ jobs:
       - name: 1. 检出旗舰仓库
         uses: actions/checkout@v4
 
-      - name: 2. 动态 Swap 与极速环境清理
+      - name: 2. 旗舰空间清理与 Swap 硬核扩容
         run: |
+          # 强制关闭可能存在的 swap 进程
+          sudo swapoff -a || true
+          sudo rm -f /swapfile || true
+          
+          # 清理 Docker 和预装环境以腾出空间
+          sudo docker image prune -a -f || true
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
-          sudo fallocate -l 10G /swapfile && sudo chmod 600 /swapfile
-          sudo mkswap /swapfile && sudo swapon /swapfile
+          
+          # 重新创建 10G 大交换空间 (解决编译内存不足)
+          sudo fallocate -l 10G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
 
       - name: 3. 部署 25.12 源码架构
         run: |
@@ -27,7 +38,7 @@ jobs:
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev ccache
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 执行旗舰级专属注入
+      - name: 4. 执行专属注入 (脚本路径: scripts/clean-feeds.sh)
         run: |
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh 2>&1 | tee build.log
@@ -44,9 +55,9 @@ jobs:
         run: |
           make target/linux/prepare -j$(nproc)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
-          # 注入经过缝合的物理 DTS
+          # 注入已经物理缝合好的专属 DTS
           cp -fv custom_files/mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
-          # 强制 Makefile 注册
+          # 在内核 Makefile 中强制注册
           sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
 
       - name: 7. 旗舰极速全量编译
@@ -58,9 +69,7 @@ jobs:
           make target/linux/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make package/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make target/install -j$(nproc) 2>&1 | tee -a ../build.log
-          # 生成指纹校验
-          cd bin/targets/mediatek/filogic/
-          sha256sum *.bin > sha256sums
+          cd bin/targets/mediatek/filogic/ && sha256sum *.bin > sha256sums
 
       - name: 8. 发布旗舰工厂固件
         uses: softprops/action-gh-release@v2
@@ -70,17 +79,16 @@ jobs:
           body: |
             ## SL3000 Factory Flagship Edition
             - **Branch**: ImmortalWrt 25.12
-            - **Memory**: 1GB (Physically Patched)
-            - **Storage**: 1024MB Partition Scheme
-            - **Optimization**: O3 Speed Injection
+            - **Memory**: 1GB Physically Patched
+            - **Partition**: 1024MB Optimized Scheme
           files: |
             ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
             ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/sha256sums
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🔍 故障深度诊断 (Flagship Logger)
+      - name: 🔍 故障深度诊断
         if: failure()
         run: |
-          echo "==================== 🚨 FLAGSHIP ERROR ANALYSIS 🚨 ===================="
+          echo "==================== 🚨 ERROR ANALYSIS 🚨 ===================="
           [ -f build.log ] && tail -n 100 build.log || ls -R
-          echo "======================================================================="
+          echo "=============================================================="
