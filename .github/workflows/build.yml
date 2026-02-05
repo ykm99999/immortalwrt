@@ -15,16 +15,17 @@ jobs:
       - name: 1. 检出旗舰仓库
         uses: actions/checkout@v4
 
-      - name: 2. [延续] 12G Swap 扩容
+      - name: 2. [继承修复] 12G Swap 扩容与空间清理
         run: |
           sudo swapoff -a || true
           sudo rm -f /swapfile || true
+          sudo docker image prune -a -f || true
           sudo fallocate -l 12G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      - name: 3. [延续] 补全构建依赖
+      - name: 3. [继承修复] 补全构建依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison gawk gettext \
@@ -34,44 +35,50 @@ jobs:
             device-tree-compiler bc dos2unix rsync qemu-utils fakeroot
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. [全量集成] 执行注入与环境劫持
+      - name: 4. [全量集成] 执行专属注入与环境劫持
         run: |
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh 2>&1 | tee build.log
 
-      - name: 5. [延续] 编译工具链 (静默模式)
+      - name: 5. [继承修复] 工具链静默编译 (路径锁定)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH="${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH"
           export TERM=xterm
           mkdir -p staging_dir/host && touch staging_dir/host/.prereq-build
-          # 使用 oldconfig 自动处理所有配置变动，防止弹出交互
-          make oldconfig || true
+          make oldconfig
           make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
           make toolchain/install -j$(nproc) FORCE=1 || make toolchain/install -j1 V=s FORCE=1
 
-      - name: 6. [核心锁死] 内核源码物理加固
+      - name: 6. [核心硬化] 内核源码物理注入 (解决 Target 报错)
         working-directory: ${{ env.WORKDIR }}
         run: |
+          # 1. 强制准备内核目录
           make target/linux/prepare -j$(nproc)
+          # 2. 动态定位 DTS 目录 (25.12 路径含随机字符)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$K_DTS_DIR" ]; then
-            cp -fv custom_files/mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
+            echo "Target DTS Path: $K_DTS_DIR"
+            # 物理覆盖 DTS 文件
+            cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
+            # 物理修改内核 Makefile
+            grep -q "mt7981b-sl3000-emmc.dtb" "$K_DTS_DIR/Makefile" || \
             sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
+          else
+            echo "🚨 Error: Kernel DTS directory not found!" && exit 1
           fi
 
-      - name: 7. [终极产出] 强制固件生成
+      - name: 7. [终极产出] 强制全量编译与固件搜寻
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH="${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH"
           export TERM=xterm
-          # 再次确认配置，防止被 reset
-          make oldconfig
-          make target/linux/compile -j$(nproc)
+          # 开启 V=s 以便捕获内核深层错误
+          make target/linux/compile -j$(nproc) V=s || make target/linux/compile -j1 V=s
           make package/compile -j$(nproc)
           make target/install -j$(nproc)
           
-          # 搜寻并整理固件
+          # 强制整理所有生成的固件
           mkdir -p ../outputs
           find bin/targets/ -name "*sl3000-emmc*" -exec cp -v {} ../outputs/ \;
           [ -d "../outputs" ] && cd ../outputs && sha256sum * > sha256sums || true
@@ -80,6 +87,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-25.12-FLAGSHIP-FINAL-${{ github.run_id }}
+          tag_name: SL3000-25.12-ULTIMATE-${{ github.run_id }}
           files: outputs/*
           token: ${{ secrets.GITHUB_TOKEN }}
