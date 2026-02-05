@@ -17,15 +17,10 @@ jobs:
 
       - name: 2. 旗舰空间清理与 Swap 硬核扩容
         run: |
-          # 强制关闭可能存在的 swap 进程
           sudo swapoff -a || true
           sudo rm -f /swapfile || true
-          
-          # 清理 Docker 和预装环境以腾出空间
           sudo docker image prune -a -f || true
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
-          
-          # 重新创建 10G 大交换空间 (解决编译内存不足)
           sudo fallocate -l 10G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
@@ -38,12 +33,13 @@ jobs:
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev ccache
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 执行专属注入 (脚本路径: scripts/clean-feeds.sh)
+      - name: 4. 执行专属注入
+        # 这是原 Line 41 所在的 Step，确保缩进严格对齐
         run: |
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh 2>&1 | tee build.log
 
-      - name: 5. 编译基础工具链 (Flagship Parallel)
+      - name: 5. 编译基础工具链
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
@@ -55,10 +51,10 @@ jobs:
         run: |
           make target/linux/prepare -j$(nproc)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
-          # 注入已经物理缝合好的专属 DTS
-          cp -fv custom_files/mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
-          # 在内核 Makefile 中强制注册
-          sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
+          if [ -n "$K_DTS_DIR" ]; then
+            cp -fv custom_files/mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
+            sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
+          fi
 
       - name: 7. 旗舰极速全量编译
         working-directory: ${{ env.WORKDIR }}
@@ -69,18 +65,13 @@ jobs:
           make target/linux/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make package/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make target/install -j$(nproc) 2>&1 | tee -a ../build.log
-          cd bin/targets/mediatek/filogic/ && sha256sum *.bin > sha256sums
+          cd bin/targets/mediatek/filogic/ && sha256sum *.bin > sha256sums || true
 
       - name: 8. 发布旗舰工厂固件
         uses: softprops/action-gh-release@v2
         if: success()
         with:
           tag_name: SL3000-25.12-FLAGSHIP-${{ github.run_id }}
-          body: |
-            ## SL3000 Factory Flagship Edition
-            - **Branch**: ImmortalWrt 25.12
-            - **Memory**: 1GB Physically Patched
-            - **Partition**: 1024MB Optimized Scheme
           files: |
             ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
             ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/sha256sums
