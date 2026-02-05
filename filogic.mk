@@ -15,7 +15,6 @@ define Device/sl3000-emmc
 	block-mount blkid lsblk parted
   
   IMAGES := sysupgrade.bin
-  # 使用内置的通用 eMMC 生成逻辑，确保 25.12 能够正确打包
   IMAGE/sysupgrade.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-rootfs | pad-rootfs | check-size | mtk-sdcard
   ARTIFACTS := factory.bin
   ARTIFACT/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-rootfs | pad-rootfs | check-size | mtk-sdcard
