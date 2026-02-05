@@ -28,13 +28,14 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      - name: 3. 构建依赖安装 (ImmortalWrt 25.12)
+      - name: 3. 构建依赖安装
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev ccache
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 执行专属注入 (路径: scripts/clean-feeds.sh)
+      - name: 4. 执行专属注入
+        # 修复了 Line 37 附近的潜在语法错误
         run: |
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh
@@ -50,15 +51,9 @@ jobs:
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
-          
-          # 动态匹配内核 DTS 目录
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
-          echo "📂 目标内核目录: $K_DTS_DIR"
-          
-          # 暴力同步：将缝合好的独立版 DTS 拷入内核深处
+          # 使用脚本生成的自包含 DTS
           cp -fv custom_files/mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
-          
-          # 注册编译目标
           K_MAKEFILE="$K_DTS_DIR/Makefile"
           if ! grep -q "mt7981b-sl3000-emmc.dtb" "$K_MAKEFILE"; then
             sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_MAKEFILE"
@@ -70,17 +65,15 @@ jobs:
           export BISON_PKGDATADIR=/usr/share/bison
           export M4=/usr/bin/m4
           export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
-          
           make target/linux/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make package/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make target/install -j$(nproc) 2>&1 | tee -a ../build.log
-          make checksum
 
       - name: 8. 发布工厂固件
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-25.12-ProMax-${{ github.run_id }}
+          tag_name: SL3000-25.12-Final-${{ github.run_id }}
           files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
           token: ${{ secrets.GITHUB_TOKEN }}
 
