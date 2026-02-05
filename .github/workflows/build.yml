@@ -12,54 +12,44 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: 1. 检出配置仓库
+      - name: 1. 检出旗舰仓库
         uses: actions/checkout@v4
 
-      - name: 2. 环境清理与 Swap 动态扩容
+      - name: 2. 动态 Swap 与极速环境清理
         run: |
-          sudo docker image prune -a -f || true
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
-          if [ -f /swapfile ]; then
-            sudo swapoff /swapfile || true
-            sudo rm -f /swapfile
-          fi
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo fallocate -l 10G /swapfile && sudo chmod 600 /swapfile
+          sudo mkswap /swapfile && sudo swapon /swapfile
 
-      - name: 3. 构建依赖安装
+      - name: 3. 部署 25.12 源码架构
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev ccache
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 执行专属注入
-        # 修复了 Line 37 附近的潜在语法错误
+      - name: 4. 执行旗舰级专属注入
         run: |
           chmod +x scripts/clean-feeds.sh
-          ./scripts/clean-feeds.sh
+          ./scripts/clean-feeds.sh 2>&1 | tee build.log
 
-      - name: 5. 编译基础工具链
+      - name: 5. 编译基础工具链 (Flagship Parallel)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
           make tools/install -j$(nproc) || make tools/install -j1 V=s
           make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
-      - name: 6. [核心锁死] DTS 全路径覆盖与 Makefile 劫持
+      - name: 6. [旗舰锁死] 内核源码二次加固
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
-          # 使用脚本生成的自包含 DTS
+          # 注入经过缝合的物理 DTS
           cp -fv custom_files/mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
-          K_MAKEFILE="$K_DTS_DIR/Makefile"
-          if ! grep -q "mt7981b-sl3000-emmc.dtb" "$K_MAKEFILE"; then
-            sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_MAKEFILE"
-          fi
+          # 强制 Makefile 注册
+          sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
 
-      - name: 7. 极速全量编译
+      - name: 7. 旗舰极速全量编译
         working-directory: ${{ env.WORKDIR }}
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
@@ -68,18 +58,29 @@ jobs:
           make target/linux/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make package/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make target/install -j$(nproc) 2>&1 | tee -a ../build.log
+          # 生成指纹校验
+          cd bin/targets/mediatek/filogic/
+          sha256sum *.bin > sha256sums
 
-      - name: 8. 发布工厂固件
+      - name: 8. 发布旗舰工厂固件
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-25.12-Final-${{ github.run_id }}
-          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
+          tag_name: SL3000-25.12-FLAGSHIP-${{ github.run_id }}
+          body: |
+            ## SL3000 Factory Flagship Edition
+            - **Branch**: ImmortalWrt 25.12
+            - **Memory**: 1GB (Physically Patched)
+            - **Storage**: 1024MB Partition Scheme
+            - **Optimization**: O3 Speed Injection
+          files: |
+            ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
+            ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/sha256sums
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🔍 故障深度诊断
+      - name: 🔍 故障深度诊断 (Flagship Logger)
         if: failure()
         run: |
-          echo "==================== 🚨 ERROR ANALYSIS 🚨 ===================="
-          tail -n 100 build.log
-          echo "=============================================================="
+          echo "==================== 🚨 FLAGSHIP ERROR ANALYSIS 🚨 ===================="
+          [ -f build.log ] && tail -n 100 build.log || ls -R
+          echo "======================================================================="
