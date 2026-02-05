@@ -5,8 +5,8 @@ define Device/sl3000-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := sl,sl3000-emmc mediatek,mt7981b
   
-  # 【单位数字化】64M -> 65536k | 1024M -> 1048576k
-  KERNEL_SIZE := 65536k
+  # 【数字化关键】128M -> 131072k | 1024M -> 1048576k
+  KERNEL_SIZE := 131072k
   IMAGE_SIZE := 1048576k
   
   DEVICE_PACKAGES := \
