@@ -1,4 +1,4 @@
-name: SL3000-Digital-Ultimate-V7
+name: SL3000-Ultimate-Final-V8
 
 on:
   workflow_dispatch:
@@ -13,26 +13,35 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. [延续修复] 12G Swap 扩容
+      - name: 2. [延续修复] 12G Swap 与 空间清理
         run: |
           sudo swapoff -a || true
           sudo rm -f /swapfile || true
+          sudo docker image prune -a -f || true
           sudo fallocate -l 12G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      - name: 3. [数字化缓存] 工具链缓存机制
+      - name: 3. [数字化校验] 自动定位配置文件
+        run: |
+          # 解决 cp: cannot stat 报错，自动寻找仓库内的配置文件
+          CONF_PATH=$(find . -name "sl3000_defconfig" | head -n 1)
+          [ -n "$CONF_PATH" ] && cp -v "$CONF_PATH" ./sl3000_defconfig || (echo "❌ 找不到 sl3000_defconfig" && exit 1)
+          
+          MK_PATH=$(find . -name "filogic.mk" | head -n 1)
+          [ -n "$MK_PATH" ] && cp -v "$MK_PATH" ./filogic.mk || echo "⚠️ 未找到 filogic.mk"
+
+      - name: 4. [数字化缓存] 工具链加速
         uses: actions/cache@v4
         with:
           path: |
             ${{ env.WORKDIR }}/staging_dir/host
             ${{ env.WORKDIR }}/staging_dir/toolchain-*
           key: ${{ runner.os }}-build-cache-${{ hashFiles('sl3000_defconfig', 'filogic.mk') }}
-          restore-keys: |
-            ${{ runner.os }}-build-cache-
+          restore-keys: ${{ runner.os }}-build-cache-
 
-      - name: 4. [全量集成] 环境准备与源码下载
+      - name: 5. 环境准备与源码下载
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison gawk gettext \
@@ -40,43 +49,38 @@ jobs:
             gzip bzip2 unzip wget perl python3 python3-setuptools \
             libncurses5-dev libssl-dev libelf-dev zlib1g-dev \
             device-tree-compiler bc dos2unix rsync qemu-utils fakeroot
-          git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
+          git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 5. [全量集成] 执行清理脚本
+      - name: 6. 执行全量集成脚本 (劫持与清理)
         run: |
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh
 
-      - name: 6. [核心锁死] 内核 DTS 物理硬注入
+      - name: 7. [内核修复] DTS 物理硬注入 (网口2.5G+1GB内存)
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$K_DTS_DIR" ]; then
+            # 物理覆盖 DTS，确保网口 &eth 逻辑生效
             cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
+            # 强制 Makefile 注册
             sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
             sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
           fi
 
-      - name: 7. [终极产出] 强制全量编译 (V=s 回溯)
+      - name: 8. [数字化产出] 全量编译 (V=s 自动回溯)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH="${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH"
-          # 如果并行编译失败，自动切换单线程 V=s 捕捉数字化单位错误
           make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
-          make package/compile -j$(nproc)
-          make target/install -j$(nproc)
+          make package/compile -j$(nproc) || make package/compile -j1 V=s
+          make target/install -j$(nproc) || make target/install -j1 V=s
 
-      - name: 8. 收集并上传
-        run: |
-          mkdir -p outputs
-          find ${{ env.WORKDIR }}/bin/targets/ -name "*sl3000-emmc*" -exec cp -v {} outputs/ \;
-          cd outputs && sha256sum * > sha256sums
-
-      - name: 9. 发布 Release
+      - name: 9. 发布固件
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-FINAL-${{ github.run_id }}
-          files: outputs/*
+          tag_name: SL3000-ULTIMATE-${{ github.run_id }}
+          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*sl3000*
           token: ${{ secrets.GITHUB_TOKEN }}
