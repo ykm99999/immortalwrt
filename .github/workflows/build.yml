@@ -45,6 +45,8 @@ jobs:
           export PATH="${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH"
           export TERM=xterm
           mkdir -p staging_dir/host && touch staging_dir/host/.prereq-build
+          # 使用 oldconfig 自动处理所有配置变动，防止弹出交互
+          make oldconfig || true
           make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
           make toolchain/install -j$(nproc) FORCE=1 || make toolchain/install -j1 V=s FORCE=1
 
@@ -58,29 +60,26 @@ jobs:
             sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
           fi
 
-      - name: 7. [终极修正] 强制目标编译
+      - name: 7. [终极产出] 强制固件生成
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH="${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH"
           export TERM=xterm
-          # 强制重新注入配置，确保设备没被剔除
-          grep "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" .config || echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
-          make defconfig
-          # 专门针对我们定义的设备进行 build
+          # 再次确认配置，防止被 reset
+          make oldconfig
           make target/linux/compile -j$(nproc)
           make package/compile -j$(nproc)
-          # 强制生成镜像文件
           make target/install -j$(nproc)
           
-          # 搜寻并整理固件，防止 Release 漏传
+          # 搜寻并整理固件
           mkdir -p ../outputs
           find bin/targets/ -name "*sl3000-emmc*" -exec cp -v {} ../outputs/ \;
-          cd ../outputs && sha256sum * > sha256sums || true
+          [ -d "../outputs" ] && cd ../outputs && sha256sum * > sha256sums || true
 
       - name: 8. 发布旗舰工厂固件
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-25.12-FINAL-${{ github.run_id }}
+          tag_name: SL3000-25.12-FLAGSHIP-FINAL-${{ github.run_id }}
           files: outputs/*
           token: ${{ secrets.GITHUB_TOKEN }}
