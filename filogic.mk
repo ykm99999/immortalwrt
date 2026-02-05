@@ -5,8 +5,9 @@ define Device/sl3000-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := sl,sl3000-emmc mediatek,mt7981b
   
-  KERNEL_SIZE := 128M
-  IMAGE_SIZE := 1024M
+  # 【单位数字化】64M -> 65536k | 1024M -> 1048576k
+  KERNEL_SIZE := 65536k
+  IMAGE_SIZE := 1048576k
   
   DEVICE_PACKAGES := \
 	kmod-mmc kmod-sdhci-mtk \
@@ -14,9 +15,8 @@ define Device/sl3000-emmc
 	kmod-usb3 kmod-usb-dwc3-mtk \
 	block-mount blkid lsblk parted
   
-  IMAGES := sysupgrade.bin
+  IMAGES := factory.bin sysupgrade.bin
+  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-rootfs | pad-rootfs | check-size | mtk-sdcard
   IMAGE/sysupgrade.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-rootfs | pad-rootfs | check-size | mtk-sdcard
-  ARTIFACTS := factory.bin
-  ARTIFACT/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-rootfs | pad-rootfs | check-size | mtk-sdcard
 endef
 TARGET_DEVICES += sl3000-emmc
