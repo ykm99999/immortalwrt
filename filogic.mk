@@ -2,11 +2,11 @@ define Device/sl3000-emmc
   DEVICE_VENDOR := SL3000
   DEVICE_MODEL := Custom-1GB-Edition
   DEVICE_DTS := mt7981b-sl3000-emmc
+  DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := sl,sl3000-emmc mediatek,mt7981b
   
-  # 对齐 .config 里的 128MB/1024MB 布局
   KERNEL_SIZE := 128M
-  IMAGE_SIZE := 1000M
+  IMAGE_SIZE := 1024M
   
   DEVICE_PACKAGES := \
 	kmod-mmc kmod-sdhci-mtk \
@@ -14,9 +14,10 @@ define Device/sl3000-emmc
 	kmod-usb3 kmod-usb-dwc3-mtk \
 	block-mount blkid lsblk parted
   
-  # 生成两种格式：factory 负责直接写入闪存，sysupgrade 负责系统内升级
-  IMAGES := factory.bin sysupgrade.bin
-  IMAGE/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-rootfs | pad-rootfs | check-size | mtk-sdcard
-  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+  IMAGES := sysupgrade.bin
+  # 使用内置的通用 eMMC 生成逻辑，确保 25.12 能够正确打包
+  IMAGE/sysupgrade.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-rootfs | pad-rootfs | check-size | mtk-sdcard
+  ARTIFACTS := factory.bin
+  ARTIFACT/factory.bin := append-kernel | pad-to $$(KERNEL_SIZE) | append-rootfs | pad-rootfs | check-size | mtk-sdcard
 endef
 TARGET_DEVICES += sl3000-emmc
