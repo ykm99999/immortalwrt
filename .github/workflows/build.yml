@@ -1,68 +1,92 @@
-name: SL3000-Final-V8
+name: SL3000-Ultimate-Factory-V4
 
 on:
   workflow_dispatch:
 
+env:
+  WORKDIR: openwrt
+
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
-      - name: 1. Prepare Space
+      - name: 1. 检出配置仓库
+        uses: actions/checkout@v4
+
+      - name: 2. 环境清理与 Swap 动态扩容
+        run: |
+          sudo docker image prune -a -f || true
+          sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
+          if [ -f /swapfile ]; then
+            sudo swapoff /swapfile || true
+            sudo rm -f /swapfile
+          fi
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
+      - name: 3. 构建依赖安装 (ImmortalWrt 25.12)
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison gawk m4 rsync unzip device-tree-compiler bc dos2unix
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev ccache
+          git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 2. Clone Sources
+      - name: 4. 执行专属注入 (路径: scripts/clean-feeds.sh)
         run: |
-          git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git immortalwrt
-          git clone https://github.com/${{ github.repository }}.git custom-repo
+          chmod +x scripts/clean-feeds.sh
+          ./scripts/clean-feeds.sh
 
-      - name: 3. Run Patch Script
-        working-directory: immortalwrt
-        env:
-          GITHUB_WORKSPACE: ${{ github.workspace }}
+      - name: 5. 编译基础工具链
+        working-directory: ${{ env.WORKDIR }}
         run: |
-          chmod +x ../custom-repo/scripts/clean-feeds.sh
-          ../custom-repo/scripts/clean-feeds.sh
+          export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
+          make tools/install -j$(nproc) || make tools/install -j1 V=s
+          make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
-      - name: 4. Build Toolchain & Prepare Kernel
-        working-directory: immortalwrt
+      - name: 6. [核心锁死] DTS 全路径覆盖与 Makefile 劫持
+        working-directory: ${{ env.WORKDIR }}
         run: |
-          make tools/install -j$(nproc)
-          make toolchain/install -j$(nproc)
           make target/linux/prepare -j$(nproc)
-
-      - name: 5. 暴力同步缝合后的 DTS (防报错核心)
-        working-directory: immortalwrt
-        run: |
-          # 找到内核展开后真正的 DTS 存放目录
-          K_SRC_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
-          # 获取我们在第 3 步缝合好的独立版 DTS
-          FINAL_DTS=$(find target/linux/mediatek/files-* -name "mt7981b-sl3000-emmc.dts" | head -n 1)
           
-          if [ -n "$K_SRC_DTS_DIR" ] && [ -f "$FINAL_DTS" ]; then
-             echo "✅ 注入独立版 DTS 到内核源码树: $K_SRC_DTS_DIR"
-             cp -fv "$FINAL_DTS" "$K_SRC_DTS_DIR/"
-             # 暴力修改 Makefile 强制内核编译它
-             sed -i '/mt7981-rfb/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_SRC_DTS_DIR/Makefile"
+          # 动态匹配内核 DTS 目录
+          K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
+          echo "📂 目标内核目录: $K_DTS_DIR"
+          
+          # 暴力同步：将缝合好的独立版 DTS 拷入内核深处
+          cp -fv custom_files/mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
+          
+          # 注册编译目标
+          K_MAKEFILE="$K_DTS_DIR/Makefile"
+          if ! grep -q "mt7981b-sl3000-emmc.dtb" "$K_MAKEFILE"; then
+            sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_MAKEFILE"
           fi
 
-      - name: 6. Final Compilation
-        working-directory: immortalwrt
+      - name: 7. 极速全量编译
+        working-directory: ${{ env.WORKDIR }}
         run: |
-          # 路径对齐
-          BUILD_PARENT=$(find build_dir -name "target-aarch64_cortex-a53_musl" -type d | head -n 1)
-          if [ -d "$BUILD_PARENT" ]; then
-            REAL_ROOT=$(ls -d $BUILD_PARENT/root-* 2>/dev/null | head -n 1)
-            [ -n "$REAL_ROOT" ] && ln -snf "$REAL_ROOT" "$BUILD_PARENT/root-mediatek"
-          fi
+          export BISON_PKGDATADIR=/usr/share/bison
+          export M4=/usr/bin/m4
+          export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
           
-          make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
-          make -j$(nproc)
+          make target/linux/compile -j$(nproc) 2>&1 | tee -a ../build.log
+          make package/compile -j$(nproc) 2>&1 | tee -a ../build.log
+          make target/install -j$(nproc) 2>&1 | tee -a ../build.log
+          make checksum
 
-      - name: 7. Upload Firmware
-        uses: actions/upload-artifact@v4
+      - name: 8. 发布工厂固件
+        uses: softprops/action-gh-release@v2
+        if: success()
         with:
-          name: SL3000-1GB-Final
-          path: immortalwrt/bin/targets/mediatek/filogic/*.bin
+          tag_name: SL3000-25.12-ProMax-${{ github.run_id }}
+          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔍 故障深度诊断
+        if: failure()
+        run: |
+          echo "==================== 🚨 ERROR ANALYSIS 🚨 ===================="
+          tail -n 100 build.log
+          echo "=============================================================="
