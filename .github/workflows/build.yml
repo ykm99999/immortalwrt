@@ -27,16 +27,15 @@ jobs:
           sudo swapon /swapfile
           free -h
 
-      - name: 3. 补全旗舰构建依赖 (修复 Prerequisite 错误)
+      - name: 3. 补全旗舰构建依赖 (已修正包名)
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison gawk gettext \
-            getopt grep xargs patch diffutils file findutils coreutils \
+            grep patch diffutils file findutils coreutils util-linux \
             gzip bzip2 unzip wget perl python3 python3-setuptools \
             libncurses5-dev libssl-dev libelf-dev zlib1g-dev \
             device-tree-compiler bc dos2unix rsync qemu-utils
           
-          # 克隆 25.12 源码
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
       - name: 4. 执行专属注入 (旗舰补丁)
@@ -44,12 +43,11 @@ jobs:
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh 2>&1 | tee build.log
 
-      - name: 5. 编译基础工具链
+      - name: 5. 编译基础工具链 (强制预检通过)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 确保环境变量包含 host 工具路径
           export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
-          # 增加 FORCE=1 强行通过预检（如果环境仍有微小差异）
+          # 使用 FORCE=1 绕过环境检测的细微差异
           make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
           make toolchain/install -j$(nproc) FORCE=1 || make toolchain/install -j1 V=s FORCE=1
 
@@ -72,6 +70,7 @@ jobs:
           make target/linux/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make package/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make target/install -j$(nproc) 2>&1 | tee -a ../build.log
+          # 产出校验码
           cd bin/targets/mediatek/filogic/ && sha256sum *.bin > sha256sums || true
 
       - name: 8. 发布旗舰工厂固件
@@ -79,6 +78,11 @@ jobs:
         if: success()
         with:
           tag_name: SL3000-25.12-FLAGSHIP-${{ github.run_id }}
+          body: |
+            ## SL3000 Factory Flagship Edition
+            - **Branch**: ImmortalWrt 25.12
+            - **RAM**: 1GB Lock
+            - **Disk**: 1024MB Partition
           files: |
             ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
             ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/sha256sums
