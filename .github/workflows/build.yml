@@ -25,7 +25,6 @@ jobs:
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          free -h
 
       - name: 3. [延续修复] 补全构建依赖
         run: |
@@ -42,15 +41,18 @@ jobs:
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh 2>&1 | tee build.log
 
-      - name: 5. [延续修复] 编译工具链 (暴力跳过预检)
+      - name: 5. [延续修复] 编译工具链 (暴力跳过预检+解决交互报错)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 锁定劫持后的 PATH
           export PATH="${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH"
+          # 修复交互报错：欺骗系统有终端环境
+          export TERM=xterm
+          
           mkdir -p staging_dir/host
           touch staging_dir/host/.prereq-build
           
-          # 静默编译，严禁交互
+          # 使用 oldconfig 自动接受默认配置，防止弹出提示
+          make oldconfig || true
           make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
           make toolchain/install -j$(nproc) FORCE=1 || make toolchain/install -j1 V=s FORCE=1
 
@@ -68,8 +70,10 @@ jobs:
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH="${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH"
-          # 确保配置是非交互生成的
+          export TERM=xterm
+          # 连续确认配置，确保递归依赖被自动跳过
           make defconfig
+          make oldconfig
           make target/linux/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make package/compile -j$(nproc) 2>&1 | tee -a ../build.log
           make target/install -j$(nproc) 2>&1 | tee -a ../build.log
