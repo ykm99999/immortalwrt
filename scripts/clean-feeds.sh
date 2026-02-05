@@ -4,18 +4,18 @@ set -e
 REPO_ROOT=$(pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 
-echo "🚀 [SL3000 Flagship Edition] 启动旗舰级物理缝合..."
+echo "💎 [SL3000 Flagship] 执行物理缝合补丁..."
 
-# 1. 严格资源验证
-for file in mt7981b-sl3000-emmc.dts filogic.mk sl3000_defconfig; do
-    [ -f "${REPO_ROOT}/$file" ] || { echo "❌ 缺失旗舰组件: $file"; exit 1; }
+# 1. 验证根目录三件套 (确保它们在仓库根目录)
+for f in mt7981b-sl3000-emmc.dts filogic.mk sl3000_defconfig; do
+    [ -f "${REPO_ROOT}/$f" ] || { echo "❌ 缺失核心组件: $f"; exit 1; }
 done
 
-# 2. 注入镜像规则与旗舰优化
+# 2. 注入镜像规则
 mkdir -p "${WORKDIR}/target/linux/mediatek/image"
 cp -fv "${REPO_ROOT}/filogic.mk" "${WORKDIR}/target/linux/mediatek/image/filogic.mk"
 
-# 3. 构造旗舰级“自包含”DTS (1GB 内存指纹锁定)
+# 3. 构造专属源码 (物理缝合 dtsi)
 mkdir -p "${WORKDIR}/custom_files"
 ORIGIN_DTSI=$(find "${WORKDIR}/target/linux/mediatek/" -name "mt7981.dtsi" | head -n 1)
 
@@ -28,16 +28,17 @@ ORIGIN_DTSI=$(find "${WORKDIR}/target/linux/mediatek/" -name "mt7981.dtsi" | hea
     echo '#include <dt-bindings/input/input.h>'
     
     if [ -f "$ORIGIN_DTSI" ]; then
+        echo "🔗 缝合原生芯片定义: $ORIGIN_DTSI"
         sed -E '/\/dts-v1\/|#include/d' "$ORIGIN_DTSI"
     fi
 
-    echo -e "\n/* --- SL3000 FLAGSHIP 1GB SECTION --- */\n"
-    # 物理缝合用户配置，强制修正内存地址并删除所有外部依赖
+    echo -e "\n/* --- SL3000 FLAGSHIP CUSTOM --- */\n"
+    # 注入用户 DTS 并物理修正 1GB 内存指纹 (0x40000000)
     sed -E '/mt7981.dtsi|mt7981b.dtsi|#include ".*"|#include <mediatek\//d' "${REPO_ROOT}/mt7981b-sl3000-emmc.dts" | \
     sed 's/0x20000000/0x40000000/g'
 } > "${WORKDIR}/custom_files/mt7981b-sl3000-emmc.dts"
 
-# 4. 旗舰工具链劫持与加速
+# 4. 宿主机工具链劫持
 mkdir -p "${WORKDIR}/staging_dir/host/bin" "${WORKDIR}/staging_dir/host/stamp"
 for tool in m4 flex bison lex; do
     ln -sf "/usr/bin/$tool" "${WORKDIR}/staging_dir/host/bin/$tool"
@@ -45,18 +46,15 @@ for tool in m4 flex bison lex; do
 done
 touch "${WORKDIR}/staging_dir/host/.tools_install_y"
 
-# 5. 执行 Feeds 与配置对齐
+# 5. Feeds & Config 同步
 cd "${WORKDIR}"
 ./scripts/feeds update -a && ./scripts/feeds install -a
 cp -fv "${REPO_ROOT}/sl3000_defconfig" .config
 
-# 旗舰级指令注入：强制大分区 + 内存优化
+# 强制注入旗舰分区锁定
 sed -i '/CONFIG_TARGET_KERNEL_PARTSIZE/d; /CONFIG_TARGET_ROOTFS_PARTSIZE/d' .config
-{
-    echo "CONFIG_TARGET_KERNEL_PARTSIZE=128"
-    echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
-    echo "CONFIG_AUTOREMOVE=y"
-} >> .config
+echo "CONFIG_TARGET_KERNEL_PARTSIZE=128" >> .config
+echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024" >> .config
 
 make defconfig
-echo "✅ 旗舰补丁注入完成。"
+echo "✅ 旗舰补丁就绪。"
