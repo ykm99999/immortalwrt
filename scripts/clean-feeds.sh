@@ -3,13 +3,13 @@ set -e
 REPO_ROOT=$(pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 
-echo "💎 [SL3000] 执行全集成修复..."
+echo "💎 [SL3000] 执行全集成终极修复..."
 
-# 1. 物理注入 (延续之前的成功逻辑)
+# 1. 物理注入 filogic.mk (延续之前逻辑)
 mkdir -p "${WORKDIR}/target/linux/mediatek/image"
 cp -fv "${REPO_ROOT}/filogic.mk" "${WORKDIR}/target/linux/mediatek/image/filogic.mk"
 
-# 2. DTS 缝合 (延续 1GB 内存与 include 修复)
+# 2. DTS 缝合 (延续 1GB 内存锁死逻辑)
 mkdir -p "${WORKDIR}/custom_files"
 ORIGIN_DTSI=$(find "${WORKDIR}/target/linux/mediatek/" -name "mt7981.dtsi" | head -n 1)
 { 
@@ -31,15 +31,21 @@ for tool in m4 flex bison lex grep sed xargs getconf patch diff seq realpath sta
     SYS_PATH=$(which $tool || which "${tool}3" || echo "/usr/bin/$tool")
     [ -n "$SYS_PATH" ] && ln -sf "$SYS_PATH" "${WORKDIR}/staging_dir/host/bin/$tool" && touch "${WORKDIR}/staging_dir/host/stamp/.$tool_installed"
 done
+ln -sf /usr/bin/getopt "${WORKDIR}/staging_dir/host/bin/getopt"
 
 # 4. Feeds 处理 (延续 PHP 递归冲突修复)
 cd "${WORKDIR}"
 ./scripts/feeds update -a
+# 物理切除导致递归依赖的源
 rm -rf feeds/packages/lang/php8 feeds/packages/admin/zabbix
 ./scripts/feeds install -a
 
-# 5. 配置对齐 (强制锁定设备)
+# 5. [核心修复] 配置锁死逻辑
+# 先清空可能干扰的残留配置
+rm -f .config
 cp -fv "${REPO_ROOT}/sl3000_defconfig" .config
+
+# 强制注入核心三件套标识，防止 make defconfig 时因为依赖不全而回退到默认目标
 {
     echo "CONFIG_TARGET_mediatek=y"
     echo "CONFIG_TARGET_mediatek_filogic=y"
@@ -49,5 +55,7 @@ cp -fv "${REPO_ROOT}/sl3000_defconfig" .config
     echo "CONFIG_CCACHE=y"
 } >> .config
 
+# 使用 yes 命令回答所有可能出现的配置询问，并强制执行 defconfig
 yes "" | make oldconfig
 make defconfig
+echo "✅ 修复项全部继承，配置已锁死，准备静默编译。"
