@@ -1,4 +1,4 @@
-name: SL3000-Final-V7
+name: SL3000-Final-V8
 
 on:
   workflow_dispatch:
@@ -7,18 +7,18 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 1. 依赖与空间清理
+      - name: 1. Prepare Space
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison gawk m4 rsync unzip device-tree-compiler bc dos2unix
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
 
-      - name: 2. 克隆源码
+      - name: 2. Clone Sources
         run: |
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git immortalwrt
           git clone https://github.com/${{ github.repository }}.git custom-repo
 
-      - name: 3. 执行补丁脚本
+      - name: 3. Run Patch Script
         working-directory: immortalwrt
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}
@@ -26,41 +26,29 @@ jobs:
           chmod +x ../custom-repo/scripts/clean-feeds.sh
           ../custom-repo/scripts/clean-feeds.sh
 
-      - name: 4. 准备内核源码树 (Prepare)
+      - name: 4. Build Toolchain & Prepare Kernel
         working-directory: immortalwrt
         run: |
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
-          # 这一步会把真正的内核 dtsi 展开到 build_dir
           make target/linux/prepare -j$(nproc)
 
-      - name: 5. 物理缝合 DTS (终极暴力修复)
+      - name: 5. 暴力同步缝合后的 DTS (防报错核心)
         working-directory: immortalwrt
         run: |
-          # 1. 寻找内核源码树中真正的 mt7981b.dtsi (它是你报错缺少的父定义)
-          PARENT_DTSI=$(find build_dir -name "mt7981b.dtsi" | head -n 1)
-          [ -z "$PARENT_DTSI" ] && PARENT_DTSI=$(find build_dir -name "mt7981.dtsi" | head -n 1)
-          K_DTS_DIR=$(dirname "$PARENT_DTSI")
-          TARGET_DTS="$K_DTS_DIR/mt7981b-sl3000-emmc.dts"
+          # 找到内核展开后真正的 DTS 存放目录
+          K_SRC_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
+          # 获取我们在第 3 步缝合好的独立版 DTS
+          FINAL_DTS=$(find target/linux/mediatek/files-* -name "mt7981b-sl3000-emmc.dts" | head -n 1)
           
-          echo "✅ 发现内核底层定义: $PARENT_DTSI"
-          
-          # 2. 执行物理级合并：[dtsi 内容] + [你的自定义内容]
-          {
-            echo '/dts-v1/;'
-            # 提取父定义中除了头部的所有内容
-            sed -E '/\/dts-v1\/|#include/d' "$PARENT_DTSI"
-            echo -e "\n/* --- SL3000 1GB CUSTOM SECTION --- */\n"
-            # 提取你的 DTS 内容并修正内存定义
-            USER_RAW="target/linux/mediatek/files-*/arch/arm64/boot/dts/mediatek/mt7981b-sl3000-emmc.dts"
-            cat $USER_RAW | sed -E '/\/dts-v1\/|#include "mt7981b.dtsi"/d' | sed 's/0x20000000/0x40000000/g'
-          } > "$TARGET_DTS"
-          
-          # 3. 强行在内核 Makefile 注册编译目标
-          sed -i '/mt7981-rfb/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
-          echo "✅ 物理缝合完成，已锁定编译目标。"
+          if [ -n "$K_SRC_DTS_DIR" ] && [ -f "$FINAL_DTS" ]; then
+             echo "✅ 注入独立版 DTS 到内核源码树: $K_SRC_DTS_DIR"
+             cp -fv "$FINAL_DTS" "$K_SRC_DTS_DIR/"
+             # 暴力修改 Makefile 强制内核编译它
+             sed -i '/mt7981-rfb/a dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_SRC_DTS_DIR/Makefile"
+          fi
 
-      - name: 6. 最终全量编译
+      - name: 6. Final Compilation
         working-directory: immortalwrt
         run: |
           # 路径对齐
@@ -70,12 +58,11 @@ jobs:
             [ -n "$REAL_ROOT" ] && ln -snf "$REAL_ROOT" "$BUILD_PARENT/root-mediatek"
           fi
           
-          # 编译
           make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
           make -j$(nproc)
 
-      - name: 7. 发布固件
+      - name: 7. Upload Firmware
         uses: actions/upload-artifact@v4
         with:
-          name: SL3000-Final-V7
+          name: SL3000-1GB-Final
           path: immortalwrt/bin/targets/mediatek/filogic/*.bin
