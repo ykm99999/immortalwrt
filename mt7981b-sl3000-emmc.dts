@@ -6,7 +6,7 @@
 #include "mt7981.dtsi"
 
 / {
-	model = "SL-3000 eMMC Router";
+	model = "SL-3000 eMMC Router (1GB Digital Edition)";
 	compatible = "sl,sl3000-emmc", "mediatek,mt7981b";
 
 	aliases {
@@ -19,10 +19,11 @@
 
 	chosen {
 		stdout-path = "serial0:115200n8";
-		bootargs = "root=PARTLABEL=production rootwait";
+		/* 修复：将 root 指向 rootfs 标签，确保与数字化分区对齐 */
+		bootargs = "root=PARTLABEL=rootfs rootwait";
 	};
 
-	/* 旗舰版 1GB 内存锁定：起始 0x40000000，大小 1GB */
+	/* 【旗舰版数字化锁死】1GB 内存寻址 */
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0x0 0x40000000 0x0 0x40000000>;
@@ -73,7 +74,7 @@
 
 &eth {
 	status = "okay";
-	mediatek,offload-enable; /* 开启硬件加速卸载 */
+	mediatek,offload-enable;
 	gmac0: mac@0 {
 		compatible = "mediatek,eth-mac";
 		reg = <0>;
@@ -117,6 +118,25 @@
 	pinctrl-0 = <&mmc0_pins_default>;
 	pinctrl-1 = <&mmc0_pins_uhs>;
 	status = "okay";
+
+	/* 【数字化分区对齐】确保 eMMC 分区表与 filogic.mk 严格一致 */
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/* 对应 KERNEL_SIZE := 65536k */
+		partition@0 {
+			label = "kernel";
+			reg = <0x0 0x4000000>;
+		};
+
+		/* 对应 IMAGE_SIZE := 1048576k */
+		partition@4000000 {
+			label = "rootfs";
+			reg = <0x4000000 0x40000000>;
+		};
+	};
 };
 
 &pio {
