@@ -15,22 +15,20 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 环境清理与磁盘扩容 (彻底修复 No space left)
+      - name: 2. 环境清理与磁盘扩容 (针对 1GB Rootfs 优化)
         run: |
-          # 增加清理 dotnet 以获得更多空间
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
           sudo rm -f /swapfile || true
-          sudo fallocate -l 12G /swapfile  # 增加到 12G Swap 延续成果
+          sudo fallocate -l 12G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      - name: 3. 安装依赖与克隆源码
+      - name: 3. 安装依赖与克隆源码 (24.10 版本)
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev
-          # 延续 24.10 源码选择
           git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
       - name: 4. 开启独立隔离缓存
@@ -40,21 +38,22 @@ jobs:
             ${{ env.WORKDIR }}/dl
             ${{ env.WORKDIR }}/staging_dir
             ${{ env.WORKDIR }}/build_dir/host
-          key: ${{ runner.os }}-openwrt-v13.5-${{ github.run_id }} # 使用 run_id 确保缓存干净
+          key: ${{ runner.os }}-openwrt-v13.5-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-openwrt-v13.5-
 
       - name: 5. 准备自定义文件并注入
         run: |
-          # 建立闭合路径，确保 cp 成功
+          # 建立闭合路径
           mkdir -p ${{ env.WORKDIR }}/custom_files
-          # 延续三件套路径 (custom-config)
-          cp -fv custom-config/mt7981b-sl3000-emmc.dts ${{ env.WORKDIR }}/custom_files/
+          
+          # ✅ 严格对齐：三件套在根目录，直接拷贝原文
+          cp -fv mt7981b-sl3000-emmc.dts ${{ env.WORKDIR }}/custom_files/
           
           chmod +x scripts/sl3000-patch.sh
           ./scripts/sl3000-patch.sh
 
-      - name: 6. 编译工具链 (延续环境变量修复项)
+      - name: 6. 编译工具链 (延续 V13.5 环境变量修复)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
@@ -70,12 +69,12 @@ jobs:
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$K_DTS_DIR" ]; then
             echo "🎯 发现内核 DTS 路径: $K_DTS_DIR"
-            # 注入你指定的成功 DTS (mt7981b 版本)
+            # 注入 DTS 原文
             cp -fv "custom_files/mt7981b-sl3000-emmc.dts" "$K_DTS_DIR/"
-            # 延续兼容性逻辑：产生不带 b 的副本
+            # 延续兼容性逻辑
             cp -fv "$K_DTS_DIR/mt7981b-sl3000-emmc.dts" "$K_DTS_DIR/mt7981-sl3000-emmc.dts"
             
-            # 强制注册到 Makefile
+            # 强制注册到 Makefile (延续原文)
             sed -i '/sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
             echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
             echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
@@ -83,11 +82,10 @@ jobs:
             echo "❌ 找不到内核 DTS 目录" && exit 1
           fi
 
-      - name: 8. 执行全量编译
+      - name: 8. 执行编译
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
-          # 解决 1GB Rootfs 导致的编译缓慢
           make target/linux/compile -j$(nproc) V=s
           make target/install -j$(nproc) V=s
 
