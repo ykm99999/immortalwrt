@@ -24,7 +24,6 @@ jobs:
 
       - name: 3. [数字化校验] 物理路径强制锚定
         run: |
-          # 严格使用原文文件名 sl3000.config
           if [ -f "${{ github.workspace }}/sl3000.config" ]; then
             echo "✅ 成功找到配置文件: sl3000.config"
           else
@@ -32,16 +31,7 @@ jobs:
             exit 1
           fi
 
-      - name: 4. [数字化缓存] 工具链加速
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.WORKDIR }}/staging_dir/host
-            ${{ env.WORKDIR }}/staging_dir/toolchain-*
-          key: ${{ runner.os }}-build-cache-${{ hashFiles('sl3000.config', 'filogic.mk') }}
-          restore-keys: ${{ runner.os }}-build-cache-
-
-      - name: 5. 环境准备与源码下载
+      - name: 4. 环境准备与源码下载
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison gawk gettext \
@@ -51,35 +41,36 @@ jobs:
             device-tree-compiler bc dos2unix rsync qemu-utils fakeroot
           git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 6. 执行全量集成脚本
+      - name: 5. 执行全量集成脚本
         run: |
           chmod +x scripts/clean-feeds.sh
-          # 传入绝对路径参数，确保脚本内路径处理正确
           ./scripts/clean-feeds.sh "${{ github.workspace }}"
 
-      - name: 7. [内核修复] DTS 物理硬注入 (延续 2.5G 修复)
+      - name: 6. [内核修复] DTS 物理硬注入 (保留 2.5G 修复)
         working-directory: ${{ env.WORKDIR }}
         run: |
+          # 1. 准备内核源码
           make target/linux/prepare -j$(nproc)
+          # 2. 注入 DTS
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$K_DTS_DIR" ]; then
-            # 物理覆盖 DTS 确保网口逻辑生效
             cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
             sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
             sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
           fi
-          # 同步配置，防止 syncconfig 报错
-          make oldconfig
+          # 3. [关键修复] 强制刷新内核配置，解决 Error 2
+          make target/linux/configure
 
-      - name: 8. [数字化产出] 全量编译 (V=s 回溯)
+      - name: 7. [数字化产出] 全量编译
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH="${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH"
+          # 延续 V=s 策略以便排查
           make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
           make package/compile -j$(nproc)
           make target/install -j$(nproc)
 
-      - name: 9. 发布旗舰固件
+      - name: 8. 发布旗舰固件
         uses: softprops/action-gh-release@v2
         if: success()
         with:
