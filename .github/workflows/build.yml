@@ -1,4 +1,4 @@
-name: SL3000-25.12-Final-V13.5
+name: SL3000-25.12-Final-Fix
 
 on:
   workflow_dispatch:
@@ -15,9 +15,8 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 环境清理与磁盘扩容 (延续 12G 修复项)
+      - name: 2. 延续修复：磁盘扩容 (12G Swap)
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
           sudo swapoff -a || true
           sudo rm -f /swapfile || true
           sudo fallocate -l 12G /swapfile
@@ -25,32 +24,30 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      - name: 3. 安装依赖与克隆源码 (锁定 25.12)
+      - name: 3. 安装依赖与克隆 25.12 源码
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 开启独立隔离缓存 (针对 1GB RAM 编译加速)
+      - name: 4. 开启独立隔离缓存
         uses: actions/cache@v4
         with:
           path: |
             ${{ env.WORKDIR }}/dl
             ${{ env.WORKDIR }}/staging_dir
             ${{ env.WORKDIR }}/build_dir/host
-          # 严格对应你的 sl3000.config
           key: ${{ runner.os }}-openwrt-25.12-${{ hashFiles('sl3000.config') }}
           restore-keys: |
             ${{ runner.os }}-openwrt-25.12-
 
-      - name: 5. 准备自定义文件并注入 (✅ 严格对齐仓库路径)
+      - name: 5. 准备自定义文件并注入
         run: |
           mkdir -p ${{ env.WORKDIR }}/custom_files
-          
-          # ✅ 修正路径：根据你的要求，DTS 永远在根目录，全小写名称
+          # ✅ 路径死锁：从仓库根目录拷贝三件套
           cp -fv mt7981b-sl3000-emmc.dts ${{ env.WORKDIR }}/custom_files/
           
-          # ✅ 修正路径：根据你的要求，补丁脚本路径永远是 scripts/clean-feeds.sh
+          # ✅ 脚本路径死锁：scripts/clean-feeds.sh
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh
 
@@ -62,28 +59,32 @@ jobs:
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 7. 内核 DTS 注入与 Makefile 注册
+      - name: 7. 🚀 关键修复：暴力注入 DTS (解决 4176 行报错)
         working-directory: ${{ env.WORKDIR }}
         run: |
+          # 先让内核准备好目录结构
           make target/linux/prepare -j$(nproc)
           
-          K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
-          if [ -n "$K_DTS_DIR" ]; then
-            echo "🎯 发现内核 DTS 路径: $K_DTS_DIR"
-            # 注入全小写 DTS
-            cp -fv "custom_files/mt7981b-sl3000-emmc.dts" "$K_DTS_DIR/"
+          # ✅ 动态定位 25.12 (6.12内核) 的所有 DTS 路径
+          # 这样无论编译器在哪个 build_dir 找，都能找到文件
+          DTS_DESTS=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d)
+          
+          for dest in $DTS_DESTS; do
+            echo "🎯 注入 DTS 到: $dest"
+            cp -fv "custom_files/mt7981b-sl3000-emmc.dts" "$dest/"
             
-            # 强制注册到 Makefile 确保编译生效
-            sed -i '/sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
-            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
-            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
-          else
-            echo "❌ 找不到内核 DTS 目录" && exit 1
-          fi
+            # 兼容性同步：防止编译器寻找不带 'b' 的旧名称
+            cp -fv "$dest/mt7981b-sl3000-emmc.dts" "$dest/mt7981-sl3000-emmc.dts"
+            
+            # 注册到 Makefile
+            sed -i '/sl3000-emmc.dtb/d' "$dest/Makefile"
+            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$dest/Makefile"
+          done
 
       - name: 8. 执行编译
         working-directory: ${{ env.WORKDIR }}
         run: |
+          # 延续 PATH 劫持
           export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
           make target/linux/compile -j$(nproc) V=s
           make target/install -j$(nproc) V=s
