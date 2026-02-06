@@ -24,11 +24,11 @@ jobs:
 
       - name: 3. [数字化校验] 物理路径强制锚定
         run: |
-          # 严格照抄原文文件名 sl3000.config，仅修复 cp 报错
+          # 严格照抄原文文件名 sl3000.config
           if [ -f "${{ github.workspace }}/sl3000.config" ]; then
             echo "✅ 成功找到配置文件: sl3000.config"
-            # 修复：只有当路径不同时才执行 cp，避免 self-copy 错误
-            [ "${{ github.workspace }}/sl3000.config" -ef "./sl3000.config" ] || cp -fv "${{ github.workspace }}/sl3000.config" ./sl3000.config
+            # 仅通过 -f 修复 same file 报错，保持原文路径逻辑
+            cp -fv -f "${{ github.workspace }}/sl3000.config" ./sl3000.config
           else
             echo "❌ 严重错误: 找不到 sl3000.config"
             ls -al ${{ github.workspace }}
@@ -57,16 +57,14 @@ jobs:
       - name: 6. 执行全量集成脚本
         run: |
           chmod +x scripts/clean-feeds.sh
-          # 传入绝对路径，延续之前的修复逻辑
           ./scripts/clean-feeds.sh "${{ github.workspace }}"
 
-      - name: 7. [内核修复] DTS 物理硬注入 (延续原文修复)
+      - name: 7. [内核修复] DTS 物理硬注入
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$K_DTS_DIR" ]; then
-            # 严格使用你提供的原文 DTS 进行物理覆盖
             cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
             sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
             sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
