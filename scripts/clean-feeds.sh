@@ -1,23 +1,23 @@
 #!/bin/bash
 set -e
 
-# 获取根目录路径
+# 获取根目录路径 (脚本在 scripts/，向上退一级即根目录)
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 # ✅ 路径永不变更：三件套必须在仓库根目录
 SRC_DIR="${REPO_ROOT}"
 
-echo "💎 [SL3000] 启动 25.12 补丁注入 (完全延续原版路径)..."
+echo "💎 [SL3000] 启动 25.12 补丁注入 (使用原版脚本: clean-feeds.sh)..."
 
 cd "${WORKDIR}"
 
-# 1. 清理环境 (延续原修复项)
+# 1. 清理环境 (延续原方案)
 rm -rf tmp .config .config.old
 
 # 2. 更新 Feeds (适配 25.12)
 ./scripts/feeds update -a && ./scripts/feeds install -a
 
-# 3. 核心修复：强力锁定架构 (延续原修复项)
+# 3. 核心修复：强力锁定架构 (延续原方案)
 echo "CONFIG_TARGET_mediatek=y" > .config
 echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
 echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
