@@ -1,62 +1,49 @@
 #!/bin/bash
 set -e
 
-# 获取仓库根目录
-REPO_ROOT=$1
+# 严格延续 V13.5 路径定义
+REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
+# 确保这里指向你存放三件套（DTS, MK, Config）的实际目录名
+SRC_DIR="${REPO_ROOT}/custom-config"
 
-echo "💎 [SL3000] 启动终极集成修复程序..."
-echo "✅ 目标版本：OpenWrt 24.10"
-echo "✅ 核心逻辑：延续 1GB RAM / 1024M Rootfs 成功案例配置"
+echo "💎 [SL3000] 启动 V13.5 补丁注入 (全量修复延续版)..."
 
-# --- 1. 物理注入镜像生成规则 (锁定你的 filogic.mk) ---
-echo "⚙️ [1/5] 正在物理注入镜像规则文件..."
-mkdir -p "${WORKDIR}/target/linux/mediatek/image"
-# 强行覆盖官方文件，确保 pad-to 134217728 生效
-cp -fv -f "${REPO_ROOT}/filogic.mk" "${WORKDIR}/target/linux/mediatek/image/filogic.mk"
-
-# --- 2. 工具链环境锚定 (延续历史修复) ---
-echo "⚙️ [2/5] 正在建立工具链物理软链接..."
-mkdir -p "${WORKDIR}/staging_dir/host/bin"
-# 解决 24.10 编译过程中可能出现的工具找不到导致的 Error 1/2
-for tool in m4 flex bison lex grep sed xargs getconf patch diff seq realpath stat gzip unzip bzip2 wget install perl file python python3; do
-    SYS_PATH=$(which $tool || which "${tool}3" || echo "/usr/bin/$tool")
-    if [ -n "$SYS_PATH" ]; then
-        ln -sf "$SYS_PATH" "${WORKDIR}/staging_dir/host/bin/$tool"
-    fi
-done
-
-# --- 3. 依赖包深度清理 (延续 PHP/Zabbix 修复项) ---
-echo "⚙️ [3/5] 正在执行 Feeds 更新与依赖冲突切除..."
 cd "${WORKDIR}"
-./scripts/feeds update -a
-# 彻底删除导致 24.10 编译中断的臃肿包/旧版包
-rm -rf feeds/packages/lang/php* rm -rf feeds/packages/admin/zabbix
-rm -rf feeds/packages/net/hs20
-rm -rf feeds/packages/net/onionshare-cli
-./scripts/feeds install -a
 
-# --- 4. 数字化对齐：配置文件注入与分区强行锁死 ---
-echo "⚙️ [4/5] 正在执行数字化对齐 (128M Kernel / 1024M Rootfs)..."
-if [ -f "${REPO_ROOT}/sl3000.config" ]; then
-    cp -fv -f "${REPO_ROOT}/sl3000.config" .config
-else
-    echo "⚠️ 警告：未在根目录找到 sl3000.config，将尝试使用现有 .config"
+# 1. 清理环境，防止旧配置污染
+rm -rf tmp .config .config.old
+
+# 2. 更新 Feeds (核心修正：先完成 feeds 安装再配置，确保依赖完整)
+./scripts/feeds update -a && ./scripts/feeds install -a
+
+# 3. 核心修复：强力锁定 MediaTek 架构 (延续 V13.5)
+echo "CONFIG_TARGET_mediatek=y" > .config
+echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
+echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
+
+# 4. 载入 1GB 内存与 128M 内核分区配置
+if [ -f "${SRC_DIR}/sl3000_defconfig" ]; then
+    cat "${SRC_DIR}/sl3000_defconfig" >> .config
 fi
 
-# 🔥 核心防御逻辑：在 .config 尾部再次强行写入分区参数
-# 这样做是为了防止 ./scripts/feeds install 过程中自动重置了分区大小
-sed -i '/CONFIG_TARGET_KERNEL_PARTSIZE/d' .config
-sed -i '/CONFIG_TARGET_ROOTFS_PARTSIZE/d' .config
-{
-    echo "CONFIG_TARGET_KERNEL_PARTSIZE=128"
-    echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
-} >> .config
+# 5. 注入设备镜像定义 (延续 128MB 修正逻辑)
+mkdir -p "target/linux/mediatek/image"
+cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
 
-# --- 5. 配置激活与最终校验 ---
-echo "⚙️ [5/5] 正在执行最终配置同步 (oldconfig)..."
-# 自动确认所有新出现的配置项，防止编译中途停顿
-yes "" | make oldconfig
+# 6. Host 工具路径劫持 (延续 V13.5 核心修复)
+mkdir -p "staging_dir/host/bin"
+ln -sf "/usr/bin/m4" "staging_dir/host/bin/m4"
+ln -sf "/usr/bin/flex" "staging_dir/host/bin/flex"
+ln -sf "/usr/bin/bison" "staging_dir/host/bin/bison"
+touch "staging_dir/host/.tools_install_y"
+
+# 7. 生成最终配置 (使用 defconfig 避免交互式错误)
 make defconfig
 
-echo "🚀 [SUCCESS] 所有修复项已全量载入，环境准备就绪！"
+# 8. 架构校验
+if grep -q "CONFIG_TARGET_x86=y" .config; then
+    echo "❌ 架构锁定失败！" && exit 1
+fi
+
+echo "✅ 补丁注入与架构锁定完成。"
