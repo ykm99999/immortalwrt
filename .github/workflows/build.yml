@@ -1,4 +1,4 @@
-name: SL3000-25.12-Final-Fix
+name: SL3000-25.12-Final-V13.5-Fixed
 
 on:
   workflow_dispatch:
@@ -15,8 +15,9 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 延续修复：磁盘扩容 (12G Swap)
+      - name: 2. 延续修复：环境清理与磁盘扩容 (12G Swap)
         run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
           sudo swapoff -a || true
           sudo rm -f /swapfile || true
           sudo fallocate -l 12G /swapfile
@@ -41,17 +42,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-openwrt-25.12-
 
-      - name: 5. 准备自定义文件并注入
+      - name: 5. 执行自定义补丁注入
         run: |
-          mkdir -p ${{ env.WORKDIR }}/custom_files
-          # ✅ 路径死锁：从仓库根目录拷贝三件套
-          cp -fv mt7981b-sl3000-emmc.dts ${{ env.WORKDIR }}/custom_files/
-          
-          # ✅ 脚本路径死锁：scripts/clean-feeds.sh
+          # ✅ 路径死锁：脚本永远在 scripts/clean-feeds.sh
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh
 
-      - name: 6. 编译工具链 (延续环境变量修复)
+      - name: 6. 编译工具链 (延续 Bison 修复)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
@@ -59,33 +56,34 @@ jobs:
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 7. 🚀 关键修复：暴力注入 DTS (解决 4176 行报错)
+      - name: 7. 🚀 暴力修复：内核 DTS 全路径注入 (解决 4176 报错)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 先让内核准备好目录结构
+          # 触发内核解压准备
           make target/linux/prepare -j$(nproc)
           
-          # ✅ 动态定位 25.12 (6.12内核) 的所有 DTS 路径
-          # 这样无论编译器在哪个 build_dir 找，都能找到文件
-          DTS_DESTS=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d)
+          # ✅ 获取所有可能的 mediatek dts 路径 (适配 25.12 动态目录)
+          K_DTS_DIRS=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d)
           
-          for dest in $DTS_DESTS; do
-            echo "🎯 注入 DTS 到: $dest"
-            cp -fv "custom_files/mt7981b-sl3000-emmc.dts" "$dest/"
+          for D in $K_DTS_DIRS; do
+            echo "🎯 强行塞入 DTS 到: $D"
+            # 这里的 ../ 指向仓库根目录
+            cp -fv "../mt7981b-sl3000-emmc.dts" "$D/"
             
-            # 兼容性同步：防止编译器寻找不带 'b' 的旧名称
-            cp -fv "$dest/mt7981b-sl3000-emmc.dts" "$dest/mt7981-sl3000-emmc.dts"
+            # 兼容性同步：建立不带 'b' 的软连接，防止编译器找不到文件
+            ln -sf "mt7981b-sl3000-emmc.dts" "$D/mt7981-sl3000-emmc.dts"
             
-            # 注册到 Makefile
-            sed -i '/sl3000-emmc.dtb/d' "$dest/Makefile"
-            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$dest/Makefile"
+            # 强制注册 Makefile 确保编译生效
+            sed -i '/sl3000-emmc.dtb/d' "$D/Makefile"
+            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$D/Makefile"
           done
 
-      - name: 8. 执行编译
+      - name: 8. 执行编译 (延续 24.10 成功版逻辑)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 延续 PATH 劫持
+          # 延续路径劫持
           export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
+          # 编译目标
           make target/linux/compile -j$(nproc) V=s
           make target/install -j$(nproc) V=s
 
