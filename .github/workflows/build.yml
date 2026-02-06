@@ -13,7 +13,7 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. [延续成果] 12G Swap 扩容
+      - name: 2. [锁定修复] 12G Swap 扩容
         run: |
           sudo swapoff -a || true
           sudo rm -f /swapfile || true
@@ -22,7 +22,7 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      - name: 3. [数字化校验] 物理路径强制锚定
+      - name: 3. [数字化校验] 物理路径锚定
         run: |
           if [ -f "${{ github.workspace }}/sl3000.config" ]; then
             echo "✅ 成功找到配置文件: sl3000.config"
@@ -31,7 +31,7 @@ jobs:
             exit 1
           fi
 
-      - name: 4. 环境准备与源码下载
+      - name: 4. 环境工具准备
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison gawk gettext \
@@ -46,29 +46,31 @@ jobs:
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh "${{ github.workspace }}"
 
-      - name: 6. [内核修复] DTS 物理硬注入 (保留 2.5G 修复)
+      - name: 6. [内核彻底同步] DTS 注入与强制刷新
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 1. 准备内核源码
+          # A. 先执行内核准备
           make target/linux/prepare -j$(nproc)
-          # 2. 注入 DTS
+          
+          # B. 注入 2.5G 网口 DTS (延续修复成果)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$K_DTS_DIR" ]; then
             cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
             sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
             sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
           fi
-          # 3. [关键修复] 强制刷新内核配置，解决 Error 2
+          
+          # C. [彻底修复点] 强制重建内核配置索引，彻底消除 Error 2
+          # 先清理内核残留，再重新 oldconfig
           make target/linux/configure
+          yes "" | make oldconfig
 
       - name: 7. [数字化产出] 全量编译
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH="${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH"
-          # 延续 V=s 策略以便排查
-          make target/linux/install -j$(nproc) || make target/linux/install -j1 V=s
-          make package/compile -j$(nproc)
-          make target/install -j$(nproc)
+          # 直接多线程编译，如果失败自动回退单线程排障
+          make -j$(nproc) || make -j1 V=s
 
       - name: 8. 发布旗舰固件
         uses: softprops/action-gh-release@v2
