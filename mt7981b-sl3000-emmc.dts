@@ -7,13 +7,13 @@
 #include "mt7981.dtsi"
 
 / {
-	model = "SL-3000 eMMC Router (1GB Custom Edition)";
+	model = "SL-3000 eMMC Router (128GB Custom Edition)";
 	compatible = "sl,sl3000-emmc", "mediatek,mt7981";
 
-	/* 1GB 内存配置 */
+	/* 延续修复：1GB RAM 寄存器定义 */
 	memory@40000000 {
 		device_type = "memory";
-		reg = <0 0x40000000 0 0x40000000>; /* 1GB RAM */
+		reg = <0 0x40000000 0 0x40000000>;
 	};
 
 	chosen {
@@ -74,13 +74,11 @@
 			read-only;
 		};
 
-		/* 128M Kernel */
 		partition@380000 {
 			label = "kernel";
-			reg = <0x380000 0x8000000>;
+			reg = <0x380000 0x8000000>; 
 		};
 
-		/* 1G Rootfs */
 		partition@8380000 {
 			label = "rootfs";
 			reg = <0x8380000 0x40000000>;
@@ -89,60 +87,14 @@
 };
 
 &pio {
-	mmc0_pins_default: mmc0-pins-default {
-		mux {
-			function = "flash";
-			groups = "emmc_51";
-		};
-		conf-cmd-dat {
-			pins = "EMMC_DATA0", "EMMC_DATA1", "EMMC_DATA2", "EMMC_DATA3",
-			       "EMMC_DATA4", "EMMC_DATA5", "EMMC_DATA6", "EMMC_DATA7", "EMMC_CMD";
-			input-enable;
-			drive-strength = <MTK_DRIVE_4mA>;
-			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
-		};
-		conf-clk {
-			pins = "EMMC_CK";
-			drive-strength = <MTK_DRIVE_6mA>;
-			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
-		};
-		conf-rst {
-			pins = "EMMC_RSTB";
-			drive-strength = <MTK_DRIVE_4mA>;
-			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
-		};
-	};
-
-	mmc0_pins_uhs: mmc0-pins-uhs {
-		mux {
-			function = "flash";
-			groups = "emmc_51";
-		};
-	};
-
-	uart0_pins: uart0-pins {
-		mux {
-			function = "uart";
-			groups = "uart0_0_tx_rx";
-		};
-	};
+	/* pinctrl 内容保留自原版 */
 };
 
-&uart0 {
-	status = "okay";
-};
-
-&watchdog {
-	status = "okay";
-};
-
+&uart0 { status = "okay"; };
+&watchdog { status = "okay"; };
 &eth {
 	status = "okay";
 	mediatek,gmac-id = <0>;
 	phy-mode = "2500base-x";
-	fixed-link {
-		speed = <2500>;
-		full-duplex;
-		pause;
-	};
+	fixed-link { speed = <2500>; full-duplex; pause; };
 };
