@@ -1,42 +1,37 @@
 #!/bin/bash
 set -e
-# 获取传入的绝对路径，修复路径偏移
 REPO_ROOT=${1:-$(pwd)}
 WORKDIR="${REPO_ROOT}/openwrt"
 
-echo "💎 [SL3000] 执行全量集成修复 (照抄原文逻辑)..."
+echo "💎 [SL3000] 执行全量集成修复 (延续原文逻辑)..."
 
-# 1. 物理注入镜像规则 (修正 cp 报错点)
+# 1. 物理注入镜像规则 (原文照抄)
 mkdir -p "${WORKDIR}/target/linux/mediatek/image"
-if [ -f "${REPO_ROOT}/filogic.mk" ]; then
-    # 路径不同才复制
-    [ "${REPO_ROOT}/filogic.mk" -ef "${WORKDIR}/target/linux/mediatek/image/filogic.mk" ] || cp -fv "${REPO_ROOT}/filogic.mk" "${WORKDIR}/target/linux/mediatek/image/filogic.mk"
-fi
+cp -fv -f "${REPO_ROOT}/filogic.mk" "${WORKDIR}/target/linux/mediatek/image/filogic.mk"
 
-# 2. [延续修复] 环境工具劫持
+# 2. [延续修复] 环境工具劫持 (原文照抄)
 mkdir -p "${WORKDIR}/staging_dir/host/bin"
 for tool in m4 flex bison lex grep sed xargs getconf patch diff seq realpath stat gzip unzip bzip2 wget install perl file python python3; do
     SYS_PATH=$(which $tool || which "${tool}3" || echo "/usr/bin/$tool")
     [ -n "$SYS_PATH" ] && ln -sf "$SYS_PATH" "${WORKDIR}/staging_dir/host/bin/$tool"
 done
 
-# 3. [深度清理] 保持原文清理逻辑
+# 3. [深度清理] 照抄原文逻辑
 cd "${WORKDIR}"
 ./scripts/feeds update -a
 rm -rf feeds/packages/lang/php* feeds/packages/admin/zabbix
 rm -rf feeds/packages/net/hs20 feeds/packages/net/onionshare-cli
 ./scripts/feeds install -a
 
-# 4. [数字化对齐] 使用原文文件名 sl3000.config
+# 4. [数字化对齐] 使用原文文件名 sl3000.config (仅加 -f 修复)
 if [ -f "${REPO_ROOT}/sl3000.config" ]; then
-    # 修复 cp 报错点
-    [ "${REPO_ROOT}/sl3000.config" -ef ".config" ] || cp -fv "${REPO_ROOT}/sl3000.config" .config
+    cp -fv -f "${REPO_ROOT}/sl3000.config" .config
 else
     echo "❌ 脚本无法找到配置文件: ${REPO_ROOT}/sl3000.config"
     exit 1
 fi
 
-# 照抄原文分区锁定逻辑 (128M/1024M)
+# 照抄原文分区锁定逻辑
 sed -i '/CONFIG_TARGET_KERNEL_PARTSIZE/d; /CONFIG_TARGET_ROOTFS_PARTSIZE/d' .config
 {
     echo "CONFIG_TARGET_mediatek=y"
