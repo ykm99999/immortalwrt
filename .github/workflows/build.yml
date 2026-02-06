@@ -1,4 +1,4 @@
-name: SL3000-24.10-Final
+name: SL3000-V13.5-Full-Fix
 
 on:
   workflow_dispatch:
@@ -9,65 +9,92 @@ env:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. [彻底扩容] 磁盘清理与 12G Swap
+      - name: 2. 环境清理与磁盘扩容 (彻底修复 No space left)
         run: |
-          # 彻底解决 No space left on device：删除虚拟机自带的 30GB+ 垃圾软件
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /etc/apt/sources.list.d/*
-          # 保留之前的 12G Swap 修复
+          # 增加清理 dotnet 以获得更多空间
+          sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
           sudo rm -f /swapfile || true
-          sudo fallocate -l 12G /swapfile
+          sudo fallocate -l 12G /swapfile  # 增加到 12G Swap 延续成果
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          df -h # 打印磁盘状态，确保空间充足
 
-      - name: 3. 环境准备 (24.10)
+      - name: 3. 安装依赖与克隆源码
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison gawk gettext \
-            grep patch diffutils file findutils coreutils util-linux \
-            gzip bzip2 unzip wget perl python3 python3-setuptools \
-            libncurses5-dev libssl-dev libelf-dev zlib1g-dev \
-            device-tree-compiler bc dos2unix rsync qemu-utils fakeroot
+          sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev
+          # 延续 24.10 源码选择
           git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. [物理注入] 延续成功案例配置
-        run: |
-          # 100% 物理覆盖，不给系统自作主张的机会
-          mkdir -p ${{ env.WORKDIR }}/target/linux/mediatek/image
-          cp -fv filogic.mk ${{ env.WORKDIR }}/target/linux/mediatek/image/filogic.mk
-          cp -fv sl3000.config ${{ env.WORKDIR }}/.config
+      - name: 4. 开启独立隔离缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.WORKDIR }}/dl
+            ${{ env.WORKDIR }}/staging_dir
+            ${{ env.WORKDIR }}/build_dir/host
+          key: ${{ runner.os }}-openwrt-v13.5-${{ github.run_id }} # 使用 run_id 确保缓存干净
+          restore-keys: |
+            ${{ runner.os }}-openwrt-v13.5-
 
-      - name: 5. [内核对齐] DTS 注入与 Makefile 注册
+      - name: 5. 准备自定义文件并注入
         run: |
-          cd ${{ env.WORKDIR }}
-          make target/linux/prepare -j$(nproc)
-          # 定位内核 DTS 目录并注入
-          K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
-          cp -fv ../mt7981-sl3000-emmc.dts "$K_DTS_DIR/"
-          # 在 Makefile 中注册，确保编译生成 dtb
-          sed -i '/mt7981-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
-          sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
-          # 锁定分区大小到配置文件
-          echo "CONFIG_TARGET_KERNEL_PARTSIZE=128" >> .config
-          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024" >> .config
-          yes "" | make oldconfig
+          # 建立闭合路径，确保 cp 成功
+          mkdir -p ${{ env.WORKDIR }}/custom_files
+          # 延续三件套路径 (custom-config)
+          cp -fv custom-config/mt7981b-sl3000-emmc.dts ${{ env.WORKDIR }}/custom_files/
+          
+          chmod +x scripts/sl3000-patch.sh
+          ./scripts/sl3000-patch.sh
 
-      - name: 6. [数字化产出] 全量编译
+      - name: 6. 编译工具链 (延续环境变量修复项)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 设置环境变量，使用多线程加速
-          make -j$(nproc) || make -j1 V=s
+          export BISON_PKGDATADIR=/usr/share/bison
+          export M4=/usr/bin/m4
+          make tools/install -j$(nproc)
+          make toolchain/install -j$(nproc)
 
-      - name: 7. 发布固件
+      - name: 7. 内核 DTS 注入与 Makefile 注册
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          make target/linux/prepare -j$(nproc)
+          
+          K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
+          if [ -n "$K_DTS_DIR" ]; then
+            echo "🎯 发现内核 DTS 路径: $K_DTS_DIR"
+            # 注入你指定的成功 DTS (mt7981b 版本)
+            cp -fv "custom_files/mt7981b-sl3000-emmc.dts" "$K_DTS_DIR/"
+            # 延续兼容性逻辑：产生不带 b 的副本
+            cp -fv "$K_DTS_DIR/mt7981b-sl3000-emmc.dts" "$K_DTS_DIR/mt7981-sl3000-emmc.dts"
+            
+            # 强制注册到 Makefile
+            sed -i '/sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
+            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
+            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
+          else
+            echo "❌ 找不到内核 DTS 目录" && exit 1
+          fi
+
+      - name: 8. 执行全量编译
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
+          # 解决 1GB Rootfs 导致的编译缓慢
+          make target/linux/compile -j$(nproc) V=s
+          make target/install -j$(nproc) V=s
+
+      - name: 9. 发布固件
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-24.10-Final-${{ github.run_id }}
-          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*sl3000*
+          tag_name: SL3000-V13.5-${{ github.run_id }}
+          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
           token: ${{ secrets.GITHUB_TOKEN }}
