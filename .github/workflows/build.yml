@@ -1,4 +1,4 @@
-name: SL3000-V13.5-Full-Fix-25.12
+name: SL3000-25.12-Full-Fix
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 环境清理与磁盘扩容 (针对 1GB Rootfs 强化)
+      - name: 2. 环境清理与磁盘扩容 (延续原方案)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
@@ -25,35 +25,25 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      - name: 3. 克隆 25.12 源码
+      - name: 3. 安装依赖与克隆 25.12 源码
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev
-          # ✅ 严格修正：使用 25.12 分支
+          # ✅ 锁定构建版本 25.12
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 开启独立隔离缓存
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.WORKDIR }}/dl
-            ${{ env.WORKDIR }}/staging_dir
-            ${{ env.WORKDIR }}/build_dir/host
-          key: ${{ runner.os }}-openwrt-25.12-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-openwrt-25.12-
-
-      - name: 5. 准备自定义文件并注入
+      - name: 4. 准备自定义文件并注入
         run: |
           mkdir -p ${{ env.WORKDIR }}/custom_files
           
-          # ✅ 严格对齐：三件套在根目录，直接拷贝原文
-          cp -fv mt7981b-sl3000-emmc.dts ${{ env.WORKDIR }}/custom_files/
+          # ✅ 路径死锁：永远从根目录直接拷贝 Mt7981b-sl3000-emmc.dts
+          cp -fv Mt7981b-sl3000-emmc.dts ${{ env.WORKDIR }}/custom_files/
           
-          chmod +x scripts/sl3000-patch.sh
-          ./scripts/sl3000-patch.sh
+          # ✅ 路径与脚本名称死锁：永远使用原脚本路径 scripts/clean-feeds.sh
+          chmod +x scripts/clean-feeds.sh
+          ./scripts/clean-feeds.sh
 
-      - name: 6. 编译工具链 (延续 V13.5 环境变量修复项)
+      - name: 5. 编译工具链 (延续原修复项)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
@@ -61,7 +51,7 @@ jobs:
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 7. 内核 DTS 注入与 Makefile 注册 (适配 25.12 目录结构)
+      - name: 6. 内核 DTS 注入与 Makefile 注册
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
@@ -69,27 +59,27 @@ jobs:
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$K_DTS_DIR" ]; then
             echo "🎯 发现内核 DTS 路径: $K_DTS_DIR"
-            # 注入 DTS 原文
-            cp -fv "custom_files/mt7981b-sl3000-emmc.dts" "$K_DTS_DIR/"
-            # 延续兼容性逻辑
-            cp -fv "$K_DTS_DIR/mt7981b-sl3000-emmc.dts" "$K_DTS_DIR/mt7981-sl3000-emmc.dts"
+            # 注入 DTS 原文 (首字母大写)
+            cp -fv "custom_files/Mt7981b-sl3000-emmc.dts" "$K_DTS_DIR/"
+            # 兼容性同步 (维持原版逻辑)
+            cp -fv "$K_DTS_DIR/Mt7981b-sl3000-emmc.dts" "$K_DTS_DIR/mt7981-sl3000-emmc.dts"
             
-            # 强制注册到 Makefile (延续原文)
+            # 强制注册到 Makefile (延续原修复逻辑)
             sed -i '/sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
             echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
-            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
+            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += Mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
           else
             echo "❌ 找不到内核 DTS 目录" && exit 1
           fi
 
-      - name: 8. 执行编译
+      - name: 7. 执行编译 (延续 PATH 劫持)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
           make target/linux/compile -j$(nproc) V=s
           make target/install -j$(nproc) V=s
 
-      - name: 9. 发布 25.12 固件
+      - name: 8. 发布 25.12 固件
         uses: softprops/action-gh-release@v2
         if: success()
         with:
