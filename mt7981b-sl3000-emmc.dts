@@ -1,41 +1,24 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
 /dts-v1/;
-
-#include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/input/input.h>
-#include <dt-bindings/leds/common.h>
-#include <dt-bindings/pinctrl/mt65xx.h>
-#include "mt7981.dtsi"
+#include "mt7981b.dtsi"
 
 / {
-	model = "SL-3000 eMMC Router (1GB Custom Edition)";
-	compatible = "sl,sl3000-emmc", "mediatek,mt7981b", "mediatek,mt7981";
+	model = "SL-3000 eMMC Router (25.12/6.12 Kernel Custom)";
+	compatible = "sl,sl3000-emmc", "mediatek,mt7981-rfb", "mediatek,mt7981";
 
-	chosen {
-		bootargs = "console=ttyS0,115200n8 earlycon=uart8250,mmio32,0x11002000 root=PARTLABEL=rootfs rootwait";
-		stdout-path = "serial0:115200n8";
+	aliases {
+		serial0 = &uart0;
 	};
 
-	/* 旗舰版数字化锁死：1GB 内存 */
+	chosen: chosen {
+		stdout-path = "serial0:115200n8";
+		bootargs-append = " root=/dev/fit0 rootwait";
+	};
+
 	memory@40000000 {
 		device_type = "memory";
+		/* 锁定 1GB RAM 修复成果 */
 		reg = <0 0x40000000 0 0x40000000>;
-	};
-
-	keys {
-		compatible = "gpio-keys";
-		reset {
-			label = "reset";
-			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-			linux,code = <KEY_RESTART>;
-		};
-	};
-
-	leds {
-		compatible = "gpio-leds";
-		blue {
-			label = "blue:status";
-			gpios = <&pio 8 GPIO_ACTIVE_HIGH>;
-		};
 	};
 
 	reg_3p3v: regulator-3p3v {
@@ -47,16 +30,26 @@
 		regulator-always-on;
 	};
 
-	reg_1p8v: regulator-1p8v {
+	reg_5v: regulator-5v {
 		compatible = "regulator-fixed";
-		regulator-name = "fixed-1.8V";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
+		regulator-name = "fixed-5V";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
 		regulator-boot-on;
 		regulator-always-on;
 	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		reset {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+		};
+	};
 };
 
+/* 核心修复：针对 6.12 内核适配的 eMMC 驱动 */
 &mmc0 {
 	pinctrl-names = "default", "state_uhs";
 	pinctrl-0 = <&mmc0_pins_default>;
@@ -68,10 +61,8 @@
 	mmc-hs400-1_8v;
 	non-removable;
 	vmmc-supply = <&reg_3p3v>;
-	vqmmc-supply = <&reg_1p8v>;
 	status = "okay";
 
-	/* 数字化分区：必须与 filogic.mk 严格对齐 */
 	partitions {
 		compatible = "fixed-partitions";
 		#address-cells = <1>;
@@ -83,14 +74,31 @@
 			read-only;
 		};
 
+		/* 锁定 128MB Kernel 分区 */
 		partition@380000 {
 			label = "kernel";
-			reg = <0x380000 0x8000000>; /* 128MB */
+			reg = <0x380000 0x8000000>;
 		};
 
+		/* 锁定 1024MB Rootfs 分区 */
 		partition@8380000 {
 			label = "rootfs";
-			reg = <0x8380000 0x40000000>; /* 1024MB */
+			reg = <0x8380000 0x40000000>;
+		};
+	};
+};
+
+/* 2.5G 网口适配：采用官方 6.12 级联语法（gmac0） */
+&eth {
+	status = "okay";
+	gmac0: mac@0 {
+		compatible = "mediatek,eth-mac";
+		reg = <0>;
+		phy-mode = "2500base-x";
+		fixed-link {
+			speed = <2500>;
+			full-duplex;
+			pause;
 		};
 	};
 };
@@ -111,17 +119,8 @@
 	};
 };
 
+&xhci { vusb33-supply = <&reg_3p3v>; vbus-supply = <&reg_5v>; status = "okay"; };
 &uart0 { status = "okay"; };
+&usb_phy { status = "okay"; };
 &watchdog { status = "okay"; };
-
-/* 核心修复：网口 2.5G 模式锁定 */
-&eth {
-	status = "okay";
-	mediatek,gmac-id = <0>;
-	phy-mode = "2500base-x";
-	fixed-link {
-		speed = <2500>;
-		full-duplex;
-		pause;
-	};
-};
+&crypto { status = "okay"; };
