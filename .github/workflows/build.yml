@@ -1,4 +1,4 @@
-name: SL3000-V13.5-Full-Fix
+name: SL3000-V13.5-Full-Fix-25.12
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 环境清理与磁盘扩容 (针对 1GB Rootfs 优化)
+      - name: 2. 环境清理与磁盘扩容 (针对 1GB Rootfs 强化)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
@@ -25,11 +25,12 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      - name: 3. 安装依赖与克隆源码 (24.10 版本)
+      - name: 3. 克隆 25.12 源码
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev
-          git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
+          # ✅ 严格修正：使用 25.12 分支
+          git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
       - name: 4. 开启独立隔离缓存
         uses: actions/cache@v4
@@ -38,13 +39,12 @@ jobs:
             ${{ env.WORKDIR }}/dl
             ${{ env.WORKDIR }}/staging_dir
             ${{ env.WORKDIR }}/build_dir/host
-          key: ${{ runner.os }}-openwrt-v13.5-${{ github.run_id }}
+          key: ${{ runner.os }}-openwrt-25.12-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-openwrt-v13.5-
+            ${{ runner.os }}-openwrt-25.12-
 
       - name: 5. 准备自定义文件并注入
         run: |
-          # 建立闭合路径
           mkdir -p ${{ env.WORKDIR }}/custom_files
           
           # ✅ 严格对齐：三件套在根目录，直接拷贝原文
@@ -53,7 +53,7 @@ jobs:
           chmod +x scripts/sl3000-patch.sh
           ./scripts/sl3000-patch.sh
 
-      - name: 6. 编译工具链 (延续 V13.5 环境变量修复)
+      - name: 6. 编译工具链 (延续 V13.5 环境变量修复项)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
@@ -61,7 +61,7 @@ jobs:
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 7. 内核 DTS 注入与 Makefile 注册
+      - name: 7. 内核 DTS 注入与 Makefile 注册 (适配 25.12 目录结构)
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
@@ -89,10 +89,10 @@ jobs:
           make target/linux/compile -j$(nproc) V=s
           make target/install -j$(nproc) V=s
 
-      - name: 9. 发布固件
+      - name: 9. 发布 25.12 固件
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-V13.5-${{ github.run_id }}
+          tag_name: SL3000-25.12-${{ github.run_id }}
           files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
           token: ${{ secrets.GITHUB_TOKEN }}
