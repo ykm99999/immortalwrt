@@ -1,15 +1,13 @@
 #!/bin/bash
 set -e
-# 接收传入的绝对路径
 REPO_ROOT=$1
 WORKDIR="${REPO_ROOT}/openwrt"
 
-echo "💎 [SL3000] 执行全量集成修复 (保留全部历史成果)..."
+echo "💎 [SL3000] 执行全量集成修复 (保留之前所有修复)..."
 
-# 1. 物理注入镜像规则 (修正 cp 路径冲突)
+# 1. 注入镜像规则 (修正 cp 报错点)
 mkdir -p "${WORKDIR}/target/linux/mediatek/image"
-# 通过先进入目录再操作，物理规避 Same File 报错
-(cd "${WORKDIR}/target/linux/mediatek/image" && cp -fv "${REPO_ROOT}/filogic.mk" ./filogic.mk)
+cp -fv -f "${REPO_ROOT}/filogic.mk" "${WORKDIR}/target/linux/mediatek/image/filogic.mk"
 
 # 2. [延续修复] 环境工具劫持
 mkdir -p "${WORKDIR}/staging_dir/host/bin"
@@ -26,8 +24,7 @@ rm -rf feeds/packages/net/hs20 feeds/packages/net/onionshare-cli
 ./scripts/feeds install -a
 
 # 4. [数字化对齐] 配置注入与分区锁定 (128M/1024M)
-# 修正 cp 报错：采用目录内相对操作
-cp -fv "${REPO_ROOT}/sl3000.config" .config
+cp -fv -f "${REPO_ROOT}/sl3000.config" .config
 
 sed -i '/CONFIG_TARGET_KERNEL_PARTSIZE/d; /CONFIG_TARGET_ROOTFS_PARTSIZE/d' .config
 {
