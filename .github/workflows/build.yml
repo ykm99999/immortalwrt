@@ -46,13 +46,13 @@ jobs:
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh "${{ github.workspace }}"
 
-      - name: 6. [内核彻底同步] DTS 注入与强制刷新
+      - name: 6. [内核彻底同步] DTS 注入与配置锁定
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # A. 先执行内核准备
+          # A. 内核准备 (保持成果)
           make target/linux/prepare -j$(nproc)
           
-          # B. 注入 2.5G 网口 DTS (延续修复成果)
+          # B. 注入 2.5G 网口 DTS (锁定修复成果)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$K_DTS_DIR" ]; then
             cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
@@ -60,16 +60,15 @@ jobs:
             sed -i '/dtb-$(CONFIG_ARCH_MEDIATEK)/a \dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' "$K_DTS_DIR/Makefile"
           fi
           
-          # C. [彻底修复点] 强制重建内核配置索引，彻底消除 Error 2
-          # 先清理内核残留，再重新 oldconfig
-          make target/linux/configure
+          # C. [精准修复点] 避开报错的 configure，直接通过 oldconfig 激活
+          # 这是解决 Error 1 的核心，不再强制执行 target/linux/configure
           yes "" | make oldconfig
 
       - name: 7. [数字化产出] 全量编译
         working-directory: ${{ env.WORKDIR }}
         run: |
           export PATH="${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH"
-          # 直接多线程编译，如果失败自动回退单线程排障
+          # 直接进入编译，如果失败自动回退单线程查看详细日志
           make -j$(nproc) || make -j1 V=s
 
       - name: 8. 发布旗舰固件
