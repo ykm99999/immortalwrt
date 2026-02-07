@@ -1,51 +1,45 @@
 #!/bin/bash
 set -e
 
-# 🎯 路径死锁：脚本在子目录，配置在根目录
+# 获取路径
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
+# 🎯 物理对齐：你的三件套在根目录，所以这里必须指向 REPO_ROOT
 SRC_DIR="${REPO_ROOT}"
 
-echo "💎 [SL3000] 启动全量延续修复脚本 (25.12 适配版)..."
+echo "🚀 [SL3000] 正在注入极限版工厂补丁 (全量修复延续)..."
 
 cd "${WORKDIR}"
 
-# [延续修复] 1. Feeds 自愈机制
-echo "🔄 正在同步 Feeds 源..."
-for i in {1..3}; do
-    ./scripts/feeds update -a && ./scripts/feeds install -a && break || sleep 5
-done
+# 1. [延续] Feeds 同步与安装
+./scripts/feeds update -a && ./scripts/feeds install -a
 
-# [延续修复] 2. 环境清理与架构强锁定
-rm -rf tmp .config .config.old
+# 2. [延续] 核心架构配置强制锁定
+rm -rf tmp .config
 echo "CONFIG_TARGET_mediatek=y" > .config
 echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
 echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
 
-# [延续修复] 3. 配置文件合并 (从仓库根目录读取)
-if [ -f "${SRC_DIR}/sl3000.config" ]; then
-    cat "${SRC_DIR}/sl3000.config" >> .config
-else
-    echo "❌ 关键错误：在根目录找不到 sl3000.config" && exit 1
-fi
-
-# [延续修复] 4. 打包文件注入 (filogic.mk)
+# 3. [延续] 核心资产注入 (128MB对齐MK / 1GB内存DTS / 512M分区Config)
+# 🎯 从根目录读取你的三件套
+cat "${SRC_DIR}/sl3000.config" >> .config
 mkdir -p "target/linux/mediatek/image"
-if [ -f "${SRC_DIR}/filogic.mk" ]; then
-    cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
-else
-    echo "❌ 关键错误：在根目录找不到 filogic.mk" && exit 1
-fi
+cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
+mkdir -p "target/linux/mediatek/dts"
+cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/"
 
-# [延续修复] 5. 工具链劫持
+# 4. [极限加强] 源码级绝对路径劫持：彻底根治 fwtool 找不到的问题
+FWTOOL_ABS="$(pwd)/staging_dir/host/bin/fwtool"
+find target/linux/mediatek/image/ -type f -name "*.mk" -exec sed -i "s|fwtool|${FWTOOL_ABS}|g" {} +
+
+# 5. [延续] 工具链软链接修复 (bison/m4/flex)
 mkdir -p "staging_dir/host/bin"
 for tool in m4 flex bison gawk; do
     ln -sf "$(which $tool)" "staging_dir/host/bin/$tool"
 done
-touch "staging_dir/host/.tools_install_y"
 
-# [延续修复] 6. 空间防御：RootFS 强制纠偏为 512MB (防止 eMMC 溢出)
+# 6. [延续] 512MB RootFS 空间限制 (避开溢出错误)
 make defconfig
 sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=512/' .config
 
-echo "✅ [SL3000] 补丁注入完成。"
+echo "✅ [SL3000] 补丁注入完成，所有历史修复已锁定。"
