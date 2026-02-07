@@ -4,14 +4,16 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
-/* 🎯 关键修正：在 Workflow 中我们会确保此文件与 mt7981.dtsi 处于同一目录 */
-#include "mt7981.dtsi"
+
+/* 🎯 关键修复：指定目录级包含路径。
+   配合 Workflow 中的 ln -sf 软链接，彻底解决 25.12 找不到 mt7981.dtsi 的问题 */
+#include "mediatek/mt7981.dtsi"
 
 / {
 	model = "SL-3000 eMMC Router (128GB Custom Edition)";
 	compatible = "sl,sl3000-emmc", "mediatek,mt7981";
 
-	/* ⚡ 延续修复：适配 1GB 运行内存 */
+	/* ⚡ 延续修复：1GB (1024MB) 运行内存适配 */
 	memory@40000000 {
 		device_type = "memory";
 		reg = <0 0x40000000 0 0x40000000>;
@@ -62,13 +64,13 @@
 		partition@100000 { label = "u-boot-env"; reg = <0x100000 0x80000>; };
 		partition@180000 { label = "factory"; reg = <0x180000 0x200000>; read-only; };
 
-		/* 🎯 延续修复：内核分区物理对齐 (128MB) */
+		/* 🎯 延续修复：内核分区物理对齐 (128MB = 0x8000000) */
 		partition@380000 {
 			label = "kernel";
 			reg = <0x380000 0x8000000>; 
 		};
 
-		/* 🎯 延续修复：Rootfs 分区 (使用 eMMC 剩余空间) */
+		/* 🎯 延续修复：Rootfs 分区 (使用 eMMC 大容量剩余空间) */
 		partition@8380000 {
 			label = "rootfs";
 			reg = <0x8380000 0x40000000>;
