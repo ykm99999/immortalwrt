@@ -27,7 +27,7 @@ jobs:
       - name: 4. 克隆 25.12 源码
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 5. 运行补丁脚本 (🎯 对齐你的 scripts/clean-feeds.sh)
+      - name: 5. 运行补丁脚本 (🎯 对齐 scripts/clean-feeds.sh)
         run: |
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh
@@ -46,23 +46,39 @@ jobs:
           make target/linux/prepare -j$(nproc)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$K_DTS_DIR" ]; then
-            # 🎯 从根目录拷贝 DTS 注入内核
             cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
-            # 物理补偿 25.12 包含路径
+            # 🎯 物理补偿 25.12 包含路径：解决 mt7981.dtsi 找不到的问题
             ln -sf . "$K_DTS_DIR/mediatek"
             sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
             echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
           fi
 
-      - name: 8. 执行全量编译 (延续 root-mediatek 修复)
+      - name: 8. 执行全量编译 (🚀 25.12 深度自愈版)
         working-directory: ${{ env.WORKDIR }}
         run: |
+          # A. 编译前路径补偿
           for d in build_dir/target-*; do
             [ -d "$d" ] && mkdir -p "$d/root-mediatek"
           done
+          
           export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
+          
+          # B. 内核编译
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
-          make target/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y
+          
+          # C. 🎯 临门一脚：清理配置 tmp 并强制重新对齐打包目录
+          # 这是解决 target/install 报错的关键
+          rm -rf tmp
+          for d in build_dir/target-*; do
+            if [ -d "$d" ]; then
+              mkdir -p "$d/root-mediatek"
+              # 确保生成的 rootfs 镜像不会因为权限或空路径报错
+              touch "$d/root-mediatek/.keep"
+            fi
+          done
+          
+          # D. 打包安装
+          make target/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || make target/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
       - name: 9. 发布产物
         uses: softprops/action-gh-release@v2
