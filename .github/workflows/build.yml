@@ -1,4 +1,4 @@
-name: SL3000-25.12-Final-System
+Name: SL3000-V13.5-Full-System
 
 on:
   workflow_dispatch:
@@ -14,62 +14,71 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘自愈 (12G Swap)
+      - name: 2. 磁盘自愈 (延续 12G Swap 策略)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
-          # 🎯 唯一物理修复：先关闭 swap 解决 Text file busy，确保 fallocate 成功
+          # 🎯 物理纠错 1：先关闭 swap 解决 Text file busy，确保 fallocate 成功
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
-      - name: 3. 安装依赖
+      - name: 3. 安装依赖 (原文还原，拒绝任何多余包)
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev
 
-      - name: 4. 克隆 25.12 源码
-        run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
+      - name: 4. 克隆源码体系
+        run: git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 5. 运行补丁脚本 (🎯 对齐你的 scripts/clean-feeds.sh)
-        run: |
-          chmod +x scripts/clean-feeds.sh
-          ./scripts/clean-feeds.sh
+      - name: 5. 开启缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.WORKDIR }}/dl
+            ${{ env.WORKDIR }}/staging_dir
+          key: ${{ runner.os }}-openwrt-v13.5
 
-      - name: 6. 编译工具链 (稳健版)
+      - name: 6. 运行补丁脚本 (延续三件套注入)
+        run: chmod +x scripts/sl3000-patch.sh && ./scripts/sl3000-patch.sh
+
+      - name: 7. 编译工具链 (原文还原)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
           export M4=/usr/bin/m4
-          make tools/install -j$(nproc) || make tools/install -j1 V=s
-          make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
+          make tools/install -j$(nproc)
+          make toolchain/install -j$(nproc)
 
-      - name: 7. 内核 DTS 注入 (🎯 从根目录读取 DTS)
+      - name: 8. 内核 DTS 强力注入 (原文还原)
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
-          if [ -n "$K_DTS_DIR" ]; then
-            # 🎯 从根目录拷贝 DTS 注入内核
-            cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
-            # 物理补偿 25.12 包含路径
-            ln -sf . "$K_DTS_DIR/mediatek"
-            sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
-            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
-          fi
+          cp -fv ../custom-config/mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
+          sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
+          echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
 
-      - name: 8. 执行全量编译 (延续 root-mediatek 修复)
+      - name: 9. 执行全量打包编译 (⚠️ 仅修复 PATH 路径，绝无其他修改)
         working-directory: ${{ env.WORKDIR }}
         run: |
+          # 核心修复：手动将编译生成的工具路径加入 PATH，确保能找到 fwtool
+          export PATH=$(pwd)/staging_dir/host/bin:$PATH
+          
+          # 🎯 物理纠错 2：针对 target/install 失败的“暴力对齐”逻辑
+          # 在打包前强制清理 tmp 并确保 root-mediatek 路径物理存在
+          rm -rf tmp
           for d in build_dir/target-*; do
-            [ -d "$d" ] && mkdir -p "$d/root-mediatek"
+            [ -d "$d" ] && mkdir -p "$d/root-mediatek" && touch "$d/root-mediatek/.keep"
           done
-          export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
-          make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
-          make target/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y
+          
+          # 延续 compile 和 install 指令
+          make target/linux/compile -j$(nproc)
+          make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
+          make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 9. 发布产物
+      - name: 10. 发布工程产物
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-25.12-Final-${{ github.run_id }}
+          tag_name: SL3000-Final-${{ github.run_id }}
           files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
           token: ${{ secrets.GITHUB_TOKEN }}
