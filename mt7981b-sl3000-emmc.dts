@@ -1,23 +1,46 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
 /dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
+/* 🎯 关键修正：在 Workflow 中我们会确保此文件与 mt7981.dtsi 处于同一目录 */
 #include "mt7981.dtsi"
 
 / {
-	model = "SL3000 128GB Custom Edition";
-	compatible = "sl,sl3000-emmc", "mediatek,mt7981b", "mediatek,mt7981";
+	model = "SL-3000 eMMC Router (128GB Custom Edition)";
+	compatible = "sl,sl3000-emmc", "mediatek,mt7981";
 
+	/* ⚡ 延续修复：适配 1GB 运行内存 */
 	memory@40000000 {
 		device_type = "memory";
-		/* 🎯 延续修复：锁定 1GB RAM 物理地址 */
 		reg = <0 0x40000000 0 0x40000000>;
 	};
 
 	chosen {
 		bootargs = "console=ttyS0,115200n8 earlycon=uart8250,mmio32,0x11002000";
+		stdout-path = "serial0:115200n8";
+	};
+
+	gpio-keys-sl3000 {
+		compatible = "gpio-keys";
+		reset {
+			label = "reset";
+			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+		};
+	};
+
+	gpio-leds-sl3000 {
+		compatible = "gpio-leds";
+		status_blue {
+			label = "blue:status";
+			gpios = <&pio 8 GPIO_ACTIVE_HIGH>;
+		};
 	};
 };
 
 &mmc0 {
-	status = "okay";
 	pinctrl-names = "default", "state_uhs";
 	pinctrl-0 = <&mmc0_pins_default>;
 	pinctrl-1 = <&mmc0_pins_uhs>;
@@ -26,24 +49,64 @@
 	cap-mmc-highspeed;
 	mmc-hs200-1_8v;
 	mmc-hs400-1_8v;
-	vmmc-supply = <&reg_3p3v>;
-	vqmmc-supply = <&reg_1p8v>;
 	non-removable;
-};
+	vmmc-supply = <&reg_3p3v>;
+	status = "okay";
 
-&pio {
-	mmc0_pins_default: mmc0-pins-default {
-		mux {
-			function = "flash";
-			groups = "emmc_45";
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		partition@0 { label = "gpt"; reg = <0x0 0x100000>; read-only; };
+		partition@100000 { label = "u-boot-env"; reg = <0x100000 0x80000>; };
+		partition@180000 { label = "factory"; reg = <0x180000 0x200000>; read-only; };
+
+		/* 🎯 延续修复：内核分区物理对齐 (128MB) */
+		partition@380000 {
+			label = "kernel";
+			reg = <0x380000 0x8000000>; 
+		};
+
+		/* 🎯 延续修复：Rootfs 分区 (使用 eMMC 剩余空间) */
+		partition@8380000 {
+			label = "rootfs";
+			reg = <0x8380000 0x40000000>;
 		};
 	};
 };
 
-/* 🎯 延续修复：定义 128MB 的内核分区，防止大固件写入失败 */
-&partitions {
-	partition@380000 {
-		label = "kernel";
-		reg = <0x0 0x380000 0x0 0x8000000>; /* 128MB */
+&pio {
+	mmc0_pins_default: mmc0-pins-default {
+		mux { function = "flash"; groups = "emmc_51"; };
+		conf-cmd-dat {
+			pins = "EMMC_DATA0", "EMMC_DATA1", "EMMC_DATA2", "EMMC_DATA3",
+			       "EMMC_DATA4", "EMMC_DATA5", "EMMC_DATA6", "EMMC_DATA7", "EMMC_CMD";
+			input-enable; drive-strength = <MTK_DRIVE_4mA>; bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
+		};
+		conf-clk { pins = "EMMC_CK"; drive-strength = <MTK_DRIVE_6mA>; bias-pull-down = <MTK_PUPD_SET_R1R0_10>; };
+		conf-rst { pins = "EMMC_RSTB"; drive-strength = <MTK_DRIVE_4mA>; bias-pull-up = <MTK_PUPD_SET_R1R0_01>; };
 	};
+
+	mmc0_pins_uhs: mmc0-pins-uhs {
+		mux { function = "flash"; groups = "emmc_51"; };
+		conf-cmd-dat {
+			pins = "EMMC_DATA0", "EMMC_DATA1", "EMMC_DATA2", "EMMC_DATA3",
+			       "EMMC_DATA4", "EMMC_DATA5", "EMMC_DATA6", "EMMC_DATA7", "EMMC_CMD";
+			input-enable; drive-strength = <MTK_DRIVE_4mA>; bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
+		};
+	};
+
+	uart0_pins: uart0-pins {
+		mux { function = "uart"; groups = "uart0_0_tx_rx"; };
+	};
+};
+
+&uart0 { status = "okay"; };
+&watchdog { status = "okay"; };
+&eth {
+	status = "okay";
+	mediatek,gmac-id = <0>;
+	phy-mode = "2500base-x";
+	fixed-link { speed = <2500>; full-duplex; pause; };
 };
