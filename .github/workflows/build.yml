@@ -1,4 +1,4 @@
-Name: SL3000-V13.5-Full-System
+name: SL3000-V13.5-Full-System
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
       - name: 2. 磁盘自愈 (延续 12G Swap 策略)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
-          # 🎯 物理纠错 1：先关闭 swap 解决 Text file busy，确保 fallocate 成功
+          # 🎯 唯一物理修复：先关闭 swap 解决 Text file busy，确保 fallocate 成功
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
@@ -62,13 +62,7 @@ jobs:
         run: |
           # 核心修复：手动将编译生成的工具路径加入 PATH，确保能找到 fwtool
           export PATH=$(pwd)/staging_dir/host/bin:$PATH
-          
-          # 🎯 物理纠错 2：针对 target/install 失败的“暴力对齐”逻辑
-          # 在打包前强制清理 tmp 并确保 root-mediatek 路径物理存在
-          rm -rf tmp
-          for d in build_dir/target-*; do
-            [ -d "$d" ] && mkdir -p "$d/root-mediatek" && touch "$d/root-mediatek/.keep"
-          done
+          mkdir -p build_dir/target-aarch64_cortex-a53_musl/root-mediatek
           
           # 延续 compile 和 install 指令
           make target/linux/compile -j$(nproc)
