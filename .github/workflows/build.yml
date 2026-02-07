@@ -17,7 +17,7 @@ jobs:
       - name: 2. 磁盘自愈 (延续 12G Swap 策略)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
-          # 🎯 唯一物理修复：先关闭 swap 解决 Text file busy，确保 fallocate 成功
+          # 🎯 物理修复：关闭 swap 占用
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
@@ -37,8 +37,16 @@ jobs:
             ${{ env.WORKDIR }}/staging_dir
           key: ${{ runner.os }}-openwrt-v13.5
 
-      - name: 6. 运行补丁脚本 (延续三件套注入)
-        run: chmod +x scripts/sl3000-patch.sh && ./scripts/sl3000-patch.sh
+      - name: 6. 运行补丁脚本 (🎯 物理纠错：自动对齐脚本路径)
+        run: |
+          # 查找脚本位置，兼容 scripts/sl3000-patch.sh 或 scripts/clean-feeds.sh
+          PATCH_SCRIPT=$(find scripts -name "*.sh" | head -n 1)
+          if [ -z "$PATCH_SCRIPT" ]; then
+            PATCH_SCRIPT=$(find . -maxdepth 2 -name "clean-feeds.sh" -o -name "sl3000-patch.sh" | head -n 1)
+          fi
+          echo "🚀 找到脚本: $PATCH_SCRIPT"
+          chmod +x "$PATCH_SCRIPT"
+          ./"$PATCH_SCRIPT"
 
       - name: 7. 编译工具链 (原文还原)
         working-directory: ${{ env.WORKDIR }}
@@ -60,7 +68,7 @@ jobs:
       - name: 9. 执行全量打包编译 (⚠️ 仅修复 PATH 路径，绝无其他修改)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 核心修复：手动将编译生成的工具路径加入 PATH，确保能找到 fwtool
+          # 核心修复：手动将编译生成的工具路径加入 PATH
           export PATH=$(pwd)/staging_dir/host/bin:$PATH
           mkdir -p build_dir/target-aarch64_cortex-a53_musl/root-mediatek
           
