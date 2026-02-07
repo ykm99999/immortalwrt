@@ -8,13 +8,12 @@ define Device/sl3000-emmc
   # 🎯 延续修复：128MB 内核物理对齐
   KERNEL_SIZE := 134217728
   
-  # 🎯 延续修复：彻底解决 root.squashfs Error 1
+  # 🎯 彻底解决 root.squashfs Error 1 (512MB 容错上限)
   BOARD_ROOTFS_PARTSIZE := 524288
   
-  # 🎯 延续修复：FIT 镜像打包逻辑
   KERNEL := kernel-bin | lzma | fit $$(DEVICE_DTS)
   
-  # 🎯 延续修复：核心补丁，禁用救援包防止 Error 2
+  # 🎯 核心补丁：禁用救援包，跳过 initramfs 流程
   KERNEL_INITRAMFS := 
   
   DEVICE_PACKAGES := \
@@ -25,7 +24,7 @@ define Device/sl3000-emmc
   
   IMAGES := sysupgrade.bin
   
-  # 🎯 延续修复：物理拼接流水线
+  # 🎯 延续修复：物理拼接流水线 [内核] + [对齐补位] + [Rootfs]
   IMAGE/sysupgrade.bin := append-kernel | pad-to 134217728 | append-rootfs | append-metadata
 endef
 TARGET_DEVICES += sl3000-emmc
