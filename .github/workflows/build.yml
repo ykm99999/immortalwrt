@@ -1,4 +1,4 @@
-name: SL3000-25.12-Full-System-V13.5
+name: SL3000-25.12-Full-System-Final
 
 on:
   workflow_dispatch:
@@ -14,26 +14,23 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      # [延续修复] 2. 体系保障：空间扩容
+      # [延续修复] 2. 磁盘扩容 (12G Swap)
       - name: 体系保障：空间扩容
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
+          sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
           sudo swapoff -a || true
           sudo rm -f /swapfile || true
           sudo fallocate -l 12G /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      - name: 3. 安装依赖
+      - name: 3. 安装依赖与克隆 25.12 源码
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev
-
-      - name: 4. 克隆源码 (🚀 升级至 25.12)
-        run: |
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      # [延续修复] 5. 开启独立隔离缓存
+      # [延续修复] 4. 隔离缓存
       - name: 开启独立隔离缓存
         uses: actions/cache@v4
         with:
@@ -44,12 +41,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-openwrt-25.12-
 
-      - name: 6. 运行全链路补丁脚本
+      - name: 5. 运行补丁脚本 (脚本名锁定: clean-feeds.sh)
         run: |
-          chmod +x scripts/sl3000-patch.sh
-          ./scripts/sl3000-patch.sh
+          chmod +x scripts/clean-feeds.sh
+          ./scripts/clean-feeds.sh
 
-      # [延续修复] 7. 编译工具链
+      # [延续修复] 6. 工具链路径导出
       - name: 编译工具链
         working-directory: ${{ env.WORKDIR }}
         run: |
@@ -58,17 +55,16 @@ jobs:
           make tools/install -j$(nproc) || make tools/install -j1 V=s
           make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
-      # [延续修复 & 25.12 深度适配] 8. DTS 强力注入
-      # 🎯 核心修复：解决 25.12 下 #include "mt7981.dtsi" 找不到的问题
+      # [延续修复 & 25.12 深度适配] 7. DTS 强力注入 (解决 dtsi 缺失)
       - name: 内核 DTS 体系修复
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
-          # 25.12 的内核版本动态变化，使用 find 全量注入
+          # 🎯 关键：使用 find 定位 25.12 内核真正的 DTS 目录
           K_DTS_DIRS=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d)
           for D in $K_DTS_DIRS; do
-            echo "🎯 正在修复 DTS 体系: $D"
-            # ✅ 从根目录注入 DTS，确保它与 mt7981.dtsi 物理同级
+            echo "🎯 正在注入 DTS 到内核: $D"
+            # 从根目录拷贝 DTS 到内核，确保它能引用到旁边的 mt7981.dtsi
             cp -fv "../mt7981b-sl3000-emmc.dts" "$D/"
             cp -fv "$D/mt7981b-sl3000-emmc.dts" "$D/mt7981-sl3000-emmc.dts"
             # 注册 Makefile
@@ -76,11 +72,11 @@ jobs:
             echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$D/Makefile"
           done
 
-      # [延续修复] 9. 自愈式编译：预建 root-mediatek 路径解决 Error 1
+      # [延续修复] 8. 自愈式编译：预建 root-mediatek 路径解决 Error 1
       - name: 执行自愈编译
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # ✅ 增强版自愈：遍历所有 target 目录预建路径
+          # 针对 25.12 多个 target 目录的可能性进行遍历预建
           for d in build_dir/target-*; do
             mkdir -p "$d/root-mediatek"
           done
@@ -88,12 +84,10 @@ jobs:
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
           make target/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || make target/install -j1 V=s
 
-      - name: 10. 发布工程产物
+      - name: 9. 发布工程产物
         uses: softprops/action-gh-release@v2
         if: success()
         with:
           tag_name: SL3000-25.12-Final-${{ github.run_id }}
-          files: |
-            ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
-            ${{ env.WORKDIR }}/.config
+          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
           token: ${{ secrets.GITHUB_TOKEN }}
