@@ -1,4 +1,4 @@
-name: SL3000-V13.5-Full-System-25.12-Fixed
+name: SL3000-25.12-Final-System
 
 on:
   workflow_dispatch:
@@ -14,31 +14,25 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘自愈 (延续 12G Swap 策略)
+      - name: 2. 磁盘自愈 (12G Swap)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
           sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
-      - name: 3. 安装工程依赖
+      - name: 3. 安装依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev
 
-      - name: 4. 克隆源码体系 (🚀 升级至 25.12)
+      - name: 4. 克隆 25.12 源码
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 5. 开启独立隔离缓存
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.WORKDIR }}/dl
-            ${{ env.WORKDIR }}/staging_dir
-          key: ${{ runner.os }}-openwrt-v13.5
+      - name: 5. 运行补丁脚本 (🎯 对齐你的 scripts/clean-feeds.sh)
+        run: |
+          chmod +x scripts/clean-feeds.sh
+          ./scripts/clean-feeds.sh
 
-      - name: 6. 运行补丁脚本 (全量延续注入)
-        run: chmod +x scripts/sl3000-patch.sh && ./scripts/sl3000-patch.sh
-
-      - name: 7. 编译工具链 (回归稳健版)
+      - name: 6. 编译工具链 (稳健版)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
@@ -46,33 +40,34 @@ jobs:
           make tools/install -j$(nproc) || make tools/install -j1 V=s
           make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
-      - name: 8. 内核 DTS 强力延续注入 (🚀 解决 25.12 路径报错)
+      - name: 7. 内核 DTS 注入 (🎯 从根目录读取 DTS)
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           if [ -n "$K_DTS_DIR" ]; then
-            # 🎯 核心修复：注入 DTS 并建立虚拟目录链接解决 #include 报错
-            cp -fv ../custom-config/mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
+            # 🎯 从根目录拷贝 DTS 注入内核
+            cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
+            # 物理补偿 25.12 包含路径
             ln -sf . "$K_DTS_DIR/mediatek"
             sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
             echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
           fi
 
-      - name: 9. 执行全量打包编译 (🚀 延续 root-mediatek 路径自愈)
+      - name: 8. 执行全量编译 (延续 root-mediatek 修复)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 增强版路径自愈
           for d in build_dir/target-*; do
             [ -d "$d" ] && mkdir -p "$d/root-mediatek"
           done
+          export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
           make target/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 10. 发布工程产物
+      - name: 9. 发布产物
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-25.12-V13.5-${{ github.run_id }}
+          tag_name: SL3000-25.12-Final-${{ github.run_id }}
           files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
           token: ${{ secrets.GITHUB_TOKEN }}
