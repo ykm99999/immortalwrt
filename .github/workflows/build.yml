@@ -14,8 +14,7 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      # [延续修复] 2. 磁盘扩容 (12G Swap)
-      - name: 体系保障：空间扩容
+      - name: 2. 体系保障：空间扩容
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
           sudo swapoff -a || true
@@ -30,8 +29,8 @@ jobs:
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      # [延续修复] 4. 隔离缓存
-      - name: 开启独立隔离缓存
+      # 🎯 核心修复：确保第 44 行 cache 语法缩进严格对齐
+      - name: 4. 开启独立隔离缓存
         uses: actions/cache@v4
         with:
           path: |
@@ -41,13 +40,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-openwrt-25.12-
 
-      - name: 5. 运行补丁脚本 (脚本名锁定: clean-feeds.sh)
+      - name: 5. 运行补丁脚本
         run: |
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh
 
-      # [延续修复] 6. 工具链路径导出
-      - name: 编译工具链
+      - name: 6. 编译工具链
         working-directory: ${{ env.WORKDIR }}
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
@@ -55,30 +53,26 @@ jobs:
           make tools/install -j$(nproc) || make tools/install -j1 V=s
           make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
-      # [延续修复 & 25.12 深度适配] 7. DTS 强力注入 (解决 dtsi 缺失)
-      - name: 内核 DTS 体系修复
+      # 🎯 延续修复：解决 mt7981.dtsi 缺失及引脚标签错误
+      - name: 7. 内核 DTS 体系修复
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
-          # 🎯 关键：使用 find 定位 25.12 内核真正的 DTS 目录
           K_DTS_DIRS=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d)
           for D in $K_DTS_DIRS; do
             echo "🎯 正在注入 DTS 到内核: $D"
-            # 从根目录拷贝 DTS 到内核，确保它能引用到旁边的 mt7981.dtsi
             cp -fv "../mt7981b-sl3000-emmc.dts" "$D/"
             cp -fv "$D/mt7981b-sl3000-emmc.dts" "$D/mt7981-sl3000-emmc.dts"
-            # 注册 Makefile
             sed -i '/mt7981b-sl3000-emmc.dtb/d' "$D/Makefile"
             echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$D/Makefile"
           done
 
-      # [延续修复] 8. 自愈式编译：预建 root-mediatek 路径解决 Error 1
-      - name: 执行自愈编译
+      # 🎯 延续修复：预建 root-mediatek 路径解决 Error 1
+      - name: 8. 执行自愈编译
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 针对 25.12 多个 target 目录的可能性进行遍历预建
           for d in build_dir/target-*; do
-            mkdir -p "$d/root-mediatek"
+            [ -d "$d" ] && mkdir -p "$d/root-mediatek"
           done
           export PATH=${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir/host/bin:$PATH
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
