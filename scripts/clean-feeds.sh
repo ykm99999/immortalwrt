@@ -1,16 +1,16 @@
 #!/bin/bash
 set -e
 
-# ✅ 路径锁定：按照你当前仓库结构，三件套在根目录
+# ✅ 路径死锁：三件套在根目录，脚本在 scripts/
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
-SRC_DIR="${REPO_ROOT}" # 修改点：由 custom-config 改为根目录
+SRC_DIR="${REPO_ROOT}"
 
-echo "💎 [SL3000] 启动 25.12 全量延续修复脚本 (严禁漂移版)..."
+echo "💎 [SL3000] 启动 25.12 全量延续修复脚本 (脚本名: clean-feeds.sh)..."
 
 cd "${WORKDIR}"
 
-# [延续修复] 1. Feeds 自愈机制
+# [延续修复] 1. Feeds 自愈机制：三次重试确保源码包完整
 echo "🔄 正在同步 Feeds 源..."
 for i in {1..3}; do
     ./scripts/feeds update -a && ./scripts/feeds install -a && break || {
@@ -25,16 +25,22 @@ echo "CONFIG_TARGET_mediatek=y" > .config
 echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
 echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
 
-# [延续修复] 3. 配置文件合并 (✅ 修正路径为根目录)
+# [延续修复] 3. 载入 sl3000.config (根目录)
 if [ -f "${SRC_DIR}/sl3000.config" ]; then
     cat "${SRC_DIR}/sl3000.config" >> .config
+    echo "✅ 已载入 sl3000.config"
 else
-    echo "❌ 关键错误：丢失 sl3000.config" && exit 1
+    echo "❌ 关键错误：在根目录丢失 sl3000.config" && exit 1
 fi
 
-# [延续修复] 4. 打包文件注入 (✅ 修正路径为根目录)
+# [延续修复] 4. 注入 filogic.mk (根目录)
 mkdir -p "target/linux/mediatek/image"
-cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
+if [ -f "${SRC_DIR}/filogic.mk" ]; then
+    cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
+    echo "✅ 已载入 filogic.mk"
+else
+    echo "❌ 关键错误：在根目录丢失 filogic.mk" && exit 1
+fi
 
 # [延续修复] 5. 工具链劫持
 mkdir -p "staging_dir/host/bin"
@@ -43,7 +49,7 @@ for tool in m4 flex bison gawk; do
 done
 touch "staging_dir/host/.tools_install_y"
 
-# [延续修复] 6. 空间防御逻辑：将 RootFS 强制纠偏为 512MB
+# [延续修复] 6. 空间防御：将 RootFS 强制纠偏为 512MB
 make defconfig
 sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=512/' .config
 
