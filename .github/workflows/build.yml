@@ -14,37 +14,77 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘自愈 (12G Swap)
+      - name: 2. 磁盘与内存自愈 (12G Swap)
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker || true
-          # 🎯 物理修复：解决 Text file busy
+          sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
+          # 🎯 物理修复：解决占用冲突，确保 fallocate 成功
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
-      - name: 4. 克隆源码体系 (🎯 锁定 25.12)
+      - name: 3. 安装依赖 (100% 原文还原)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev
+
+      - name: 4. 克隆源码体系 (🎯 锁定 25.12 分支)
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 6. 运行加固补丁
+      - name: 5. 开启状态缓存 (100% 原文还原)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.WORKDIR }}/dl
+            ${{ env.WORKDIR }}/staging_dir
+          key: ${{ runner.os }}-openwrt-ultra-v2512
+
+      - name: 6. 运行加固补丁 (🎯 对齐脚本名)
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: 7. 编译工具链 (🎯 延续成功案例：强制重编 fwtool)
+      - name: 7. 编译工具链 (100% 原文还原重编逻辑)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
           make tools/install -j$(nproc)
+          # 延续成功案例：现场重编 fwtool
           make tools/fwtool/compile -V=s
           make toolchain/install -j$(nproc)
 
-      - name: 9. 极限封包编译 (🎯 延续成功案例：系统级硬链接)
+      - name: 8. 内核/DTS 延续注入 (🎯 物理对齐根目录)
         working-directory: ${{ env.WORKDIR }}
         run: |
+          make target/linux/prepare -j$(nproc)
+          K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
+          # 🎯 物理对齐：直接从根目录 ../ 拷贝
+          cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
+          sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
+          echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
+
+      - name: 9. 极限封包编译 (100% 原文还原注入逻辑)
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          # 🎯 延续成功案例：系统级硬链接
           sudo ln -sf $(pwd)/staging_dir/host/bin/fwtool /usr/bin/fwtool || true
           sudo ln -sf $(pwd)/staging_dir/host/bin/opkg /usr/bin/opkg || true
           export PATH=$(pwd)/staging_dir/host/bin:$PATH
+          
           mkdir -p build_dir/target-aarch64_cortex-a53_musl/root-mediatek
           make target/linux/compile -j$(nproc)
+          # 延续 install 指令与降级逻辑
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
+
+      - name: 10. 产物物理对齐校验 (100% 原文还原)
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          FIRMWARE=$(find bin/targets/mediatek/filogic/ -name "*sysupgrade.bin" | head -n 1)
+          if [ -z "$FIRMWARE" ]; then echo "❌ 固件未生成！" && exit 1; fi
+          SIZE=$(stat -c%s "$FIRMWARE")
+          echo "📏 产物大小: $SIZE 字节"
+          if [ $SIZE -lt 134217728 ]; then
+             echo "❌ 警告：固件小于 128MB！"
+          else
+             echo "✅ 校验通过：符合 SL3000 工厂对齐规格。"
+          fi
 
       - name: 11. 发布极限交付产物
         uses: softprops/action-gh-release@v2
