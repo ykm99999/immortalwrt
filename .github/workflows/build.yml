@@ -36,16 +36,16 @@ jobs:
             ${{ env.WORKDIR }}/staging_dir
           key: ${{ runner.os }}-openwrt-ultra-v2512
 
-      - name: 6. 运行加固补丁 (🎯 对齐脚本名)
+      - name: 6. 运行加固补丁 (🎯 延续历史修复)
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: 7. 编译工具链 (100% 原文还原重编逻辑)
+      - name: 7. 编译工具链 (🎯 彻底修复：对齐 25.12 结构)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
           make tools/install -j$(nproc)
-          # 🎯 物理纠错：去掉 -V=s 前面的短横线
-          make tools/fwtool/compile V=s
+          # 🎯 25.12 中 fwtool 已并入 firmware-utils，执行此命令实现重编打包工具
+          make tools/firmware-utils/compile V=s
           make toolchain/install -j$(nproc)
 
       - name: 8. 内核/DTS 延续注入 (🎯 物理对齐根目录)
@@ -57,10 +57,14 @@ jobs:
           sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
           echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
 
-      - name: 9. 极限封包编译 (100% 原文还原注入逻辑)
+      - name: 9. 极限封包编译 (🎯 彻底修复：动态路径劫持)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          sudo ln -sf $(pwd)/staging_dir/host/bin/fwtool /usr/bin/fwtool || true
+          # 🎯 动态定位 fwtool 真实路径并建立系统硬链接，解决 Error 127
+          FWTOOL_REAL_PATH=$(find staging_dir/host/bin/ -name "fwtool" | head -n 1)
+          if [ -n "$FWTOOL_REAL_PATH" ]; then
+            sudo ln -sf "$(pwd)/$FWTOOL_REAL_PATH" /usr/bin/fwtool
+          fi
           sudo ln -sf $(pwd)/staging_dir/host/bin/opkg /usr/bin/opkg || true
           export PATH=$(pwd)/staging_dir/host/bin:$PATH
           
@@ -69,7 +73,7 @@ jobs:
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 10. 产物物理对齐校验 (100% 原文还原)
+      - name: 10. 产物物理对齐校验 (🎯 100% 原文还原)
         working-directory: ${{ env.WORKDIR }}
         run: |
           FIRMWARE=$(find bin/targets/mediatek/filogic/ -name "*sysupgrade.bin" | head -n 1)
@@ -77,9 +81,9 @@ jobs:
           SIZE=$(stat -c%s "$FIRMWARE")
           echo "📏 产物大小: $SIZE 字节"
           if [ $SIZE -lt 134217728 ]; then
-             echo "❌ 警告：固件小于 128MB！"
+             echo "❌ 警告：固件未达到 128MB 工厂规格！"
           else
-             echo "✅ 校验通过：符合 SL3000 工厂对齐规格。"
+             echo "✅ 校验通过。"
           fi
 
       - name: 11. 发布极限交付产物
