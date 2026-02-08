@@ -1,4 +1,4 @@
-name: SL3000-2512-Ultra-Stable-Final
+name: SL3000-2512-Ultra-Final
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘极致调优 (12G Swap)
+      - name: 2. 磁盘环境调优 (12G Swap + 空间清理)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
@@ -22,21 +22,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler libncurses5-dev libssl-dev
 
-      - name: 3. 克隆源码 (25.12)
+      - name: 3. 克隆源码 (锁定 25.12 分支)
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 开启状态缓存 (🎯 关键：构建失败也强制保存)
+      - name: 4. 开启状态缓存 (即使构建失败也保存)
         uses: actions/cache@v4
         with:
           path: |
             ${{ env.WORKDIR }}/dl
             ${{ env.WORKDIR }}/staging_dir
           save-always: true
-          key: ${{ runner.os }}-sl3000-2512-v3-${{ github.run_id }}
+          key: ${{ runner.os }}-sl3000-2512-ultra-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-sl3000-2512-v3-
+            ${{ runner.os }}-sl3000-2512-ultra-
 
-      - name: 5. 运行补丁脚本 (🎯 从根目录搬运资产)
+      - name: 5. 运行脚本补丁 (资产搬运)
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: 6. 编译基础工具链
@@ -46,51 +46,42 @@ jobs:
           make tools/firmware-utils/compile V=s
           make toolchain/install -j$(nproc)
 
-      - name: 7. DTS 零依赖物理注入 (🎯 解决所有 Include 报错)
+      - name: 7. DTS 物理注入 (🎯 修复 No such file 报错)
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
-          # 遍历内核 DTS 目录
-          find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r K_DTS_DIR; do
-            echo "📥 注入完全体 DTS: $K_DTS_DIR"
-            # 🎯 物理对齐：直接拷贝完全体 DTS，它内部已不再包含任何 #include "mt7981.dtsi"
-            cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
-            
-            # 在 Makefile 中强制注册
-            sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
-            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
-          done
+          DTS_BASE_PATH=$(find build_dir -path "*/arch/arm64/boot/dts" -type d | head -n 1)
+          if [ -n "$DTS_BASE_PATH" ]; then
+            # 🎯 修正：双层注入，确保 ImageBuilder 在父目录能找到文件
+            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_BASE_PATH/"
+            mkdir -p "$DTS_BASE_PATH/mediatek"
+            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_BASE_PATH/mediatek/"
+            sed -i '/mt7981b-sl3000-emmc.dtb/d' "$DTS_BASE_PATH/mediatek/Makefile"
+            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$DTS_BASE_PATH/mediatek/Makefile"
+          fi
 
-      - name: 8. 极限封包编译 (🎯 延续 Error 127 物理劫持 + 暴力通关)
+      - name: 8. 极限封包编译 (🎯 延续 Error 127 劫持 + 暴力通关)
         working-directory: ${{ env.WORKDIR }}
         run: |
           HOST_BIN="$(pwd)/staging_dir/host/bin"
           mkdir -p "$HOST_BIN"
-          
-          # 劫持 opkg 和 mkhash
           [ ! -f "$HOST_BIN/opkg" ] && cp -fv "$(which opkg)" "$HOST_BIN/opkg" || true
           [ ! -f "$HOST_BIN/mkhash" ] && cp -fv "$(which mkhash)" "$HOST_BIN/mkhash" || true
-          
-          # 建立 fwtool 系统链接
           FW_REAL=$(find staging_dir/host/bin/ -name "fwtool" | head -n 1)
           [ -n "$FW_REAL" ] && sudo ln -sf "$(pwd)/$FW_REAL" /usr/bin/fwtool || true
-          
           export PATH="$HOST_BIN:$PATH"
-          
-          # 执行编译，允许收尾阶段报错但不终止
           make target/linux/compile -j$(nproc) V=s
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 9. 固件打捞 (🎯 搜山检海)
+      - name: 9. 固件打捞 (搜山检海)
         working-directory: ${{ env.WORKDIR }}
         run: |
           FIRMWARE=$(find bin/targets/ -name "*sl3000*sysupgrade.bin" | head -n 1)
           if [ -n "$FIRMWARE" ]; then
-            SIZE=$(stat -c%s "$FIRMWARE")
-            echo "📏 固件生成成功，大小: $SIZE 字节"
+            echo "📏 固件生成成功"
           else
-            echo "❌ 固件未生成，检查编译日志！"
+            echo "❌ 固件打捞失败"
             exit 1
           fi
 
