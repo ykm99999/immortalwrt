@@ -29,9 +29,15 @@ rm -rf tmp .config
 mkdir -p "target/linux/mediatek/image"
 [ -f "${SRC_DIR}/filogic.mk" ] && cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
 
-# 注入 DTS (作为源码树备份)
+# 🎯 关键修复：DTS 双层注入逻辑
+# 第一层：注入到 mediatek 子目录 (用于内核编译 DTB)
 mkdir -p "target/linux/mediatek/dts"
 [ -f "${SRC_DIR}/mt7981b-sl3000-emmc.dts" ] && cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/"
+
+# 第二层：注入到 dts 根目录 (用于 ImageBuilder 预处理，解决找不到文件报错)
+# OpenWrt 25.12 的封包脚本会直接在 target/linux/mediatek/dts/ 找对应的 .dts
+# 如果上面已经 cp 到了 dts/ 目录下，确保文件名完全匹配
+[ -f "${SRC_DIR}/mt7981b-sl3000-emmc.dts" ] && cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts"
 
 # 5. 生成默认配置并执行二次锁定
 make defconfig
