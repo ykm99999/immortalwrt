@@ -17,7 +17,6 @@ jobs:
       - name: 2. 磁盘与内存自愈 (12G Swap)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
-          # 🎯 物理修复：解决占用冲突，确保 fallocate 成功
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
@@ -45,8 +44,8 @@ jobs:
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
           make tools/install -j$(nproc)
-          # 延续成功案例：现场重编 fwtool
-          make tools/fwtool/compile -V=s
+          # 🎯 物理纠错：去掉 -V=s 前面的短横线
+          make tools/fwtool/compile V=s
           make toolchain/install -j$(nproc)
 
       - name: 8. 内核/DTS 延续注入 (🎯 物理对齐根目录)
@@ -54,7 +53,6 @@ jobs:
         run: |
           make target/linux/prepare -j$(nproc)
           K_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
-          # 🎯 物理对齐：直接从根目录 ../ 拷贝
           cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
           sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
           echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
@@ -62,14 +60,12 @@ jobs:
       - name: 9. 极限封包编译 (100% 原文还原注入逻辑)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 🎯 延续成功案例：系统级硬链接
           sudo ln -sf $(pwd)/staging_dir/host/bin/fwtool /usr/bin/fwtool || true
           sudo ln -sf $(pwd)/staging_dir/host/bin/opkg /usr/bin/opkg || true
           export PATH=$(pwd)/staging_dir/host/bin:$PATH
           
           mkdir -p build_dir/target-aarch64_cortex-a53_musl/root-mediatek
           make target/linux/compile -j$(nproc)
-          # 延续 install 指令与降级逻辑
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
