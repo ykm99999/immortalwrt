@@ -3,44 +3,39 @@ set -e
 
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
-SRC_DIR="${REPO_ROOT}"
+# 🎯 物理对齐：确保从你的 custom-config 目录读取资产
+SRC_DIR="${REPO_ROOT}/custom-config"
 
-echo "🚀 [SL3000] 启动 OpenWrt 25.12 最终修正版补丁..."
+echo "💎 [SL3000] 开始应用 25.12 全量修复补丁 (延续 24.10 成功逻辑)..."
 
 cd "${WORKDIR}"
-
-# 1. 环境清理与 Feeds 同步 (延续)
 ./scripts/feeds update -a && ./scripts/feeds install -a
+
+# 1. 核心配置锁定 (完全延续 24.10 成功写法)
 rm -rf tmp .config
+{
+    echo "CONFIG_TARGET_mediatek=y"
+    echo "CONFIG_TARGET_mediatek_filogic=y"
+    echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y"
+} > .config
+[ -f "${SRC_DIR}/sl3000.config" ] && cat "${SRC_DIR}/sl3000.config" >> .config
 
-# 2. 基础架构锁定
-echo "CONFIG_TARGET_mediatek=y" > .config
-echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y" >> .config
-
-# 3. 核心资产物理注入 (延续)
-# 这一步将文件放入源码树，等待 Workflow 在编译时分发
-mkdir -p "target/linux/mediatek/image"
-cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
+# 2. 注入资产 (延续注入逻辑)
 mkdir -p "target/linux/mediatek/dts"
 cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/"
+mkdir -p "target/linux/mediatek/image"
+cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
 
-# ⚠️ [关键修复] 已删除破坏 Makefile 语法的 sed 替换命令
-# 我们将在 Workflow 中通过 /usr/bin/fwtool 软链接来解决路径问题
-
-# 4. 工具链修复 (延续)
-mkdir -p "staging_dir/host/bin"
+# 3. 工具链链接保底 (延续 24.10 修复项)
+mkdir -p staging_dir/host/bin
 for tool in m4 flex bison gawk; do
-    ln -sf "$(which $tool)" "staging_dir/host/bin/$tool"
+    ln -sf "$(which $tool)" "staging_dir/host/bin/$tool" || true
 done
 
-# 5. 配置生成与锁定
-# 先生成默认配置
+# 4. 生成默认配置并锁定分区
 make defconfig
-
-# 🎯 [双重锁定] 再次追加自定义配置，防止 defconfig 自动剔除
-cat "${SRC_DIR}/sl3000.config" >> .config
-# 锁定 RootFS 大小
+# 🎯 再次注入以防被覆盖
+[ -f "${SRC_DIR}/sl3000.config" ] && cat "${SRC_DIR}/sl3000.config" >> .config
 sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=512/' .config
 
-echo "✅ 补丁注入完成（已移除危险的 Makefile 修改操作）。"
+echo "✅ [SL3000] 25.12 脚本补丁完成。"
