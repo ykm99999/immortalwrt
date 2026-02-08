@@ -1,17 +1,19 @@
 #!/bin/bash
 set -e
 
-# 定位路径
+# 1. 路径定位
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
-SRC_DIR="${REPO_ROOT}"
+SRC_DIR="${REPO_ROOT}" # 🎯 资产就在根目录
 
-echo "🚀 [SL3000] 正在从根目录搬运三件套资产..."
+echo "💎 [SL3000] 开始应用补丁 (从根目录读取资产)..."
 
 cd "${WORKDIR}"
+
+# 2. 更新 Feeds
 ./scripts/feeds update -a && ./scripts/feeds install -a
 
-# 1. 配置锁定 (延续成功案例)
+# 3. 核心配置锁定 (延续 24.10 成功逻辑)
 rm -rf tmp .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -19,15 +21,22 @@ rm -rf tmp .config
     echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y"
 } > .config
 
-# 2. 资产注入源码树 (作为第一道防线)
-mkdir -p "target/linux/mediatek/dts"
-cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/"
-mkdir -p "target/linux/mediatek/image"
-cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
+# 4. 搬运根目录三件套
+# 注入 .config
+[ -f "${SRC_DIR}/sl3000.config" ] && cat "${SRC_DIR}/sl3000.config" >> .config
 
-# 3. 配置对齐
+# 注入 filogic.mk (控制镜像生成)
+mkdir -p "target/linux/mediatek/image"
+[ -f "${SRC_DIR}/filogic.mk" ] && cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
+
+# 注入 DTS (作为源码树备份)
+mkdir -p "target/linux/mediatek/dts"
+[ -f "${SRC_DIR}/mt7981b-sl3000-emmc.dts" ] && cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/"
+
+# 5. 生成默认配置并执行二次锁定
 make defconfig
 [ -f "${SRC_DIR}/sl3000.config" ] && cat "${SRC_DIR}/sl3000.config" >> .config
+# 强制分区大小 512MB (与 128MB Factory 规格对齐)
 sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=512/' .config
 
-echo "✅ [SL3000] 基础注入完成。"
+echo "✅ [SL3000] clean-feeds.sh 补丁执行完毕。"
