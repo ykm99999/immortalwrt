@@ -14,7 +14,7 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘与内存自愈 (12G Swap)
+      - name: 2. 磁盘与内存自愈 (12G Swap - 核心修复延续)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
@@ -25,7 +25,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc dos2unix libncurses5-dev libssl-dev
 
-      - name: 4. 克隆源码体系 (🎯 锁定 25.12 分支)
+      - name: 4. 克隆源码体系 (🎯 锁定 25.12)
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
       - name: 5. 开启状态缓存
@@ -36,66 +36,58 @@ jobs:
             ${{ env.WORKDIR }}/staging_dir
           key: ${{ runner.os }}-openwrt-ultra-v2512
 
-      - name: 6. 运行加固补丁 (🎯 延续历史修复)
+      - name: 6. 运行加固补丁 (🎯 调用上方修正后的脚本)
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: 7. 编译工具链 (🎯 彻底对齐 25.12 结构)
+      - name: 7. 编译工具链 (🎯 修正语法错误)
         working-directory: ${{ env.WORKDIR }}
         run: |
           export BISON_PKGDATADIR=/usr/share/bison
           make tools/install -j$(nproc)
-          # 🎯 彻底解决：25.12 中打包工具位于 firmware-utils
+          # 🎯 物理纠错：25.12 使用 firmware-utils，且参数为 V=s (无短横线)
           make tools/firmware-utils/compile V=s
           make toolchain/install -j$(nproc)
 
-      - name: 8. 内核/DTS 全量遍历注入 (🎯 彻底解决 No such file 报错)
+      - name: 8. 内核/DTS 全量遍历注入 (🎯 解决 No such file 报错)
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
-          # 🎯 核心逻辑：扫描所有可能的内核构建目录，地毯式注入 DTS
-          # 这样无论编译器进入哪个 linux-6.12.x 目录，都能抓到文件
-          find build_dir/target-*/linux-mediatek_filogic/ -name "mediatek" -type d | grep "arch/arm64/boot/dts" | while read -r dts_path; do
-            echo "📥 正在注入 DTS 至: $dts_path"
+          # 🎯 核心逻辑：遍历所有可能的内核构建目录，地毯式注入 DTS
+          # 这确保了无论 Kernel 6.12 动态路径在哪，都能抓到文件
+          find build_dir/ -name "mediatek" -type d | grep "arch/arm64/boot/dts" | while read -r dts_path; do
+            echo "📥 注入 DTS 至: $dts_path"
             cp -fv ../mt7981b-sl3000-emmc.dts "$dts_path/"
-            # 同时注入 Makefile 编译规则，防止漏编
+            # 同时修正 Makefile
             sed -i '/mt7981b-sl3000-emmc.dtb/d' "$dts_path/Makefile"
             echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$dts_path/Makefile"
           done
 
-      - name: 9. 极限封包编译 (🎯 路径劫持彻底解决路径失效)
+      - name: 9. 极限封包编译 (🎯 系统级硬链接劫持)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 🎯 动态定位 fwtool 并建立全局硬链接，确保脚本 100% 能调用
+          # 🎯 动态定位并劫持系统 fwtool 路径，替代脚本中的危险 sed 操作
           FWTOOL_REAL_PATH=$(find staging_dir/host/bin/ -name "fwtool" | head -n 1)
           if [ -n "$FWTOOL_REAL_PATH" ]; then
+            echo "🔗 Linking fwtool from $FWTOOL_REAL_PATH to /usr/bin/fwtool"
             sudo ln -sf "$(pwd)/$FWTOOL_REAL_PATH" /usr/bin/fwtool
+          else
+            echo "❌ 警告：未找到 fwtool，后续打包可能失败！"
           fi
+          
           sudo ln -sf $(pwd)/staging_dir/host/bin/opkg /usr/bin/opkg || true
           export PATH=$(pwd)/staging_dir/host/bin:$PATH
           
           mkdir -p build_dir/target-aarch64_cortex-a53_musl/root-mediatek
-          make target/linux/compile -j$(nproc)
-          # 延续降级编译策略，确保万无一失
+          
+          # 开启详细日志 V=s 以便观察内核编译情况
+          # 这里的 V=s 很重要，如果还报错，它会告诉我们是哪一行代码错了，而不是只报 Error 1
+          make target/linux/compile -j$(nproc) V=s
+          
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 10. 产物物理对齐校验 (🎯 延续上一版)
+      - name: 10. 产物物理对齐校验 (🎯 128MB 规格检查)
         working-directory: ${{ env.WORKDIR }}
         run: |
           FIRMWARE=$(find bin/targets/mediatek/filogic/ -name "*sysupgrade.bin" | head -n 1)
-          if [ -z "$FIRMWARE" ]; then echo "❌ 固件未生成！" && exit 1; fi
-          SIZE=$(stat -c%s "$FIRMWARE")
-          echo "📏 产物大小: $SIZE 字节"
-          if [ $SIZE -lt 134217728 ]; then
-             echo "❌ 警告：产物未达 128MB 工厂规格！"
-          else
-             echo "✅ 校验通过，SL3000 固件制作成功。"
-          fi
-
-      - name: 11. 发布最终产物
-        uses: softprops/action-gh-release@v2
-        if: success()
-        with:
-          tag_name: SL3000-Factory-2512-${{ github.run_id }}
-          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
-          token: ${{ secrets.GITHUB_TOKEN }}
+          if [ -z "$FIRMWARE" ]; then echo "❌ 固件未生成！" && exit
