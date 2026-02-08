@@ -25,16 +25,16 @@ jobs:
       - name: 3. 克隆源码 (锁定 25.12 分支)
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 开启状态缓存 (即使构建失败也保存)
-        uses: actions/cache@v4
+      # 🎯 修复处：将 cache 拆分为 Restore 和 Save，解决 save-always 弃用警告
+      - name: 4a. 恢复状态缓存
+        uses: actions/cache/restore@v4
         with:
           path: |
             ${{ env.WORKDIR }}/dl
             ${{ env.WORKDIR }}/staging_dir
-          save-always: true
-          key: ${{ runner.os }}-sl3000-2512-ultra-${{ github.run_id }}
+          key: ${{ runner.os }}-sl3000-2512-v4-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-sl3000-2512-ultra-
+            ${{ runner.os }}-sl3000-2512-v4-
 
       - name: 5. 运行脚本补丁 (资产搬运)
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
@@ -73,6 +73,16 @@ jobs:
           make target/linux/compile -j$(nproc) V=s
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
+
+      # 🎯 修复处：强制保存缓存步骤，放在构建之后，设置 always() 确保失败也运行
+      - name: 4b. 强制保存状态缓存
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ${{ env.WORKDIR }}/dl
+            ${{ env.WORKDIR }}/staging_dir
+          key: ${{ runner.os }}-sl3000-2512-v4-${{ github.run_id }}
 
       - name: 9. 固件打捞 (搜山检海)
         working-directory: ${{ env.WORKDIR }}
