@@ -14,7 +14,7 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘环境极致调优 (12G Swap + 清理)
+      - name: 2. 磁盘极致调优 (12G Swap)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
@@ -22,7 +22,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler libncurses5-dev libssl-dev
 
-      - name: 3. 克隆源码 (锁定 25.12 分支)
+      - name: 3. 克隆源码 (25.12)
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
       - name: 4. 开启状态缓存 (🎯 关键：构建失败也强制保存)
@@ -31,13 +31,12 @@ jobs:
           path: |
             ${{ env.WORKDIR }}/dl
             ${{ env.WORKDIR }}/staging_dir
-          # 🎯 核心设置：即便失败也保留已编译的工具链，下次提速 80%
           save-always: true
-          key: ${{ runner.os }}-sl3000-2512-ultra-${{ github.run_id }}
+          key: ${{ runner.os }}-sl3000-2512-v3-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-sl3000-2512-ultra-
+            ${{ runner.os }}-sl3000-2512-v3-
 
-      - name: 5. 运行补丁脚本 (🎯 执行根目录资产注入)
+      - name: 5. 运行补丁脚本 (🎯 从根目录搬运资产)
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: 6. 编译基础工具链
@@ -47,75 +46,58 @@ jobs:
           make tools/firmware-utils/compile V=s
           make toolchain/install -j$(nproc)
 
-      - name: 7. DTS 物理去依赖修复 (🎯 数字硬编码 + 全量覆盖)
+      - name: 7. DTS 零依赖物理注入 (🎯 解决所有 Include 报错)
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
-          # 搜索所有内核 DTS 目录并注入
+          # 遍历内核 DTS 目录
           find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r K_DTS_DIR; do
-            echo "📥 注入并硬化 DTS: $K_DTS_DIR"
+            echo "📥 注入完全体 DTS: $K_DTS_DIR"
+            # 🎯 物理对齐：直接拷贝完全体 DTS，它内部已不再包含任何 #include "mt7981.dtsi"
             cp -fv ../mt7981b-sl3000-emmc.dts "$K_DTS_DIR/"
             
-            # 🎯 物理去依赖：将常量替换为裸数字，防止找不到头文件报错
-            sed -i 's/MTK_DRIVE_4mA/4/g' "$K_DTS_DIR/mt7981b-sl3000-emmc.dts"
-            sed -i 's/MTK_DRIVE_6mA/6/g' "$K_DTS_DIR/mt7981b-sl3000-emmc.dts"
-            sed -i 's/MTK_PUPD_SET_R1R0_01/1/g' "$K_DTS_DIR/mt7981b-sl3000-emmc.dts"
-            sed -i 's/MTK_PUPD_SET_R1R0_10/2/g' "$K_DTS_DIR/mt7981b-sl3000-emmc.dts"
-            
-            # 🎯 路径修正：解决 mediatek/ 包含报错
-            sed -i 's|mediatek/mt7981.dtsi|mt7981.dtsi|g' "$K_DTS_DIR/mt7981b-sl3000-emmc.dts"
-            
-            # 注册到内核 Makefile
+            # 在 Makefile 中强制注册
             sed -i '/mt7981b-sl3000-emmc.dtb/d' "$K_DTS_DIR/Makefile"
             echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$K_DTS_DIR/Makefile"
           done
 
-      - name: 8. 极限封包编译 (🎯 Error 127 物理劫持 + 暴力通关)
+      - name: 8. 极限封包编译 (🎯 延续 Error 127 物理劫持 + 暴力通关)
         working-directory: ${{ env.WORKDIR }}
         run: |
           HOST_BIN="$(pwd)/staging_dir/host/bin"
           mkdir -p "$HOST_BIN"
           
-          # 🎯 解决 127：物理拷贝关键工具到 host/bin
+          # 劫持 opkg 和 mkhash
           [ ! -f "$HOST_BIN/opkg" ] && cp -fv "$(which opkg)" "$HOST_BIN/opkg" || true
           [ ! -f "$HOST_BIN/mkhash" ] && cp -fv "$(which mkhash)" "$HOST_BIN/mkhash" || true
           
-          # 🎯 解决 127：建立 fwtool 全局系统链接
+          # 建立 fwtool 系统链接
           FW_REAL=$(find staging_dir/host/bin/ -name "fwtool" | head -n 1)
           [ -n "$FW_REAL" ] && sudo ln -sf "$(pwd)/$FW_REAL" /usr/bin/fwtool || true
           
           export PATH="$HOST_BIN:$PATH"
           
-          # 执行编译，允许 manifest 报错但不终止任务 (暴力通关)
+          # 执行编译，允许收尾阶段报错但不终止
           make target/linux/compile -j$(nproc) V=s
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 9. 固件物理打捞与校验 (🎯 搜山检海)
+      - name: 9. 固件打捞 (🎯 搜山检海)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 地毯式搜索 .bin 固件
-          FIRMWARE=$(find bin/targets/mediatek/filogic/ -name "*sysupgrade.bin" | head -n 1)
-          if [ -z "$FIRMWARE" ]; then 
-            echo "⚠️ 警告：常规路径未发现固件，尝试全盘打捞..."
-            FIRMWARE=$(find bin/ -name "*.bin" | grep "sl3000" | head -n 1)
-          fi
-          
+          FIRMWARE=$(find bin/targets/ -name "*sl3000*sysupgrade.bin" | head -n 1)
           if [ -n "$FIRMWARE" ]; then
             SIZE=$(stat -c%s "$FIRMWARE")
             echo "📏 固件生成成功，大小: $SIZE 字节"
-            [ $SIZE -ge 134217728 ] && echo "✅ 128MB 规格匹配" || echo "⚠️ 规格不符"
           else
-            echo "❌ 固件打捞失败！"
+            echo "❌ 固件未生成，检查编译日志！"
             exit 1
           fi
 
-      - name: 10. 发布产物
+      - name: 10. 发布 Release
         uses: softprops/action-gh-release@v2
         if: success()
         with:
           tag_name: SL3000-2512-Final-${{ github.run_id }}
-          files: |
-            ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
-            ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.manifest
+          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
           token: ${{ secrets.GITHUB_TOKEN }}
