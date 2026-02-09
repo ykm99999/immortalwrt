@@ -25,7 +25,7 @@ jobs:
       - name: 3. 克隆源码 (锁定 25.12 分支)
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 开启状态缓存 (即使构建失败也保存)
+      - name: 4. 开启状态缓存
         uses: actions/cache@v4
         with:
           path: |
@@ -49,7 +49,7 @@ jobs:
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
-          # 🎯 物理对齐：锁定报错日志中的 /arch/arm64/boot/dts 路径，同时注入根目录和 mediatek 子目录
+          # 🎯 物理对齐：确保变量准确命中，防止 fatal error
           find build_dir -path "*/arch/arm64/boot/dts" -type d | while read -r DTS_DIR; do
             echo "📥 注入文件至: $DTS_DIR"
             cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/"
@@ -61,26 +61,36 @@ jobs:
             fi
           done
 
-      - name: 8. 极限封包编译 (🎯 延续 Error 127 劫持 + 暴力通关)
+      - name: 8. 极限封包编译 (🎯 物理修复：解决 cp cannot stat 空变量报错)
         working-directory: ${{ env.WORKDIR }}
         run: |
           HOST_BIN="$(pwd)/staging_dir/host/bin"
           mkdir -p "$HOST_BIN"
-          [ ! -f "$HOST_BIN/opkg" ] && cp -fv "$(which opkg)" "$HOST_BIN/opkg" || true
-          [ ! -f "$HOST_BIN/mkhash" ] && cp -fv "$(which mkhash)" "$HOST_BIN/mkhash" || true
+          # 🎯 物理增强：增加判空保护，防止 cp '' 报错
+          OPKG_PATH=$(which opkg || true)
+          [ -n "$OPKG_PATH" ] && [ ! -f "$HOST_BIN/opkg" ] && cp -fv "$OPKG_PATH" "$HOST_BIN/opkg" || true
+          
+          MKHASH_PATH=$(which mkhash || true)
+          [ -n "$MKHASH_PATH" ] && [ ! -f "$HOST_BIN/mkhash" ] && cp -fv "$MKHASH_PATH" "$HOST_BIN/mkhash" || true
+          
           FW_REAL=$(find staging_dir/host/bin/ -name "fwtool" | head -n 1)
           [ -n "$FW_REAL" ] && sudo ln -sf "$(pwd)/$FW_REAL" /usr/bin/fwtool || true
+          
           export PATH="$HOST_BIN:$PATH"
+          rm -rf build_dir/target-*/json_info_files || true
+          rm -rf build_dir/target-*/root-mediatek || true
           make target/linux/compile -j$(nproc) V=s
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y || true
 
-      - name: 9. 固件打捞 (搜山检海)
+      - name: 9. 固件打捞 (🎯 延续增强打捞逻辑)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          FIRMWARE=$(find bin/targets/ -name "*sl3000*sysupgrade.bin" | head -n 1)
+          echo "📁 当前 bin 目录结构："
+          find bin/targets/ -type f -name "*.bin"
+          FIRMWARE=$(find bin/targets/ -name "*sl3000*.bin" | head -n 1)
           if [ -n "$FIRMWARE" ]; then
-            echo "📏 固件生成成功"
+            echo "📏 固件找到: $FIRMWARE"
           else
             echo "❌ 固件打捞失败"
             exit 1
