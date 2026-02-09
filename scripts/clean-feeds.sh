@@ -16,18 +16,16 @@ rm -rf tmp .config
 } > .config
 
 [ -f "${SRC_DIR}/sl3000.config" ] && cat "${SRC_DIR}/sl3000.config" >> .config
+# 🎯 永久补丁：强制 1024M 分区大小
+sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=1024/' .config
+
+# 物理预置 DTS
+mkdir -p "target/linux/mediatek/dts"
+[ -f "${SRC_DIR}/mt7981b-sl3000-emmc.dts" ] && cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/"
+
+# 物理预置 mk 补丁
 mkdir -p "target/linux/mediatek/image"
 [ -f "${SRC_DIR}/filogic.mk" ] && cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
 
-mkdir -p "target/linux/mediatek/dts"
-if [ -f "${SRC_DIR}/mt7981b-sl3000-emmc.dts" ]; then
-    cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/"
-    cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts"
-fi
-
 make defconfig
-[ -f "${SRC_DIR}/sl3000.config" ] && cat "${SRC_DIR}/sl3000.config" >> .config
-# 🎯 物理保留：1024M 扩容补丁
-sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=1024/' .config
-
-echo "✅ [SL3000] 补丁应用完成。"
+echo "✅ 构建环境物理补丁应用成功。"
