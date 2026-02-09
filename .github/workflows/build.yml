@@ -1,4 +1,4 @@
-name: SL3000-2512-Ultra-Final
+name: SL3000-2512-Final-V1
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘环境调优 (12G Swap + 空间清理)
+      - name: 2. 磁盘与环境极致优化 (12G Swap)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
@@ -22,36 +22,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler libncurses5-dev libssl-dev
 
-      - name: 3. 克隆源码 (锁定 25.12 分支)
+      - name: 3. 克隆源码 (锁定 25.12)
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 开启状态缓存
+      - name: 4. 编译状态缓存
         uses: actions/cache@v4
         with:
           path: |
             ${{ env.WORKDIR }}/dl
             ${{ env.WORKDIR }}/staging_dir
-          key: ${{ runner.os }}-sl3000-2512-ultra-v4-${{ github.run_id }}
+          key: ${{ runner.os }}-sl3000-2512-master-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-sl3000-2512-ultra-v4-
+            ${{ runner.os }}-sl3000-2512-master-
 
-      - name: 5. 运行脚本补丁 (资产搬运)
+      - name: 5. 运行脚本补丁 (配置初始化)
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: 6. 编译基础工具链
+      - name: 6. 预编译基础工具链
         working-directory: ${{ env.WORKDIR }}
         run: |
           make tools/install -j$(nproc)
           make tools/firmware-utils/compile V=s
           make toolchain/install -j$(nproc)
 
-      - name: 7. DTS 物理注入 (🎯 修复 linux-6.12 路径报错)
+      - name: 7. DTS 物理注入 (🎯 修复 cc1/路径找不到 - 永久补丁)
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
-          # 🎯 物理对齐：确保变量准确命中，防止 fatal error
           find build_dir -path "*/arch/arm64/boot/dts" -type d | while read -r DTS_DIR; do
-            echo "📥 注入文件至: $DTS_DIR"
+            echo "📥 注入 DTS 至: $DTS_DIR"
             cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/"
             mkdir -p "$DTS_DIR/mediatek"
             cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/mediatek/"
@@ -61,45 +60,40 @@ jobs:
             fi
           done
 
-      - name: 8. 极限封包编译 (🎯 物理修复：解决 cp cannot stat 空变量报错)
+      - name: 8. 极限封包编译 (🎯 修复工具链劫持与 Rootfs 丢失 - 永久补丁)
         working-directory: ${{ env.WORKDIR }}
         run: |
+          # 1. 物理劫持 Host 工具
           HOST_BIN="$(pwd)/staging_dir/host/bin"
-          mkdir -p "$HOST_BIN"
-          # 🎯 物理增强：增加判空保护，防止 cp '' 报错
-          OPKG_PATH=$(which opkg || true)
-          [ -n "$OPKG_PATH" ] && [ ! -f "$HOST_BIN/opkg" ] && cp -fv "$OPKG_PATH" "$HOST_BIN/opkg" || true
-          
-          MKHASH_PATH=$(which mkhash || true)
-          [ -n "$MKHASH_PATH" ] && [ ! -f "$HOST_BIN/mkhash" ] && cp -fv "$MKHASH_PATH" "$HOST_BIN/mkhash" || true
-          
+          [ -f "$HOST_BIN/opkg" ] && sudo ln -sf "$HOST_BIN/opkg" /usr/bin/opkg || true
+          [ -f "$HOST_BIN/mkhash" ] && sudo ln -sf "$HOST_BIN/mkhash" /usr/bin/mkhash || true
           FW_REAL=$(find staging_dir/host/bin/ -name "fwtool" | head -n 1)
           [ -n "$FW_REAL" ] && sudo ln -sf "$(pwd)/$FW_REAL" /usr/bin/fwtool || true
           
+          # 2. 物理保护 Rootfs 源码目录
+          find build_dir -name "root-mediatek" -type d | while read -r R_DIR; do
+            mkdir -p "$R_DIR/etc" && touch "$R_DIR/etc/keep"
+          done
+          
           export PATH="$HOST_BIN:$PATH"
-          rm -rf build_dir/target-*/json_info_files || true
-          rm -rf build_dir/target-*/root-mediatek || true
           make target/linux/compile -j$(nproc) V=s
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
-          make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y || true
+          make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 9. 固件打捞 (🎯 延续增强打捞逻辑)
+      - name: 9. 固件打捞
         working-directory: ${{ env.WORKDIR }}
         run: |
-          echo "📁 当前 bin 目录结构："
-          find bin/targets/ -type f -name "*.bin"
           FIRMWARE=$(find bin/targets/ -name "*sl3000*.bin" | head -n 1)
           if [ -n "$FIRMWARE" ]; then
-            echo "📏 固件找到: $FIRMWARE"
+            echo "FIRMWARE_PATH=$FIRMWARE" >> $GITHUB_ENV
           else
-            echo "❌ 固件打捞失败"
-            exit 1
+            echo "❌ 固件打捞失败" && exit 1
           fi
 
       - name: 10. 发布 Release
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-2512-Final-${{ github.run_id }}
-          files: ${{ env.WORKDIR }}/bin/targets/mediatek/filogic/*.bin
+          tag_name: SL3000-2512-v1-${{ github.run_id }}
+          files: ${{ env.WORKDIR }}/${{ env.FIRMWARE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
