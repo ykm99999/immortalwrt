@@ -31,7 +31,6 @@ jobs:
           path: |
             ${{ env.WORKDIR }}/dl
             ${{ env.WORKDIR }}/staging_dir
-          # 🎯 物理修复：移除弃用的 save-always，改用 v4 稳定写法
           key: ${{ runner.os }}-sl3000-2512-ultra-v4-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-sl3000-2512-ultra-v4-
@@ -46,19 +45,21 @@ jobs:
           make tools/firmware-utils/compile V=s
           make toolchain/install -j$(nproc)
 
-      - name: 7. DTS 完全体物理注入 (🎯 物理修复 No such file 报错)
+      - name: 7. DTS 物理注入 (🎯 修复 linux-6.12 路径报错)
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
-          # 🎯 物理修正：双层注入，确保 ImageBuilder 在父目录能找到文件
-          DTS_BASE_PATH=$(find build_dir -path "*/arch/arm64/boot/dts" -type d | head -n 1)
-          if [ -n "$DTS_BASE_PATH" ]; then
-            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_BASE_PATH/"
-            mkdir -p "$DTS_BASE_PATH/mediatek"
-            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_BASE_PATH/mediatek/"
-            sed -i '/mt7981b-sl3000-emmc.dtb/d' "$DTS_BASE_PATH/mediatek/Makefile"
-            echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$DTS_BASE_PATH/mediatek/Makefile"
-          fi
+          # 🎯 物理对齐：锁定报错日志中的 /arch/arm64/boot/dts 路径，同时注入根目录和 mediatek 子目录
+          find build_dir -path "*/arch/arm64/boot/dts" -type d | while read -r DTS_DIR; do
+            echo "📥 注入文件至: $DTS_DIR"
+            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/"
+            mkdir -p "$DTS_DIR/mediatek"
+            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/mediatek/"
+            if [ -f "$DTS_DIR/mediatek/Makefile" ]; then
+              sed -i '/mt7981b-sl3000-emmc.dtb/d' "$DTS_DIR/mediatek/Makefile"
+              echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$DTS_DIR/mediatek/Makefile"
+            fi
+          done
 
       - name: 8. 极限封包编译 (🎯 延续 Error 127 劫持 + 暴力通关)
         working-directory: ${{ env.WORKDIR }}
@@ -71,7 +72,6 @@ jobs:
           [ -n "$FW_REAL" ] && sudo ln -sf "$(pwd)/$FW_REAL" /usr/bin/fwtool || true
           export PATH="$HOST_BIN:$PATH"
           make target/linux/compile -j$(nproc) V=s
-          # 🎯 物理修正：仅在末尾添加 || true，其余 100% 照抄原文
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y || true
 
