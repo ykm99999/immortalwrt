@@ -19,7 +19,6 @@ rm -rf tmp .config
 mkdir -p "target/linux/mediatek/image"
 [ -f "${SRC_DIR}/filogic.mk" ] && cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
 
-# 🎯 物理修正：确保 DTS 同步出现在父子目录
 mkdir -p "target/linux/mediatek/dts"
 if [ -f "${SRC_DIR}/mt7981b-sl3000-emmc.dts" ]; then
     cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/"
@@ -28,6 +27,7 @@ fi
 
 make defconfig
 [ -f "${SRC_DIR}/sl3000.config" ] && cat "${SRC_DIR}/sl3000.config" >> .config
-sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=512/' .config
+# 🎯 物理保留：1024M 扩容补丁
+sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=1024/' .config
 
 echo "✅ [SL3000] 补丁应用完成。"
