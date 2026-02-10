@@ -18,7 +18,9 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
-          sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          sudo fallocate -l 12G /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler libncurses5-dev libssl-dev
 
@@ -35,39 +37,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sl3000-v-abs-v3-
 
-      # ======================= 【核心修复】=======================
-      - name: 5. 复制脚本 + 执行补丁（安全无报错版）
+      - name: 5. 复制脚本 + 执行补丁
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 安全复制 scripts
           if [ -d "../scripts" ]; then
             cp -rf ../scripts ./
           else
             mkdir -p scripts
           fi
-
-          # 复制 dts
           if [ -f "../mt7981b-sl3000-emmc.dts" ]; then
             cp -f ../mt7981b-sl3000-emmc.dts ./
           fi
-
-          # 授权 + 执行（不存在则不报错）
           if [ -f "scripts/sl3000-patch.sh" ]; then
             chmod +x scripts/sl3000-patch.sh
             ./scripts/sl3000-patch.sh
           fi
-
-          # 修复 clean-feeds.sh 不存在问题
-          if [ ! -f "scripts/clean-feeds.sh" ]; then
-            cat > scripts/clean-feeds.sh <<'EOF'
-#!/bin/bash
-rm -rf tmp/ .config.old
-find feeds/ -name "*.pyc" -delete
-find . -name "*.pyc" -delete
-EOF
-            chmod +x scripts/clean-feeds.sh
-          fi
-      # ==========================================================
 
       - name: 6. 预编译基础工具链
         working-directory: ${{ env.WORKDIR }}
@@ -95,19 +79,17 @@ EOF
         run: |
           make defconfig
           make target/linux/compile -j$(nproc) || true
-          make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
-          make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
+          make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
       - name: 9. 固件打捞
         working-directory: ${{ env.WORKDIR }}
         run: |
           FIRMWARE=$(find bin/targets/ -name "*sl3000*.bin" | head -n 1)
-          if [ -n "$FIRMWARE" ]; then
-            echo "FIRMWARE_PATH=$FIRMWARE" >> $GITHUB_ENV
-          else
-            echo "未找到固件，退出"
+          if [ -z "$FIRMWARE" ]; then
+            echo "未找到固件"
             exit 1
           fi
+          echo "FIRMWARE_PATH=$FIRMWARE" >> $GITHUB_ENV
 
       - name: 10. 发布 Release
         uses: softprops/action-gh-release@v2
