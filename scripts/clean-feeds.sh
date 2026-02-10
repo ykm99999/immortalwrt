@@ -19,6 +19,28 @@ if [ ! -f "Makefile" ] || [ ! -d "target/linux" ]; then
 fi
 
 # ============================================================
+# 【修复】确保 scripts 存在 + clean-feeds.sh 授权
+# ============================================================
+echo -e "\n🔧【修复】准备 scripts 目录与权限..."
+if [ -d "../scripts" ]; then
+  cp -rf ../scripts ./
+fi
+
+mkdir -p scripts
+if [ ! -f "scripts/clean-feeds.sh" ]; then
+  cat > scripts/clean-feeds.sh <<'EOF'
+#!/bin/bash
+rm -rf tmp/ .config.old
+find feeds/ -name "*.pyc" -delete
+find . -name "*.pyc" -delete
+EOF
+fi
+
+chmod +x scripts/clean-feeds.sh
+chmod +x scripts/feeds
+./scripts/clean-feeds.sh
+
+# ============================================================
 # [1/8] 创建基础目录
 # ============================================================
 echo -e "\n📦 [1/8] 创建基础目录结构..."
@@ -145,4 +167,5 @@ echo "  ✅ usign: $([ -f staging_dir/host/bin/usign ] && echo OK)"
 echo "  ✅ DTS:  $([ -f target/linux/mediatek/dts/mt7981b-sl3000-emmc.dts ] && echo OK)"
 echo "  ✅ Makefile: 存在"
 echo "  ✅ make defconfig: 正常"
+echo "  ✅ clean-feeds.sh: 已修复授权"
 echo ""
