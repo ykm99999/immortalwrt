@@ -1,4 +1,4 @@
-name: SL3000-100%成功构建
+name: SL3000-eMMC-100%SUCCESS-BUILD
 on:
   workflow_dispatch:
 
@@ -12,35 +12,35 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 检出代码
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 清理磁盘空间（防爆满）
+      - name: Free up disk space
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/share/swift
           sudo rm -rf /opt/ghc /opt/google /opt/microsoft /usr/local/share/chromium
           sudo apt clean
 
-      - name: 安装编译依赖
+      - name: Install dependencies
         run: |
           sudo apt update -qq
           sudo apt install -y build-essential clang flex bison gawk gcc-multilib g++-multilib \
             gettext libncurses-dev libssl-dev python3-dev python3-distutils \
             rsync unzip git wget curl device-tree-compiler libelf-dev qemu-utils
 
-      - name: 拉取 ImmortalWrt 稳定源码
+      - name: Clone source
         run: |
           rm -rf "${{ env.OPENWRT_DIR }}"
           git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git "${{ env.OPENWRT_DIR }}"
 
-      - name: 缓存下载包（稳定不炸）
+      - name: Cache dl packages
         uses: actions/cache@v4
         with:
           path: ${{ env.OPENWRT_DIR }}/dl
           key: dl-${{ runner.os }}
           restore-keys: dl-${{ runner.os }}
 
-      - name: 注入DTS + 执行补丁脚本
+      - name: Inject DTS and run script
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
           set -eo pipefail
@@ -49,7 +49,7 @@ jobs:
           chmod +x ../sl3000-patch.sh
           ../sl3000-patch.sh
 
-      - name: 编译工具链（单线程 = 永不崩溃）
+      - name: Build tools & toolchain
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
           make tools/compile -j1 V=s
@@ -57,19 +57,19 @@ jobs:
           make toolchain/compile -j1 V=s
           make toolchain/install -j1 V=s
 
-      - name: 编译固件（100%成功模式）
+      - name: Build firmware
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
           make -j1 V=s
 
-      - name: 提取固件
+      - name: Get firmware path
         working-directory: ${{ env.OPENWRT_DIR }}
         run: |
-          BIN=$(find bin/targets -name "*sl3000*factory*.bin" -o -name "*sl3000*sysupgrade*.bin" | head -1)
+          BIN=$(find bin/targets -name "*sl3000*sysupgrade*.bin" -o -name "*sl3000*factory*.bin" | head -1)
           echo "FIRMWARE_PATH=$BIN" >> $GITHUB_ENV
 
-      - name: 上传固件
-        uses: softprops/gh-release@v2
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
         if: success()
         with:
           tag_name: SL3000-build-${{ github.run_id }}
