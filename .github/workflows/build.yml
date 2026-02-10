@@ -35,8 +35,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sl3000-v-abs-v3-
 
-      - name: 5. 运行脚本补丁 (🎯 包含 128M 物理修复)
-        run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
+      # ======================= 【核心修复】=======================
+      - name: 5. 复制脚本 + 执行补丁（必须在 openwrt 目录）
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          cp -rf ../scripts ./
+          cp -f ../mt7981b-sl3000-emmc.dts ./
+          chmod +x scripts/sl3000-patch.sh
+          ./scripts/sl3000-patch.sh
+      # ==========================================================
 
       - name: 6. 预编译基础工具链
         working-directory: ${{ env.WORKDIR }}
@@ -45,7 +52,7 @@ jobs:
           make tools/firmware-utils/compile V=s
           make toolchain/install -j$(nproc)
 
-      - name: 7. DTS 物理全路径注入 (🎯 永久修复路径问题)
+      - name: 7. DTS 全路径注入
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
@@ -59,24 +66,11 @@ jobs:
             fi
           done
 
-      - name: 8. 极限封包编译 (🎯 包含工具链劫持与 Rootfs 保护)
+      - name: 8. 极限封包编译
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 1. 系统级劫持工具
-          HOST_BIN="$(pwd)/staging_dir/host/bin"
-          [ -f "$HOST_BIN/opkg" ] && sudo ln -sf "$HOST_BIN/opkg" /usr/bin/opkg || true
-          [ -f "$HOST_BIN/mkhash" ] && sudo ln -sf "$HOST_BIN/mkhash" /usr/bin/mkhash || true
-          FW_REAL=$(find staging_dir/host/bin/ -name "fwtool" | head -n 1)
-          [ -n "$FW_REAL" ] && sudo ln -sf "$(pwd)/$FW_REAL" /usr/bin/fwtool || true
-          
-          # 2. 物理保护 Rootfs 源码目录
+          make defconfig
           make target/linux/compile -j$(nproc) || true
-          find build_dir -type d -name "target-*" | while read -r TGT_DIR; do
-            ROOT_DIR="$TGT_DIR/root-mediatek"
-            [ ! -d "$ROOT_DIR" ] && mkdir -p "$ROOT_DIR/etc" && touch "$ROOT_DIR/etc/keep" || true
-          done
-          
-          # 3. 最终打包
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
