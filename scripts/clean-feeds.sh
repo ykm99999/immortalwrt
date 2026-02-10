@@ -1,7 +1,11 @@
 #!/bin/bash
 set -eo pipefail
 
-export TERM=xterm
+# 清理 feeds（你要的！）
+./scripts/clean-feeds.sh
+
+./scripts/feeds update -a
+./scripts/feeds install -a
 
 cat > .config <<'EOF'
 CONFIG_TARGET_mediatek=y
@@ -26,6 +30,4 @@ EOF
 find . -name Makefile -type f -exec sed -i 's/ERROR_ON_WARNING = y/ERROR_ON_WARNING = n/g' {} +
 find . -name "Makefile.dtc" -type f -exec sed -i 's/-Werror//g' {} +
 
-./scripts/feeds update -a
-./scripts/feeds install -a
 make defconfig
