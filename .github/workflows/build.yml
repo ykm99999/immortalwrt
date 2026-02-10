@@ -1,10 +1,6 @@
-name: SL3000-eMMC-100%SUCCESS-BUILD
+name: SL3000-eMMC-FINAL-BUILD
 on:
   workflow_dispatch:
-
-env:
-  OPENWRT_DIR: openwrt
-  DEVICE: sl3000-emmc
 
 jobs:
   build:
@@ -26,40 +22,29 @@ jobs:
             gettext libncurses-dev libssl-dev python3-dev python3-distutils \
             rsync unzip git wget curl device-tree-compiler libelf-dev qemu-utils
 
-      - name: Clone ImmortalWrt 24.10 (稳定版)
+      - name: Clone ImmortalWrt 24.10
         run: |
-          rm -rf "${{ env.OPENWRT_DIR }}"
-          git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git "${{ env.OPENWRT_DIR }}"
+          git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git openwrt
 
       - name: Cache dl packages
         uses: actions/cache@v4
         with:
-          path: ${{ env.OPENWRT_DIR }}/dl
+          path: openwrt/dl
           key: dl-${{ runner.os }}
 
-      - name: Inject DTS & prepare script
-        working-directory: ${{ env.OPENWRT_DIR }}
+      - name: Copy DTS and script
         run: |
-          set -eo pipefail
-          mkdir -p target/linux/mediatek/dts
-          cp -f ../mt7981b-sl3000-emmc.dts target/linux/mediatek/dts/
-          cp -f ../sl3000-patch.sh ./
-          chmod +x sl3000-patch.sh
+          cp mt7981b-sl3000-emmc.dts openwrt/target/linux/mediatek/dts/
+          cp sl3000-patch.sh openwrt/
+          chmod +x openwrt/sl3000-patch.sh
 
-      - name: Clean feeds & update (你要的 clean-feeds 在这里)
-        working-directory: ${{ env.OPENWRT_DIR }}
-        run: |
-          ./scripts/clean-feeds.sh
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Apply config
-        working-directory: ${{ env.OPENWRT_DIR }}
+      - name: Run patch script
+        working-directory: openwrt
         run: |
           ./sl3000-patch.sh
 
       - name: Build tools & toolchain
-        working-directory: ${{ env.OPENWRT_DIR }}
+        working-directory: openwrt
         run: |
           make tools/compile -j1 V=s
           make tools/install -j1 V=s
@@ -67,12 +52,12 @@ jobs:
           make toolchain/install -j1 V=s
 
       - name: Build firmware
-        working-directory: ${{ env.OPENWRT_DIR }}
+        working-directory: openwrt
         run: |
           make -j1 V=s
 
       - name: Find firmware
-        working-directory: ${{ env.OPENWRT_DIR }}
+        working-directory: openwrt
         run: |
           BIN=$(find bin/targets -name "*sl3000*sysupgrade.bin" | head -1)
           echo "FIRMWARE_PATH=$BIN" >> $GITHUB_ENV
@@ -82,5 +67,5 @@ jobs:
         if: success()
         with:
           tag_name: SL3000-build-${{ github.run_id }}
-          files: ${{ env.OPENWRT_DIR }}/${{ env.FIRMWARE_PATH }}
+          files: openwrt/${{ env.FIRMWARE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
