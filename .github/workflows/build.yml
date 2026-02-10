@@ -1,68 +1,176 @@
-name: SL3000-BUILD
+name: Build ImmortalWrt for SL3000
+
 on:
+  repository_dispatch:
   workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-24.10
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: .config
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
     steps:
-      - uses: actions/checkout@v4
+      - name: 检查代码
+        uses: actions/checkout@main
 
-      - name: 清理磁盘
+      - name: 初始化编译环境
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/share/swift
-          sudo apt clean
+          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo -E apt-get -qq update
+          sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/coolsnowwolf/lede/master/scripts/debian-22.04-utils)
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
+          sudo timedatectl set-timezone "$TZ"
+          sudo mkdir -p /workdir
+          sudo chown $USER:$GID /workdir
+          ln -sf /workdir $HOME/openwrt
 
-      - name: 安装依赖
+      - name: 克隆源码
+        working-directory: ${{ env.HOME }}
         run: |
-          sudo apt update -qq
-          sudo apt install -y build-essential clang flex bison gawk gcc-multilib g++-multilib \
-            gettext libncurses-dev libssl-dev python3-dev rsync unzip git wget curl \
-            device-tree-compiler libelf-dev qemu-utils
+          git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+          cd openwrt
 
-      - name: 拉取源码 24.10
+      - name: 加载自定义 feeds
         run: |
-          git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git openwrt
+          [ -f $FEEDS_CONF ] && sed -i 's/^#\(.*helloworld\)/\1/' $FEEDS_CONF || true
+          chmod +x $DIY_P1_SH
+          cd openwrt
+          $GITHUB_WORKSPACE/$DIY_P1_SH
 
-      # 复制你仓库的三件套
-      - name: 部署设备配置
-        run: |
-          cp mt7981b-sl3000-emmc.dts openwrt/target/linux/mediatek/dts/
-          cp filogic.mk          openwrt/target/linux/mediatek/
-          cp sl3000.config       openwrt/.config
-
-      # 官方标准 feeds，不清理、不折腾
       - name: 更新 feeds
-        working-directory: openwrt
-        run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          make defconfig
+        run: cd openwrt && ./scripts/feeds update -a
 
-      # 单线程编译
-      - name: 编译工具链
-        working-directory: openwrt
+      - name: 安装 feeds
+        run: cd openwrt && ./scripts/feeds install -a
+
+      - name: 加载自定义配置
         run: |
-          make tools/compile -j1 V=s
-          make tools/install -j1 V=s
-          make toolchain/compile -j1 V=s
-          make toolchain/install -j1 V=s
+          [ -f files ] && cp -r files openwrt/ || true
+          [ -f $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config || true
+          chmod +x $DIY_P2_SH
+          cd openwrt
+          $GITHUB_WORKSPACE/$DIY_P2_SH
+
+      - name: 下载依赖
+        id: package
+        run: |
+          cd openwrt
+          make defconfig
+          make download -j8
+          find dl -size -1024c -exec rm -f {} \;
 
       - name: 编译固件
-        working-directory: openwrt
+        id: compile
         run: |
-          make -j1 V=s
+          cd openwrt
+          echo -e "$(nproc) thread compile"
+          make -j$(nproc) || make -j1 V=s
+          echo "status=success" >> $GITHUB_OUTPUT
+          grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+          [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV || true
+          echo "FILE_DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-      # 上传
-      - name: 查找固件
-        working-directory: openwrt
+      - name: 检查空间占用
+        if: steps.compile.outputs.status == 'success'
         run: |
-          BIN=$(find bin/targets -name "*sl3000*sysupgrade.bin" 2>/dev/null | head -1)
-          echo "FIRMWARE_PATH=$BIN" >> $GITHUB_ENV
+          df -hT $PWD
+          du -h openwrt/bin/targets/
 
-      - name: 上传
-        uses: softprops/action-gh-release@v2
+      - name: 查找固件文件（修复版）
+        if: steps.compile.outputs.status == 'success'
+        id: find_firmware
+        run: |
+          cd openwrt
+          echo "=== 查看 bin/targets 目录结构 ==="
+          ls -la bin/targets || true
+          ls -la bin/targets/*/* || true
+          
+          # 优先查找 SL3000/MT7981 相关 sysupgrade 固件
+          BIN=$(find bin/targets -type f -name "*.bin" | grep -i -E "sl3000|mt7981|sysupgrade" | head -1)
+          
+          # 兜底：如果没找到，取第一个 sysupgrade.bin
+          if [ -z "$BIN" ]; then
+            BIN=$(find bin/targets -type f -name "*sysupgrade*.bin" | head -1)
+          fi
+          
+          if [ -n "$BIN" ]; then
+            echo "FIRMWARE_PATH=$BIN" >> $GITHUB_ENV
+            echo "FIRMWARE_FILENAME=$(basename "$BIN")" >> $GITHUB_ENV
+            echo "FIRMWARE_TYPE=$(echo "$FIRMWARE_FILENAME" | grep -q "sysupgrade" && echo "sysupgrade" || echo "factory")" >> $GITHUB_ENV
+          else
+            echo "::error::未找到任何固件文件！"
+            exit 1
+          fi
+
+      - name: 整理固件文件
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          cd openwrt
+          mkdir -p firmware
+          cp -f $FIRMWARE_PATH firmware/
+          cp -f .config firmware/config.buildinfo
+          cd firmware
+          zip -r -j SL3000-${{ env.FILE_DATE }}-firmware.zip *
+          echo "FIRMWARE_ZIP=SL3000-${{ env.FILE_DATE }}-firmware.zip" >> $GITHUB_ENV
+
+      - name: 上传固件目录
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+        uses: actions/upload-artifact@main
         with:
-          tag_name: build-${{ github.run_id }}
-          files: openwrt/${{ env.FIRMWARE_PATH }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: openwrt/bin
+
+      - name: 上传固件文件
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true'
+        uses: actions/upload-artifact@main
+        with:
+          name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: openwrt/firmware
+
+      - name: 生成发布标签
+        id: tag
+        run: |
+          echo "tag_name=build_$(date +"%Y%m%d%H%M")" >> $GITHUB_OUTPUT
+          echo "release_name=SL3000 固件编译 $(date +"%Y-%m-%d %H:%M")" >> $GITHUB_OUTPUT
+
+      - name: 删除旧的发布
+        uses: dev-drprasad/delete-older-releases@v0.2.1
+        with:
+          keep_latest: 3
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 发布固件
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ steps.tag.outputs.release_name }}
+          tag_name: ${{ steps.tag.outputs.tag_name }}
+          body_path: openwrt/DEVICE_NAME
+          files: |
+            openwrt/firmware/${{ env.FIRMWARE_ZIP }}
+            openwrt/${{ env.FIRMWARE_PATH }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
