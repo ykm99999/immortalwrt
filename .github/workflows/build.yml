@@ -1,100 +1,104 @@
-name: SL3000-2512-Final-Absolute-Success
-
+name: SL3000-Factory-SelfHealing
 on:
   workflow_dispatch:
 
 env:
   WORKDIR: openwrt
   DEVICE_NAME: sl3000-emmc
+  TERM: xterm
+  DEBIAN_FRONTEND: noninteractive
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 1. 检出仓库
+      - name: 1. Checkout
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘与环境极致优化 (12G Swap)
+      - name: 2. 工厂环境初始化
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
+          sudo rm -f /swapfile || true
           sudo fallocate -l 12G /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          sudo apt-get update
-          sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler libncurses5-dev libssl-dev
+          sudo apt update -qq
+          sudo apt install -y build-essential clang flex bison gawk gcc-multilib g++-multilib gettext libncurses-dev libssl-dev python3-dev python3-distutils rsync unzip zlib1g-dev git wget curl device-tree-compiler libelf-dev qemu-utils
+          sudo timedatectl set-timezone Asia/Shanghai
 
-      - name: 3. 克隆源码 (25.12 分支)
-        run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
+      - name: 3. 克隆源码（重试自愈）
+        run: |
+          git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${WORKDIR} || sleep 10 && git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${WORKDIR}
 
-      - name: 4. 开启编译缓存
+      - name: 4. 编译缓存
         uses: actions/cache@v4
         with:
           path: |
-            ${{ env.WORKDIR }}/dl
-            ${{ env.WORKDIR }}/staging_dir
-          key: ${{ runner.os }}-sl3000-v-abs-v3-${{ github.run_id }}
+            ${WORKDIR}/dl
+            ${WORKDIR}/staging_dir
+            ${WORKDIR}/build_dir
+          key: factory-${{ runner.os }}-sl3000-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-sl3000-v-abs-v3-
+            factory-${{ runner.os }}-sl3000-
 
-      - name: 5. 复制脚本 + 执行补丁
-        working-directory: ${{ env.WORKDIR }}
+      - name: 5. 脚本&DTS 自愈注入（无EOF）
+        working-directory: ${WORKDIR}
         run: |
-          if [ -d "../scripts" ]; then
-            cp -rf ../scripts ./
-          else
-            mkdir -p scripts
-          fi
-          if [ -f "../mt7981b-sl3000-emmc.dts" ]; then
-            cp -f ../mt7981b-sl3000-emmc.dts ./
-          fi
-          if [ -f "scripts/sl3000-patch.sh" ]; then
-            chmod +x scripts/sl3000-patch.sh
-            ./scripts/sl3000-patch.sh
-          fi
+          mkdir -p scripts target/linux/mediatek/dts
+          [ -d "../scripts" ] && cp -rf ../scripts/* scripts/ 2>/dev/null
+          [ -f "../mt7981b-sl3000-emmc.dts" ] && cp -f ../mt7981b-sl3000-emmc.dts target/linux/mediatek/dts/ 2>/dev/null
+          [ -f "../mt7981b-sl3000-emmc.dts" ] && cp -f ../mt7981b-sl3000-emmc.dts ./ 2>/dev/null
+          chmod -R 755 scripts/
+          chmod +x scripts/* 2>/dev/null
+          [ -f "scripts/sl3000-patch.sh" ] && ./scripts/sl3000-patch.sh || true
 
-      - name: 6. 预编译基础工具链
-        working-directory: ${{ env.WORKDIR }}
+      - name: 6. 配置自愈
+        working-directory: ${WORKDIR}
         run: |
-          make tools/install -j$(nproc)
-          make tools/firmware-utils/compile V=s
-          make toolchain/install -j$(nproc)
+          make defconfig || make defconfig
+          ./scripts/feeds clean || true
+          ./scripts/feeds update -a || true
+          ./scripts/feeds install -a || true
 
-      - name: 7. DTS 全路径注入
-        working-directory: ${{ env.WORKDIR }}
+      - name: 7. 工具链编译（降级自愈）
+        working-directory: ${WORKDIR}
         run: |
-          make target/linux/prepare -j$(nproc)
-          find build_dir -path "*/arch/arm64/boot/dts" -type d | while read -r DTS_DIR; do
-            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/"
-            mkdir -p "$DTS_DIR/mediatek"
-            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/mediatek/"
-            if [ -f "$DTS_DIR/mediatek/Makefile" ]; then
-              sed -i '/mt7981b-sl3000-emmc.dtb/d' "$DTS_DIR/mediatek/Makefile"
-              echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$DTS_DIR/mediatek/Makefile"
-            fi
+          make tools/compile -j$(nproc) V=s || make tools/compile -j1 V=s
+          make tools/install -j$(nproc) V=s || make tools/install -j1 V=s
+          make toolchain/compile -j$(nproc) V=s || make toolchain/compile -j1 V=s
+          make toolchain/install -j$(nproc) V=s || make toolchain/install -j1 V=s
+
+      - name: 8. DTS全路径注入
+        working-directory: ${WORKDIR}
+        run: |
+          make target/linux/prepare -j$(nproc) V=s || true
+          for DTS_DIR in $(find build_dir -type d -name "dts" 2>/dev/null | grep arm64); do
+            mkdir -p $DTS_DIR/mediatek
+            cp -f ../mt7981b-sl3000-emmc.dts $DTS_DIR/mediatek/ 2>/dev/null
+            sed -i '/mt7981b-sl3000-emmc/d' $DTS_DIR/mediatek/Makefile 2>/dev/null
+            echo "dtb-\$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb" >> $DTS_DIR/mediatek/Makefile
           done
 
-      - name: 8. 极限封包编译
-        working-directory: ${{ env.WORKDIR }}
+      - name: 9. 极限编译（双重自愈）
+        working-directory: ${WORKDIR}
         run: |
           make defconfig
-          make target/linux/compile -j$(nproc) || true
-          make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
+          make target/linux/compile -j$(nproc) V=s || make target/linux/compile -j1 V=s
+          make target/linux/install -j$(nproc) DEVICE_${DEVICE_NAME}=y V=s || make target/linux/install -j1 DEVICE_${DEVICE_NAME}=y V=s
 
-      - name: 9. 固件打捞
-        working-directory: ${{ env.WORKDIR }}
+      - name: 10. 固件打捞
+        id: collect
+        working-directory: ${WORKDIR}
         run: |
-          FIRMWARE=$(find bin/targets/ -name "*sl3000*.bin" | head -n 1)
-          if [ -z "$FIRMWARE" ]; then
-            echo "未找到固件"
-            exit 1
-          fi
-          echo "FIRMWARE_PATH=$FIRMWARE" >> $GITHUB_ENV
+          BIN=$(find bin/targets -name "*sl3000*factory*.bin" -o -name "*sl3000*sysupgrade*.bin" | head -1)
+          [ -z "$BIN" ] && BIN=$(find bin/targets -name "*sl3000*.bin" | head -1)
+          [ -z "$BIN" ] && find bin/targets -name "*.bin" && exit 1
+          echo "path=$BIN" >> $GITHUB_ENV
 
-      - name: 10. 发布 Release
+      - name: 11. 发布固件
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-v3-${{ github.run_id }}
-          files: ${{ env.WORKDIR }}/${{ env.FIRMWARE_PATH }}
+          tag_name: SL3000-FACTORY-${{ github.run_id }}
+          files: ${WORKDIR}/${{ env.path }}
           token: ${{ secrets.GITHUB_TOKEN }}
