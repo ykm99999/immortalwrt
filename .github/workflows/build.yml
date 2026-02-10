@@ -1,4 +1,4 @@
-name: SL3000-FINAL-BUILD
+name: SL3000-BUILD
 on:
   workflow_dispatch:
 
@@ -6,53 +6,40 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout 仓库
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 清理磁盘空间
+      - name: 清理磁盘
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/share/swift
-          sudo rm -rf /opt/ghc /opt/google /opt/microsoft /usr/local/share/chromium
           sudo apt clean
 
       - name: 安装依赖
         run: |
           sudo apt update -qq
           sudo apt install -y build-essential clang flex bison gawk gcc-multilib g++-multilib \
-            gettext libncurses-dev libssl-dev python3-dev python3-distutils \
-            rsync unzip git wget curl device-tree-compiler libelf-dev qemu-utils
+            gettext libncurses-dev libssl-dev python3-dev rsync unzip git wget curl \
+            device-tree-compiler libelf-dev qemu-utils
 
-      - name: 拉取 ImmortalWrt 24.10 源码
+      - name: 拉取源码 24.10
         run: |
           git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      # ==========================
-      # 关键：完全按你仓库文件复制
-      # 绝对不会找不到！
-      # ==========================
-      - name: 安装 DTS、设备配置、内核配置
+      # 复制你仓库的三件套
+      - name: 部署设备配置
         run: |
-          # 复制设备树
-          cp "${{ github.workspace }}/mt7981b-sl3000-emmc.dts" openwrt/target/linux/mediatek/dts/
-          # 复制设备定义
-          cp "${{ github.workspace }}/filogic.mk" openwrt/target/linux/mediatek/filogic.mk
-          # 复制你完整 config
-          cp "${{ github.workspace }}/sl3000.config" openwrt/.config
+          cp mt7981b-sl3000-emmc.dts openwrt/target/linux/mediatek/dts/
+          cp filogic.mk          openwrt/target/linux/mediatek/
+          cp sl3000.config       openwrt/.config
 
-      - name: 清理 feeds 并更新（你要求的 clean-feeds）
+      # 官方标准 feeds，不清理、不折腾
+      - name: 更新 feeds
         working-directory: openwrt
         run: |
-          ./scripts/clean-feeds.sh
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
-      - name: 关闭编译警告报错（防失败）
-        working-directory: openwrt
-        run: |
-          find . -name Makefile -type f -exec sed -i 's/ERROR_ON_WARNING = y/ERROR_ON_WARNING = n/g' {} +
-          find . -name "Makefile.dtc" -type f -exec sed -i 's/-Werror//g' {} +
           make defconfig
 
+      # 单线程编译
       - name: 编译工具链
         working-directory: openwrt
         run: |
@@ -66,13 +53,14 @@ jobs:
         run: |
           make -j1 V=s
 
+      # 上传
       - name: 查找固件
         working-directory: openwrt
         run: |
-          BIN=$(find bin/targets -name "*sl3000*sysupgrade.bin" | head -1)
+          BIN=$(find bin/targets -name "*sl3000*sysupgrade.bin" 2>/dev/null | head -1)
           echo "FIRMWARE_PATH=$BIN" >> $GITHUB_ENV
 
-      - name: 上传固件
+      - name: 上传
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_id }}
