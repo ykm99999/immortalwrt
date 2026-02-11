@@ -40,8 +40,8 @@ rm -f .config
 } > .config
 [ -f "${REPO_ROOT}/sl3000.config" ] && cat "${REPO_ROOT}/sl3000.config" >> .config
 
-# 7. 【严格对你仓库路径】拷贝根目录 DTS + filogic.mk
-cp -fv "${REPO_ROOT}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/"
+# 7. 【已修正】正确DTS路径 + 原filogic.mk路径
+cp -fv "${REPO_ROOT}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/"
 cp -fv "${REPO_ROOT}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
 
 # 8. rootfs 1G
