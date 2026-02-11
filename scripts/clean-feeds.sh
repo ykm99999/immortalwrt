@@ -1,11 +1,11 @@
 #!/bin/bash
 set -eo pipefail
 
-# 强制定位到 openwrt 目录（永不迷路）
+# 强制定位到 openwrt 目录
 cd "$(dirname "$0")/../openwrt" || exit 1
 
-echo "=== 执行 feeds 清理 ==="
-"$GITHUB_WORKSPACE/scripts/clean-feeds.sh"
+echo "=== 清理 feeds 缓存 ==="
+rm -rf tmp feeds package/feeds
 
 echo "=== 更新 feeds ==="
 ./scripts/feeds update -a
