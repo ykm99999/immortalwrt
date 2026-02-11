@@ -1,4 +1,4 @@
-name: SL3000-Extreme-Final
+name: SL3000-2512-Final-Absolute-Success
 
 on:
   workflow_dispatch:
@@ -6,81 +6,94 @@ on:
 env:
   WORKDIR: openwrt
   DEVICE_NAME: sl3000-emmc
-  CACHE_KEY: sl3000-v2026-ultimate-fix
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: "1. 检出代码"
+      - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: "2. 🚀 [极致优化] 腾出磁盘空间 & 12G Swap (全量延续)"
+      - name: 2. 磁盘与环境极致优化 (12G Swap)
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/android /opt/ghc /opt/hostedtoolcache /var/lib/docker || true
-          sudo docker image prune -a -f || true
+          sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
-          sudo rm -f /swapfile
-          sudo fallocate -l 12G /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc libncurses5-dev libssl-dev
+          sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler libncurses5-dev libssl-dev
 
-      - name: "3. 🛡️ [物理缓存] 恢复工具链快照"
-        uses: actions/cache/restore@v4
+      - name: 3. 克隆源码 (25.12 分支)
+        run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
+
+      - name: 4. 开启编译缓存
+        uses: actions/cache@v4
         with:
           path: |
             ${{ env.WORKDIR }}/dl
             ${{ env.WORKDIR }}/staging_dir
-          key: ${{ runner.os }}-${{ env.CACHE_KEY }}
+          key: ${{ runner.os }}-sl3000-v-abs-v3-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-sl3000-
+            ${{ runner.os }}-sl3000-v-abs-v3-
 
-      - name: "4. 克隆源码"
-        run: |
-          [ -d "${{ env.WORKDIR }}" ] || git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
+      - name: 5. 运行脚本补丁 (🎯 包含 128M 物理修复)
+        run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "5. 运行补丁脚本 (补丁全量归位)"
-        run: |
-          cd openwrt
-          chmod +x ../scripts/clean-feeds.sh
-          ../scripts/clean-feeds.sh
-
-      - name: "6. 🛠️ [物理封印] 强制钉死工具链 (消除 usign 缺失隐患)"
+      - name: 6. 预编译基础工具链
         working-directory: ${{ env.WORKDIR }}
         run: |
-          make tools/install -j$(nproc) || make tools/install -j1 V=s
-          make package/opkg/host/compile -j1 V=s
-          make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
+          make tools/install -j$(nproc)
+          make tools/firmware-utils/compile V=s
+          make toolchain/install -j$(nproc)
 
-      - name: "8. ✅ [终极物理对齐] 编译固件 (解决索引签名与 opkg 报错)"
+      - name: 7. DTS 物理全路径注入 (🎯 永久修复路径问题)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
-          make package/compile -j$(nproc) || make package/compile -j1 V=s
-          make package/index -j1 V=s || echo "⚠️ Warning: Index signing failed, ignoring..."
-          make package/install -j$(nproc) || make package/install -j1 V=s
-          make target/linux/install DEVICE_${{ env.DEVICE_NAME }}=y -j1 V=s
+          make target/linux/prepare -j$(nproc)
+          find build_dir -path "*/arch/arm64/boot/dts" -type d | while read -r DTS_DIR; do
+            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/"
+            mkdir -p "$DTS_DIR/mediatek"
+            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/mediatek/"
+            if [ -f "$DTS_DIR/mediatek/Makefile" ]; then
+              sed -i '/mt7981b-sl3000-emmc.dtb/d' "$DTS_DIR/mediatek/Makefile"
+              echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$DTS_DIR/mediatek/Makefile"
+            fi
+          done
 
-      - name: "9. 📦 [自动打捞] 收集固件"
-        if: always()
+      - name: 8. 极限封包编译 (🎯 包含工具链劫持与 Rootfs 保护)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          mkdir -p ../release_bins
-          find bin/targets -type f -size +10M -name "*sysupgrade.bin" -exec cp {} ../release_bins/ \; || true
+          # 1. 系统级劫持工具
+          HOST_BIN="$(pwd)/staging_dir/host/bin"
+          [ -f "$HOST_BIN/opkg" ] && sudo ln -sf "$HOST_BIN/opkg" /usr/bin/opkg || true
+          [ -f "$HOST_BIN/mkhash" ] && sudo ln -sf "$HOST_BIN/mkhash" /usr/bin/mkhash || true
+          FW_REAL=$(find staging_dir/host/bin/ -name "fwtool" | head -n 1)
+          [ -n "$FW_REAL" ] && sudo ln -sf "$(pwd)/$FW_REAL" /usr/bin/fwtool || true
+          
+          # 2. 物理保护 Rootfs 源码目录
+          make target/linux/compile -j$(nproc) || true
+          find build_dir -type d -name "target-*" | while read -r TGT_DIR; do
+            ROOT_DIR="$TGT_DIR/root-mediatek"
+            [ ! -d "$ROOT_DIR" ] && mkdir -p "$ROOT_DIR/etc" && touch "$ROOT_DIR/etc/keep" || true
+          done
+          
+          # 3. 最终打包
+          make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
+          make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: "10. 上传固件"
-        uses: actions/upload-artifact@v4
-        with:
-          name: sl3000-firmware
-          path: release_bins/
+      - name: 9. 固件打捞
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          FIRMWARE=$(find bin/targets/ -name "*sl3000*.bin" | head -n 1)
+          if [ -n "$FIRMWARE" ]; then
+            echo "FIRMWARE_PATH=$FIRMWARE" >> $GITHUB_ENV
+          else
+            exit 1
+          fi
 
-      - name: "11. 🛡️ [物理保存] 封印缓存"
-        uses: actions/cache/save@v4
+      - name: 10. 发布 Release
+        uses: softprops/action-gh-release@v2
         if: success()
         with:
-          path: |
-            ${{ env.WORKDIR }}/dl
-            ${{ env.WORKDIR }}/staging_dir
-          key: ${{ runner.os }}-${{ env.CACHE_KEY }}
+          tag_name: SL3000-v3-${{ github.run_id }}
+          files: ${{ env.WORKDIR }}/${{ env.FIRMWARE_PATH }}
+          token: ${{ secrets.GITHUB_TOKEN }}
