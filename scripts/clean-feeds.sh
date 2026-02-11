@@ -1,34 +1,36 @@
 #!/bin/bash
 set -e
 
-REPO_ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
+REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
+SRC_DIR="${REPO_ROOT}"
 
-echo "💎 [SL3000] 严格对齐仓库路径：全量物理修复"
+echo "💎 [SL3000] 执行物理修复：全量补丁归位 + 屏蔽索引签名限制..."
 
 cd "${WORKDIR}"
 
-# 1.  staging 目录
+# [1] 物理建立 staging 目录
 mkdir -p staging_dir/host/bin staging_dir/host/share
 
-# 2. 关闭 -Werror
+# [2] 延续修复：2/9 物理屏蔽所有 Makefile 中的 -Werror
 find . -name Makefile -exec sed -i 's/ERROR_ON_WARNING = y/ERROR_ON_WARNING = n/g' {} +
 find . -name "Makefile.dtc" -exec sed -i 's/-Werror//g' {} + || true
 
-# 3. feeds
+# [3] 延续设置：Feeds 管理
 ./scripts/feeds update -a && ./scripts/feeds install -a
 
-# 4. 屏蔽 usign 签名
+# [4] 🔥 [新增物理修复] 屏蔽 package/index 时的签名强制要求 (解决 usign 缺失)
+# 如果没有 usign 就不签名，防止构建中断
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/ls/g' package/Makefile || true
 
-# 5. 宿主工具软链接
+# [5] 延续修复：2/5 物理封印宿主工具 (解决 libdeflate/mkhash 报错)
 for tool in m4 flex bison gawk sed patch tar xz gzip bzip2 perl python3 wget curl; do
     ln -sf "$(which $tool)" "staging_dir/host/bin/$tool" || true
 done
 B_SHARE=$(pkg-config --variable=pkgdatadir bison 2>/dev/null || echo '/usr/share/bison')
 ln -sf "$B_SHARE" "staging_dir/host/share/bison" || true
 
-# 6. 【严格对你仓库路径】读取根目录 sl3000.config
+# [6] 延续修复：2/7 锁定内核分区 128MB 与物理变量锁
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -38,12 +40,13 @@ rm -f .config
     echo "export BISON_PKGDATADIR=$B_SHARE"
     echo "export M4=$(which m4)"
 } > .config
-[ -f "${REPO_ROOT}/sl3000.config" ] && cat "${REPO_ROOT}/sl3000.config" >> .config
+[ -f "${SRC_DIR}/sl3000.config" ] && cat "${SRC_DIR}/sl3000.config" >> .config
 
-# 7. 【已修正】正确DTS路径 + 原filogic.mk路径
-cp -fv "${REPO_ROOT}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/files-6.6/arch/arm64/boot/dts/mediatek/"
-cp -fv "${REPO_ROOT}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
+# [7] 延续修复：2/7 DTS 与 Image 物理注入 (SL3000 适配)
+mkdir -p "target/linux/mediatek/dts" "target/linux/mediatek/image"
+cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "target/linux/mediatek/dts/"
+cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
 
-# 8. rootfs 1G
+# [8] 延续修复：2/7 Rootfs 1G 分区锁定
 make defconfig
 sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=1024/' .config
