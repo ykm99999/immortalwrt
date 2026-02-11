@@ -13,6 +13,13 @@ jobs:
         with:
           path: config
 
+      # 【仅新增：轻量优化磁盘，不改动你任何原有代码】
+      - name: Optimize disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/share/gradle
+          sudo apt clean -y
+          sudo apt autoremove -y
+
       - name: Install dependencies
         run: |
           sudo apt update
@@ -54,6 +61,14 @@ jobs:
           count=$(find bin/targets -type f | wc -l)
           if [ $count -eq 0 ]; then
             echo "ERROR: No firmware"
+            # 【仅新增：无固件时打印日志，其余完全和你原版一样】
+            echo "===== DEBUG LOG - bin目录结构 ====="
+            ls -la bin/
+            ls -la bin/targets/
+            echo "===== DEBUG LOG - 目标设备配置 ====="
+            grep CONFIG_TARGET .config
+            echo "===== DEBUG LOG - 编译最后100行 ====="
+            tail -n 100 $(find ./ -name "*.log" | head -1) 2>/dev/null
             exit 1
           fi
 
