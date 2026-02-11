@@ -15,7 +15,7 @@ jobs:
       - name: "1. 检出代码"
         uses: actions/checkout@v4
 
-      - name: "2. 🚀 [极致优化] 腾出磁盘空间 & 12G Swap (全量延续)"
+      - name: "2. 🚀 腾出磁盘空间 & 12G Swap"
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker || true
           sudo docker image prune -a -f || true
@@ -25,7 +25,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc libncurses5-dev libssl-dev
 
-      - name: "3. 🛡️ [物理缓存] 恢复工具链快照"
+      - name: "3. 🛡️ 恢复工具链缓存"
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -35,23 +35,24 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-sl3000-
 
-      - name: "4. 克隆源码"
+      - name: "4. 克隆 ImmortalWrt 源码"
         run: |
           [ -d "${{ env.WORKDIR }}" ] || git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      # 🔥 修复1：强制在openwrt目录运行脚本，路径改为../scripts/
-      - name: "5. 运行补丁脚本 (补丁全量归位)"
+      - name: "5. 执行补丁脚本"
         working-directory: ${{ env.WORKDIR }}
-        run: chmod +x ../scripts/clean-feeds.sh && ../scripts/clean-feeds.sh
+        run: |
+          chmod +x ../scripts/clean-feeds.sh
+          ../scripts/clean-feeds.sh
 
-      - name: "6. 🛠️ [物理封印] 强制钉死工具链 (消除 usign 缺失隐患)"
+      - name: "6. 🛠️ 编译工具链"
         working-directory: ${{ env.WORKDIR }}
         run: |
           make tools/install -j$(nproc) || make tools/install -j1 V=s
           make package/opkg/host/compile -j1 V=s
           make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
-      - name: "7. 🔥 [内核强灌] 注入 DTS 并修改 Makefile (延续修复点)"
+      - name: "7. 🔥 注入 DTS 到内核"
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
@@ -63,28 +64,28 @@ jobs:
             fi
           done
 
-      - name: "8. ✅ [终极物理对齐] 编译固件 (解决索引签名与 opkg 报错)"
+      - name: "8. ✅ 编译固件"
         working-directory: ${{ env.WORKDIR }}
         run: |
           TCPATH=$(find ${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir -name "bin" -type d | grep "toolchain" | head -n 1)
           [ -n "$TCPATH" ] && export PATH="$TCPATH:$PATH"
-          
+
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
           make package/compile -j$(nproc) || make package/compile -j1 V=s
-          
-          make package/index -j1 V=s || echo "⚠️ Warning: Index signing failed, ignoring..."
-          
+
+          make package/index -j1 V=s || echo "⚠️ Index signing failed, continue..."
+
           make package/install -j$(nproc) || make package/install -j1 V=s
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: "9. 📦 [自动打捞] 收集固件"
+      - name: "9. 📦 收集固件"
         if: always()
         working-directory: ${{ env.WORKDIR }}
         run: |
           mkdir -p ../release_bins
           find bin/targets -type f -size +10M -name "*sysupgrade.bin" -exec cp -v {} ../release_bins/ \; || true
 
-      - name: "10. 🚀 [自动发布] GitHub Release (延续全量逻辑)"
+      - name: "10. 🚀 发布到 Release"
         uses: softprops/action-gh-release@v2
         if: always()
         with:
@@ -92,7 +93,7 @@ jobs:
           files: release_bins/*
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: "11. 🛡️ [物理保存] 封印缓存"
+      - name: "11. 🛡️ 保存缓存"
         uses: actions/cache/save@v4
         if: success()
         with:
