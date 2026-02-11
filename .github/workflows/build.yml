@@ -1,91 +1,56 @@
 name: Build ImmortalWrt SL3000 eMMC
-
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-    paths:
-      - '.config'
-      - 'target/linux/filogic/**'
-      - '.github/workflows/build-sl3000-emmc.yml'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          repository: ykm888/immortalwrt-sl3000
-          ref: main
 
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
-            bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib \
-            git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfreetype6-dev libgmp-dev liblzo2-dev \
-            libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev \
-            libtool libyaml-dev libz-dev lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf \
-            python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo \
-            uglifyjs unzip upx-ucl vim wget xmlto xxd zlib1g-dev
-
-      - name: Create ccache dir
-        run: mkdir -p $HOME/.ccache
-
-      - name: Ccache cache
+      - name: Setup ccache cache
         uses: actions/cache@v4
         with:
           path: |
-            $HOME/.ccache
+            ~/.ccache
             openwrt/.ccache
-          key: ${{ runner.os }}-ccache-sl3000-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-ccache-sl3000-
+          key: ${{ runner.os }}-sl3000-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-sl3000-
 
-      - name: Feeds cache
-        uses: actions/cache@v4
-        with:
-          path: openwrt/feeds
-          key: ${{ runner.os }}-feeds-sl3000-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-feeds-sl3000-
-
-      - name: Prepare config
+      - name: Install build dependencies
         run: |
-          chmod +x diy-part1.sh diy-part2.sh
-          ./diy-part1.sh
-          ./diy-part2.sh
+          sudo apt update
+          sudo apt install -y build-essential ccache libncurses-dev libssl-dev python3 bison flex gawk dwarves
 
-      - name: Download dependencies
-        run: cd openwrt && make download -j$(nproc) V=s
+      - name: Run clean-feeds.sh
+        run: |
+          chmod +x scripts/clean-feeds.sh
+          ./scripts/clean-feeds.sh
+
+      - name: Download all dependencies
+        run: cd openwrt && make download -j$(nproc)
 
       - name: Compile toolchain
-        run: cd openwrt && make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
+        run: cd openwrt && make toolchain/compile -j$(nproc)
 
-      - name: Compile kernel & target
-        run: cd openwrt && make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
+      - name: Compile target/linux
+        run: cd openwrt && make target/linux/compile -j$(nproc)
 
       - name: Compile packages
-        run: cd openwrt && make package/compile -j$(nproc) || make package/compile -j1 V=s
+        run: cd openwrt && make package/compile -j$(nproc)
 
-      - name: Build package index
-        run: cd openwrt && make package/index -j1 V=s || echo "skip sign check"
-
-      - name: Install packages
+      - name: Package install
         run: cd openwrt && make package/install -j$(nproc)
 
-      - name: Build firmware image
-        run: cd openwrt && make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y
-
-      - name: Collect firmware
-        run: |
-          mkdir -p firmware
-          cp openwrt/bin/targets/filogic/*/*sysupgrade.bin firmware/ 2>/dev/null || true
-          cp openwrt/.config firmware/config.build
-          ls -lh firmware/
+      - name: Build firmware
+        run: cd openwrt && make -j1 V=s
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-sl3000-emmc
-          path: firmware/
+          name: immortalwrt-mt7981b-sl3000-emmc
+          path: openwrt/bin/targets/mediatek/filogic/*sysupgrade.bin
