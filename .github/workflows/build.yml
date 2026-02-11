@@ -1,4 +1,4 @@
-name: SL3000-2512-Final-Absolute-Success
+name: SL3000-2512-Final-Physical-Override
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘与环境极致优化
+      - name: 2. 磁盘与环境调优
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
@@ -25,59 +25,43 @@ jobs:
       - name: 3. 克隆源码 (25.12)
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 编译缓存
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.WORKDIR }}/dl
-            ${{ env.WORKDIR }}/staging_dir
-          key: ${{ runner.os }}-sl3000-v-abs-v4-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-sl3000-v-abs-v4-
-
-      - name: 5. 运行脚本补丁
+      - name: 4. 运行脚本补丁 (执行物理覆盖)
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: 6. 预编译工具链
+      - name: 5. 预编译基础工具链
         working-directory: ${{ env.WORKDIR }}
         run: |
           make tools/install -j$(nproc)
           make tools/firmware-utils/compile V=s
           make toolchain/install -j$(nproc)
 
-      - name: 7. DTS 物理全路径注入 (🎯 修复 mt7981.dtsi 找不到报错)
+      - name: 6. DTS 现场物理修复 (🎯 解决 include 报错)
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
-          # 物理补救：搜索所有包含 dts 的目录
           find build_dir -path "*/arch/arm64/boot/dts" -type d | while read -r DTS_DIR; do
-            echo "📥 注入与关联依赖至: $DTS_DIR"
-            # 1. 拷贝主文件到根和 mediatek 子目录
-            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/"
-            mkdir -p "$DTS_DIR/mediatek"
+            # 物理拷贝所有依赖到同级目录，让 #include "mt7981.dtsi" 原地命中
+            cp -fv "$DTS_DIR"/*.dtsi "$DTS_DIR/mediatek/" 2>/dev/null || true
             cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/mediatek/"
+            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/mediatek/mt7981-rfb.dts"
             
-            # 2. 🎯 核心修复：建立 .dtsi 软链接，解决 include 找不到的问题
-            # 将上级目录的所有 dtsi 软链接到 mediatek 目录下
-            ln -sf "$DTS_DIR"/*.dtsi "$DTS_DIR/mediatek/" 2>/dev/null || true
-            
-            # 3. 注册到 Makefile
             if [ -f "$DTS_DIR/mediatek/Makefile" ]; then
               sed -i '/mt7981b-sl3000-emmc.dtb/d' "$DTS_DIR/mediatek/Makefile"
               echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$DTS_DIR/mediatek/Makefile"
             fi
           done
 
-      - name: 8. 极限封包编译 (包含 Rootfs 保护与工具劫持)
+      - name: 7. 极限封包编译 (包含工具劫持与 Rootfs 保护)
         working-directory: ${{ env.WORKDIR }}
         run: |
+          # 物理劫持工具链
           HOST_BIN="$(pwd)/staging_dir/host/bin"
           [ -f "$HOST_BIN/opkg" ] && sudo ln -sf "$HOST_BIN/opkg" /usr/bin/opkg || true
           [ -f "$HOST_BIN/mkhash" ] && sudo ln -sf "$HOST_BIN/mkhash" /usr/bin/mkhash || true
           FW_REAL=$(find staging_dir/host/bin/ -name "fwtool" | head -n 1)
           [ -n "$FW_REAL" ] && sudo ln -sf "$(pwd)/$FW_REAL" /usr/bin/fwtool || true
           
-          # 物理保护 Rootfs 源码目录
+          # 物理保护 Rootfs
           make target/linux/compile -j$(nproc) || true
           find build_dir -type d -name "target-*" | while read -r TGT_DIR; do
             ROOT_DIR="$TGT_DIR/root-mediatek"
@@ -87,16 +71,16 @@ jobs:
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 9. 固件打捞
+      - name: 8. 固件发布
         working-directory: ${{ env.WORKDIR }}
         run: |
           FIRMWARE=$(find bin/targets/ -name "*sl3000*.bin" | head -n 1)
           [ -n "$FIRMWARE" ] && echo "FIRMWARE_PATH=$FIRMWARE" >> $GITHUB_ENV || exit 1
 
-      - name: 10. 发布 Release
+      - name: 9. Release
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-v4-${{ github.run_id }}
+          tag_name: SL3000-Final-v5
           files: ${{ env.WORKDIR }}/${{ env.FIRMWARE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
