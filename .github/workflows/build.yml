@@ -11,49 +11,81 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 1. 检出你仓库（含三件套+脚本）
+      - name: 1. 检出仓库（三件套+脚本）
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘优化 + Swap
+      - name: 2. 磁盘优化 + 12G Swap
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /var/lib/docker
           sudo swapoff -a && sudo rm -f /swapfile
           sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
-          sudo apt-get update
-          sudo apt-get install -y build-essential flex bison m4 gawk libncurses5-dev libssl-dev
 
-      - name: 3. 克隆源码
+      # 🔥【补全：所有编译必需依赖】100%对齐OpenWrt编译要求
+      - name: 3. 安装完整系统依赖
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential flex bison m4 gawk sed libncurses5-dev libssl-dev \
+            git python3 python3-pip device-tree-compiler bc rsync unzip wget curl \
+            zlib1g-dev liblzma-dev libbz2-dev
+
+      - name: 4. 克隆ImmortalWrt 24.10源码
         run: |
           [ -d "${WORKDIR}" ] || git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${WORKDIR}
 
-      - name: 4. 执行你仓库脚本 scripts/clean-feeds.sh
+      - name: 5. 执行仓库脚本：scripts/clean-feeds.sh
         run: |
           chmod +x scripts/clean-feeds.sh
           ./scripts/clean-feeds.sh
 
-      - name: 5. 编译工具链
+      - name: 6. 编译工具链
         working-directory: ${{ env.WORKDIR }}
         run: |
           make tools/install -j$(nproc) || make tools/install -j1 V=s
           make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
-      - name: 6. 编译固件
+      - name: 7. 编译固件
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
           make package/compile -j$(nproc) || make package/compile -j1 V=s
-          make package/index -j1 V=s || echo "⚠️ 跳过签名"
+          make package/index -j1 V=s || echo "⚠️ 跳过签名校验"
           make package/install -j$(nproc)
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 7. 收集固件
+      # 🔥【新增：无固件生成 → 打印完整调试日志】
+      - name: 8. 检查固件是否生成，无则打印原因
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          FIRMWARE=$(find bin/targets -name "*sysupgrade.bin" -size +10M 2>/dev/null)
+          if [ -z "${FIRMWARE}" ]; then
+            echo "❌ 错误：未生成任何固件文件"
+            echo "====================================="
+            echo "📂 bin 目录结构"
+            ls -la bin/ 2>/dev/null
+            echo "-------------------------------------"
+            echo "📂 targets 目录结构"
+            ls -la bin/targets/ 2>/dev/null
+            echo "-------------------------------------"
+            echo "⚙️  最终 .config 配置"
+            cat .config | grep -E "TARGET|PARTSIZE" 2>/dev/null
+            echo "-------------------------------------"
+            echo "📜 编译最后 200 行错误日志"
+            tail -n 200 logs/*.log 2>/dev/null || tail -n 200 ./*.log 2>/dev/null
+            exit 1
+          else
+            echo "✅ 固件已生成："
+            echo "${FIRMWARE}"
+          fi
+
+      - name: 9. 收集固件
         if: always()
         working-directory: ${{ env.WORKDIR }}
         run: |
           mkdir -p ../release
           find bin/targets -name "*sysupgrade.bin" -size +10M -exec cp {} ../release/ \;
 
-      - name: 8. 自动发布
+      - name: 10. 自动发布
         uses: softprops/action-gh-release@v2
         if: always()
         with:
