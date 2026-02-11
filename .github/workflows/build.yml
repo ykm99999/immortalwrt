@@ -39,17 +39,16 @@ jobs:
         run: |
           [ -d "${{ env.WORKDIR }}" ] || git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
+      # 🔥 修复1：强制在openwrt目录运行脚本，路径改为../scripts/
       - name: "5. 运行补丁脚本 (补丁全量归位)"
-        run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
+        working-directory: ${{ env.WORKDIR }}
+        run: chmod +x ../scripts/clean-feeds.sh && ../scripts/clean-feeds.sh
 
       - name: "6. 🛠️ [物理封印] 强制钉死工具链 (消除 usign 缺失隐患)"
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 阶梯 1: 确保基础 tools 全部安装到位
           make tools/install -j$(nproc) || make tools/install -j1 V=s
-          # 阶梯 2: 钉死核心包管理 host 环境
           make package/opkg/host/compile -j1 V=s
-          # 阶梯 3: 构建交叉编译器
           make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
       - name: "7. 🔥 [内核强灌] 注入 DTS 并修改 Makefile (延续修复点)"
@@ -67,20 +66,16 @@ jobs:
       - name: "8. ✅ [终极物理对齐] 编译固件 (解决索引签名与 opkg 报错)"
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 物理锁定编译器路径
           TCPATH=$(find ${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir -name "bin" -type d | grep "toolchain" | head -n 1)
           [ -n "$TCPATH" ] && export PATH="$TCPATH:$PATH"
           
-          # 物理分步构建，严禁竞态
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
           make package/compile -j$(nproc) || make package/compile -j1 V=s
           
-          # 🔥 核心修复：即使 package/index 签名失败，也通过逻辑跳过，确保不中断构建
           make package/index -j1 V=s || echo "⚠️ Warning: Index signing failed, ignoring..."
           
           make package/install -j$(nproc) || make package/install -j1 V=s
-          make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
-          make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
+          make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
       - name: "9. 📦 [自动打捞] 收集固件"
         if: always()
