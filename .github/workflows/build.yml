@@ -29,17 +29,25 @@ jobs:
 
     steps:
       - name: 检查代码
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
+
+      - name: 最大化构建磁盘空间
+        run: |
+          echo "=== 释放磁盘空间 ==="
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /var/lib/docker /var/lib/gems /var/lib/flatpak /var/lib/snapd
+          sudo swapoff -a
+          sudo rm -f /swapfile
+          sudo apt clean
+          docker rmi $(docker images -q) 2>/dev/null || true
+          df -h
 
       - name: 初始化编译环境
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/coolsnowwolf/lede/master/scripts/debian-22.04-utils)
           sudo -E apt-get -qq autoremove --purge
-          sudo -E apt-get -qq clean
           sudo timedatectl set-timezone "$TZ"
           sudo mkdir -p /workdir
           sudo chown $USER:$GID /workdir
@@ -49,7 +57,6 @@ jobs:
         working-directory: ${{ env.HOME }}
         run: |
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
-          cd openwrt
 
       - name: 加载自定义 feeds
         run: |
@@ -66,7 +73,7 @@ jobs:
 
       - name: 加载自定义配置
         run: |
-          [ -f files ] && cp -r files openwrt/ || true
+          [ -d files ] && cp -r files openwrt/ || true
           [ -f $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config || true
           chmod +x $DIY_P2_SH
           cd openwrt
@@ -87,40 +94,42 @@ jobs:
           echo -e "$(nproc) thread compile"
           make -j$(nproc) || make -j1 V=s
           echo "status=success" >> $GITHUB_OUTPUT
-          grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
-          [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV || true
+          DEVICE_NAME=$(grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/')
+          echo "DEVICE_NAME=$DEVICE_NAME" >> $GITHUB_ENV
           echo "FILE_DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
       - name: 检查空间占用
         if: steps.compile.outputs.status == 'success'
         run: |
-          df -hT $PWD
+          df -hT
           du -h openwrt/bin/targets/
 
-      - name: 查找固件文件（修复版）
+      - name: 查找固件文件（最终修复版）
         if: steps.compile.outputs.status == 'success'
         id: find_firmware
         run: |
           cd openwrt
           echo "=== 查看 bin/targets 目录结构 ==="
-          ls -la bin/targets || true
-          ls -la bin/targets/*/* || true
-          
-          # 优先查找 SL3000/MT7981 相关 sysupgrade 固件
+          ls -la bin/targets 2>/dev/null
+          ls -la bin/targets/*/* 2>/dev/null
+
           BIN=$(find bin/targets -type f -name "*.bin" | grep -i -E "sl3000|mt7981|sysupgrade" | head -1)
-          
-          # 兜底：如果没找到，取第一个 sysupgrade.bin
           if [ -z "$BIN" ]; then
             BIN=$(find bin/targets -type f -name "*sysupgrade*.bin" | head -1)
           fi
-          
-          if [ -n "$BIN" ]; then
-            echo "FIRMWARE_PATH=$BIN" >> $GITHUB_ENV
-            echo "FIRMWARE_FILENAME=$(basename "$BIN")" >> $GITHUB_ENV
-            echo "FIRMWARE_TYPE=$(echo "$FIRMWARE_FILENAME" | grep -q "sysupgrade" && echo "sysupgrade" || echo "factory")" >> $GITHUB_ENV
-          else
-            echo "::error::未找到任何固件文件！"
+
+          if [ -z "$BIN" ]; then
+            echo "::error::未找到固件"
             exit 1
+          fi
+
+          echo "FIRMWARE_PATH=$BIN" >> $GITHUB_ENV
+          FIRMWARE_FILENAME=$(basename "$BIN")
+          echo "FIRMWARE_FILENAME=$FIRMWARE_FILENAME" >> $GITHUB_ENV
+          if echo "$FIRMWARE_FILENAME" | grep -q "sysupgrade"; then
+            echo "FIRMWARE_TYPE=sysupgrade" >> $GITHUB_ENV
+          else
+            echo "FIRMWARE_TYPE=factory" >> $GITHUB_ENV
           fi
 
       - name: 整理固件文件
@@ -128,33 +137,31 @@ jobs:
         run: |
           cd openwrt
           mkdir -p firmware
-          cp -f $FIRMWARE_PATH firmware/
+          cp -f "$FIRMWARE_PATH" firmware/
           cp -f .config firmware/config.buildinfo
           cd firmware
-          zip -r -j SL3000-${{ env.FILE_DATE }}-firmware.zip *
-          echo "FIRMWARE_ZIP=SL3000-${{ env.FILE_DATE }}-firmware.zip" >> $GITHUB_ENV
-
-      - name: 上传固件目录
-        if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-        uses: actions/upload-artifact@main
-        with:
-          name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
-          path: openwrt/bin
+          FIRMWARE_ZIP="SL3000-${{ env.FILE_DATE }}-firmware.zip"
+          zip -r -j "$FIRMWARE_ZIP" ./*
+          echo "FIRMWARE_ZIP=$FIRMWARE_ZIP" >> $GITHUB_ENV
 
       - name: 上传固件文件
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_FIRMWARE == 'true'
-        uses: actions/upload-artifact@main
+        uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          name: OpenWrt_firmware_${{ env.DEVICE_NAME }}_${{ env.FILE_DATE }}
           path: openwrt/firmware
 
-      - name: 生成发布标签
+      - name: 生成发布信息
         id: tag
         run: |
           echo "tag_name=build_$(date +"%Y%m%d%H%M")" >> $GITHUB_OUTPUT
-          echo "release_name=SL3000 固件编译 $(date +"%Y-%m-%d %H:%M")" >> $GITHUB_OUTPUT
+          echo "release_name=SL3000 (${{ env.DEVICE_NAME }}) 固件 $(date +"%Y-%m-%d %H:%M")" >> $GITHUB_OUTPUT
+          echo "body=司络 SL3000 (MT7981B) 自动编译固件
+          设备: ${{ env.DEVICE_NAME }}
+          固件: ${{ env.FIRMWARE_FILENAME }}
+          类型: ${{ env.FIRMWARE_TYPE }}" >> $GITHUB_OUTPUT
 
-      - name: 删除旧的发布
+      - name: 删除旧发布
         uses: dev-drprasad/delete-older-releases@v0.2.1
         with:
           keep_latest: 3
@@ -162,13 +169,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 发布固件
-        if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+      - name: 发布到 Release
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true'
         uses: softprops/action-gh-release@v1
         with:
           name: ${{ steps.tag.outputs.release_name }}
           tag_name: ${{ steps.tag.outputs.tag_name }}
-          body_path: openwrt/DEVICE_NAME
+          body: ${{ steps.tag.outputs.body }}
           files: |
             openwrt/firmware/${{ env.FIRMWARE_ZIP }}
             openwrt/${{ env.FIRMWARE_PATH }}
