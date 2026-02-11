@@ -4,100 +4,63 @@ on:
   workflow_dispatch:
 
 env:
-  WORKDIR: openwrt
   DEVICE_NAME: sl3000-emmc
-  CACHE_KEY: sl3000-v2026-ultimate-fix
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: "1. 检出代码"
+      - name: 1. 检出代码
         uses: actions/checkout@v4
 
-      - name: "2. 🚀 腾出磁盘空间 & 12G Swap"
+      - name: 2. 磁盘空间与12G Swap
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker || true
-          sudo docker image prune -a -f || true
+          sudo rm -rf /usr/share/dotnet /android /opt/ghc /opt/hostedtoolcache /var/lib/docker || true
+          sudo docker prune -a -f || true
           sudo swapoff -a || true
-          sudo rm -f /swapfile || true
-          sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          sudo rm -f /swapfile
+          sudo fallocate -l 12G /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler bc libncurses5-dev libssl-dev
 
-      - name: "3. 🛡️ 恢复工具链缓存"
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ${{ env.WORKDIR }}/dl
-            ${{ env.WORKDIR }}/staging_dir
-          key: ${{ runner.os }}-${{ env.CACHE_KEY }}
-          restore-keys: |
-            ${{ runner.os }}-sl3000-
-
-      - name: "4. 克隆 ImmortalWrt 源码"
+      - name: 3. 克隆源码
         run: |
-          [ -d "${{ env.WORKDIR }}" ] || git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
+          [ -d "openwrt" ] || git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "5. 执行补丁脚本"
-        working-directory: ${{ env.WORKDIR }}
+      - name: 5. 运行补丁脚本
         run: |
+          cd openwrt
           chmod +x ../scripts/clean-feeds.sh
           ../scripts/clean-feeds.sh
 
-      - name: "6. 🛠️ 编译工具链"
-        working-directory: ${{ env.WORKDIR }}
+      - name: 6. 编译工具链
         run: |
+          cd openwrt
           make tools/install -j$(nproc) || make tools/install -j1 V=s
           make package/opkg/host/compile -j1 V=s
           make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
-      - name: "7. 🔥 注入 DTS 到内核"
-        working-directory: ${{ env.WORKDIR }}
+      - name: 8. 编译固件
         run: |
-          make target/linux/prepare -j$(nproc)
-          DTS_FILE="${{ github.workspace }}/mt7981b-sl3000-emmc.dts"
-          find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r dts_path; do
-            cp -fv "$DTS_FILE" "$dts_path/"
-            if ! grep -q "mt7981b-sl3000-emmc.dtb" "$dts_path/Makefile"; then
-              echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$dts_path/Makefile"
-            fi
-          done
-
-      - name: "8. ✅ 编译固件"
-        working-directory: ${{ env.WORKDIR }}
-        run: |
-          TCPATH=$(find ${{ github.workspace }}/${{ env.WORKDIR }}/staging_dir -name "bin" -type d | grep "toolchain" | head -n 1)
-          [ -n "$TCPATH" ] && export PATH="$TCPATH:$PATH"
-
+          cd openwrt
           make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
           make package/compile -j$(nproc) || make package/compile -j1 V=s
-
-          make package/index -j1 V=s || echo "⚠️ Index signing failed, continue..."
-
+          make package/index -j1 V=s || echo "跳过签名"
           make package/install -j$(nproc) || make package/install -j1 V=s
-          make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
+          make target/linux/install DEVICE_sl3000-emmc=y -j1 V=s
 
-      - name: "9. 📦 收集固件"
+      - name: 9. 收集固件
         if: always()
-        working-directory: ${{ env.WORKDIR }}
         run: |
-          mkdir -p ../release_bins
-          find bin/targets -type f -size +10M -name "*sysupgrade.bin" -exec cp -v {} ../release_bins/ \; || true
+          mkdir -p release_bins
+          find openwrt/bin/targets -name "*sysupgrade.bin" -size +10M -exec cp {} release_bins/ \;
 
-      - name: "10. 🚀 发布到 Release"
-        uses: softprops/action-gh-release@v2
+      - name: 10. 发布Release
+        uses: softprops/gh-release@v2
         if: always()
         with:
-          tag_name: SL3000-Final-Success-${{ github.run_id }}
+          tag_name: build-${{ github.run_id }}
           files: release_bins/*
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: "11. 🛡️ 保存缓存"
-        uses: actions/cache/save@v4
-        if: success()
-        with:
-          path: |
-            ${{ env.WORKDIR }}/dl
-            ${{ env.WORKDIR }}/staging_dir
-          key: ${{ runner.os }}-${{ env.CACHE_KEY }}
