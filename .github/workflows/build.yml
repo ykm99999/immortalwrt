@@ -63,7 +63,7 @@ jobs:
           find bin/targets -type f | sort
 
       - name: Release
-        uses: softprops/action@v1
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: build_${{ github.run_id }}
           files: openwrt/bin/targets/**/*
