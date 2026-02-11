@@ -1,12 +1,17 @@
 #!/bin/bash
 set -eo pipefail
 
-# 清理 feeds（你要的！）
-./scripts/clean-feeds.sh
+# 强制定位到 openwrt 目录（永不迷路）
+cd "$(dirname "$0")/../openwrt" || exit 1
 
+echo "=== 执行 feeds 清理 ==="
+"$GITHUB_WORKSPACE/scripts/clean-feeds.sh"
+
+echo "=== 更新 feeds ==="
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
+echo "=== 写入 .config ==="
 cat > .config <<'EOF'
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y
@@ -27,7 +32,11 @@ CONFIG_PACKAGE_zram-swap=y
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 EOF
 
+echo "=== 关闭编译警告报错 ==="
 find . -name Makefile -type f -exec sed -i 's/ERROR_ON_WARNING = y/ERROR_ON_WARNING = n/g' {} +
 find . -name "Makefile.dtc" -type f -exec sed -i 's/-Werror//g' {} +
 
+echo "=== 生效配置 ==="
 make defconfig
+
+echo -e "\n✅ 配置完成，准备编译！"
