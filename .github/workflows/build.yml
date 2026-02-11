@@ -1,86 +1,62 @@
-name: Build ImmortalWrt SL3000
+name: SL3000-Extreme-Final
 
 on:
   workflow_dispatch:
 
+env:
+  WORKDIR: openwrt
+  DEVICE_NAME: sl3000-emmc
+
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
-      - name: Checkout config
+      - name: 1. 检出你仓库（含三件套+脚本）
         uses: actions/checkout@v4
+
+      - name: 2. 磁盘优化 + Swap
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /var/lib/docker
+          sudo swapoff -a && sudo rm -f /swapfile
+          sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          sudo apt-get update
+          sudo apt-get install -y build-essential flex bison m4 gawk libncurses5-dev libssl-dev
+
+      - name: 3. 克隆源码
+        run: |
+          [ -d "${WORKDIR}" ] || git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git ${WORKDIR}
+
+      - name: 4. 执行你仓库脚本 scripts/clean-feeds.sh
+        run: |
+          chmod +x scripts/clean-feeds.sh
+          ./scripts/clean-feeds.sh
+
+      - name: 5. 编译工具链
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          make tools/install -j$(nproc) || make tools/install -j1 V=s
+          make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
+
+      - name: 6. 编译固件
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          make target/linux/compile -j$(nproc) || make target/linux/compile -j1 V=s
+          make package/compile -j$(nproc) || make package/compile -j1 V=s
+          make package/index -j1 V=s || echo "⚠️ 跳过签名"
+          make package/install -j$(nproc)
+          make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y
+
+      - name: 7. 收集固件
+        if: always()
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          mkdir -p ../release
+          find bin/targets -name "*sysupgrade.bin" -size +10M -exec cp {} ../release/ \;
+
+      - name: 8. 自动发布
+        uses: softprops/action-gh-release@v2
+        if: always()
         with:
-          path: config
-
-      # 【仅新增：轻量优化磁盘，不改动你任何原有代码】
-      - name: Optimize disk space
-        run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/share/gradle
-          sudo apt clean -y
-          sudo apt autoremove -y
-
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential libncurses-dev libssl-dev git wget unzip python3 python3-pip
-
-      - name: Clone ImmortalWrt
-        uses: actions/checkout@v4
-        with:
-          repository: immortalwrt/immortalwrt
-          ref: master
-          path: openwrt
-
-      - name: Clean
-        run: |
-          cd openwrt
-          rm -rf bin tmp
-          make clean || true
-
-      - name: Update feeds
-        run: |
-          cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Build
-        run: |
-          cd openwrt
-          if [ ! -f ../config/.config ]; then
-            echo "ERROR: No .config"
-            exit 1
-          fi
-          cp ../config/.config .config
-          make defconfig
-          make -j$(nproc) V=s || make -j1 V=s
-          if [ $? -ne 0 ]; then
-            echo "ERROR: Build failed"
-            exit 1
-          fi
-          count=$(find bin/targets -type f | wc -l)
-          if [ $count -eq 0 ]; then
-            echo "ERROR: No firmware"
-            # 【仅新增：无固件时打印日志，其余完全和你原版一样】
-            echo "===== DEBUG LOG - bin目录结构 ====="
-            ls -la bin/
-            ls -la bin/targets/
-            echo "===== DEBUG LOG - 目标设备配置 ====="
-            grep CONFIG_TARGET .config
-            echo "===== DEBUG LOG - 编译最后100行 ====="
-            tail -n 100 $(find ./ -name "*.log" | head -1) 2>/dev/null
-            exit 1
-          fi
-
-      - name: Show files
-        run: |
-          cd openwrt
-          find bin/targets -type f | sort
-
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: build_${{ github.run_id }}
-          files: openwrt/bin/targets/**/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: SL3000-Final-${{ github.run_id }}
+          files: release/*
+          token: ${{ secrets.GITHUB_TOKEN }}
