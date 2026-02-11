@@ -10,7 +10,8 @@ jobs:
     steps:
       - name: Checkout config
         uses: actions/checkout@v4
-        path: config
+        with:
+          path: config
 
       - name: Install dependencies
         run: |
@@ -62,7 +63,7 @@ jobs:
           find bin/targets -type f | sort
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action@v1
         with:
           tag_name: build_${{ github.run_id }}
           files: openwrt/bin/targets/**/*
