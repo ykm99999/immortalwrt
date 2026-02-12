@@ -1,4 +1,4 @@
-name: SL3000-2512-Final-Physical-Override
+name: SL3000-2512-Ultimate-Final
 
 on:
   workflow_dispatch:
@@ -14,36 +14,49 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘与环境调优
+      - name: 2. 磁盘优化与全量依赖安装
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison m4 gawk rsync unzip wget python3 device-tree-compiler libncurses5-dev libssl-dev
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+            gettext git libncurses-dev libssl-dev python3-distutils python3-pyelftools python3-setuptools \
+            swig unzip zlib1g-dev rsync wget file libelf-dev device-tree-compiler qemu-utils
 
       - name: 3. 克隆源码 (25.12)
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 运行脚本补丁 (执行物理覆盖)
+      - name: 4. 运行脚本补丁 (执行 128M 物理转换)
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: 5. 预编译基础工具链
+      - name: 5. 预编译工具链
         working-directory: ${{ env.WORKDIR }}
         run: |
+          ./scripts/feeds update -a && ./scripts/feeds install -a
           make tools/install -j$(nproc)
-          make tools/firmware-utils/compile V=s
           make toolchain/install -j$(nproc)
 
-      - name: 6. DTS 现场物理修复 (🎯 解决 include 报错)
+      - name: 6. 核心物理合体 (🎯 彻底解决 mt7981.dtsi 缺失)
         working-directory: ${{ env.WORKDIR }}
         run: |
           make target/linux/prepare -j$(nproc)
+          
+          # 1. 找到内核源码中真正的 mt7981.dtsi
+          DTSI_PATH=$(find build_dir -name "mt7981.dtsi" | head -n 1)
+          echo "📍 找到依赖文件路径: $DTSI_PATH"
+          
+          # 2. 物理合体：将 dtsi 内容合并入 dts，消除外部依赖
+          # 创建一个副本，防止多次运行导致重复注入
+          cp -fv ../mt7981b-sl3000-emmc.dts ./combined.dts
+          sed -i '/#include "mt7981.dtsi"/r '"$DTSI_PATH" ./combined.dts
+          sed -i '/#include "mt7981.dtsi"/d' ./combined.dts
+          
+          # 3. 物理覆盖所有目标路径
           find build_dir -path "*/arch/arm64/boot/dts" -type d | while read -r DTS_DIR; do
-            # 物理拷贝所有依赖到同级目录，让 #include "mt7981.dtsi" 原地命中
-            cp -fv "$DTS_DIR"/*.dtsi "$DTS_DIR/mediatek/" 2>/dev/null || true
-            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/mediatek/"
-            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/mediatek/mt7981-rfb.dts"
+            mkdir -p "$DTS_DIR/mediatek"
+            cp -fv ./combined.dts "$DTS_DIR/mediatek/mt7981b-sl3000-emmc.dts"
+            cp -fv ./combined.dts "$DTS_DIR/mediatek/mt7981-rfb.dts"
             
             if [ -f "$DTS_DIR/mediatek/Makefile" ]; then
               sed -i '/mt7981b-sl3000-emmc.dtb/d' "$DTS_DIR/mediatek/Makefile"
@@ -51,36 +64,32 @@ jobs:
             fi
           done
 
-      - name: 7. 极限封包编译 (包含工具劫持与 Rootfs 保护)
+      - name: 7. 物理劫持与极限编译
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 物理劫持工具链
+          # 物理劫持 mkhash 防止脚本变量丢失
           HOST_BIN="$(pwd)/staging_dir/host/bin"
-          [ -f "$HOST_BIN/opkg" ] && sudo ln -sf "$HOST_BIN/opkg" /usr/bin/opkg || true
           [ -f "$HOST_BIN/mkhash" ] && sudo ln -sf "$HOST_BIN/mkhash" /usr/bin/mkhash || true
-          FW_REAL=$(find staging_dir/host/bin/ -name "fwtool" | head -n 1)
-          [ -n "$FW_REAL" ] && sudo ln -sf "$(pwd)/$FW_REAL" /usr/bin/fwtool || true
           
-          # 物理保护 Rootfs
-          make target/linux/compile -j$(nproc) || true
-          find build_dir -type d -name "target-*" | while read -r TGT_DIR; do
-            ROOT_DIR="$TGT_DIR/root-mediatek"
-            [ ! -d "$ROOT_DIR" ] && mkdir -p "$ROOT_DIR/etc" && touch "$ROOT_DIR/etc/keep" || true
-          done
-          
+          # 启动构建
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 8. 固件发布
+      - name: 8. 发布 Release
         working-directory: ${{ env.WORKDIR }}
         run: |
           FIRMWARE=$(find bin/targets/ -name "*sl3000*.bin" | head -n 1)
-          [ -n "$FIRMWARE" ] && echo "FIRMWARE_PATH=$FIRMWARE" >> $GITHUB_ENV || exit 1
+          if [ -n "$FIRMWARE" ]; then
+            echo "FIRMWARE_PATH=$FIRMWARE" >> $GITHUB_ENV
+          else
+            echo "❌ 固件未生成！"
+            exit 1
+          fi
 
-      - name: 9. Release
+      - name: 9. 上传
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-Final-v5
+          tag_name: SL3000-Final-v6-${{ github.run_id }}
           files: ${{ env.WORKDIR }}/${{ env.FIRMWARE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
