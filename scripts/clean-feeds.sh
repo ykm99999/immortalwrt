@@ -1,20 +1,20 @@
 #!/bin/bash
 set -eo pipefail
 
-# 物理定位：所有源文件就在仓库根目录
+# 🎯 物理定位：脚本在 scripts/ 下，仓库根目录就是 ..
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 SRC_DIR="${REPO_ROOT}"
 
-echo -e "\033[32m🚀 [SL3000] 执行三件套物理对齐：锁定 sl,3000-emmc 并强制对齐 1024MB 分区...\033[0m"
+echo -e "\033[32m🚀 [SL3000] 执行三件套物理对齐：scripts/clean-feeds.sh 运行中...\033[0m"
 
 cd "${WORKDIR}"
 
-# 1. 物理环境准备 (原文照抄成功案例)
+# 1. 物理环境准备 (延续成功案例原文)
 mkdir -p staging_dir/host
 touch staging_dir/host/.prereq-build
 
-# 2. 🔥 [物理重建 .config] 严格原文照抄你提供的核心配置
+# 2. 🔥 [.config] 严格原文照抄你提供的 24 行核心配置
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -43,42 +43,30 @@ rm -f .config
     echo "CONFIG_PACKAGE_nano=y"
 } > .config
 
-# 3. 🔥 [物理地毯式修复] 修正源码中所有设备 ID 冲突
-find target/linux/mediatek/ -type f -name "*.dts*" -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
-find target/linux/mediatek/ -type f -name "*.dtsi*" -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
+# 3. 🔥 [ID 修正] 延续地毯式替换逻辑
+find target/linux/mediatek/ -type f \( -name "*.dts*" -o -name "*.dtsi*" \) -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
 
-# 4. 🔥 [物理路径对齐] 注入 DTS (25.12 物理修正点：指向 files-6.12)
+# 4. 🔥 [DTS 注入] 物理适配 25.12 路径 (files-6.12)
+# 🎯 物理源：从仓库根目录 ${SRC_DIR} 读取，不准换位置
 DTS_PATH_A="target/linux/mediatek/dts"
 DTS_PATH_B="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
 mkdir -p "$DTS_PATH_A" "$DTS_PATH_B"
-
 if [ -f "${SRC_DIR}/mt7981b-sl3000-emmc.dts" ]; then
     cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "$DTS_PATH_A/"
     cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "$DTS_PATH_B/"
-    # 物理二次校验
-    sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' "$DTS_PATH_A/mt7981b-sl3000-emmc.dts" || true
-    sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' "$DTS_PATH_B/mt7981b-sl3000-emmc.dts" || true
 fi
 
-# 5. 🔥 [物理镜像定义修复] 注入 MK
+# 5. 🔥 [MK 注入] 延续锁定 1024MB 逻辑
+# 🎯 物理源：从仓库根目录 ${SRC_DIR} 读取
 mkdir -p target/linux/mediatek/image
 if [ -f "${SRC_DIR}/filogic.mk" ]; then
     cp -fv "${SRC_DIR}/filogic.mk" target/linux/mediatek/image/
-    sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' target/linux/mediatek/image/filogic.mk || true
-    sed -i 's/sl3000-emmc/3000-emmc/g' target/linux/mediatek/image/filogic.mk || true
     sed -i 's/BOARD_ROOTFS_PARTSIZE := .*/BOARD_ROOTFS_PARTSIZE := 1024/g' target/linux/mediatek/image/filogic.mk || true
-    # 物理放宽逻辑 (照抄成功案例)
-    sed -i 's/pad-to/append-string/g' target/linux/mediatek/image/filogic.mk || true
-    sed -i 's/check-size/append-string/g' target/linux/mediatek/image/filogic.mk || true
 fi
 
-# 6. 修正全局编译宏 (照抄成功案例)
-if [ -f "include/image.mk" ]; then
-    sed -i 's/$(STAGING_DIR_HOST)\/bin\/pad-to/append-string/g' include/image.mk || true
-fi
-
-# 7. 物理屏蔽签名校验
+# 6. 物理屏蔽逻辑 (原文照抄成功案例)
+[ -f "include/image.mk" ] && sed -i 's/$(STAGING_DIR_HOST)\/bin\/pad-to/append-string/g' include/image.mk || true
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/true/g' package/Makefile || true
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/ucert/true/g' package/Makefile || true
 
-echo -e "\033[32m✅ 脚本路径完全对齐：scripts/clean-feeds.sh 已就绪。\033[0m"
+echo -e "\033[32m✅ 路径 scripts/clean-feeds.sh 及三件套物理源已完全闭环复刻。\033[0m"
