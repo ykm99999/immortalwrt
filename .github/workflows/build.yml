@@ -1,4 +1,4 @@
-name: SL3000-2512-Total-Fix-Final
+name: SL3000-2512-V15-Absolute-Flatten
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
-      - name: 3. 安装依赖环境
+      - name: 3. 安装依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
@@ -42,31 +42,25 @@ jobs:
           make tools/install -j$(nproc) || make tools/install -j1 V=s
           make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
-      - name: 7. [终极修复] 物理环境对齐 (解决 Label 丢失)
+      - name: 7. [物理熔断] DTS 彻底自洽化 (百分百一次性解决)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 🎯 物理路径定位：指向你给出的官方源
+          # 物理源路径定位
           SRC_DTS_PATH="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
+          INCLUDE_PATH="target/linux/mediatek/files-6.12/include"
           
-          echo "==== [执行物理依赖强制对齐] ===="
-          # 1. 物理准备：确保内核 DTS 目录已存在
+          echo "==== [CPP 物理展开：生成单体 DTS] ===="
+          # 🎯 核心黑科技：强制预处理器展开所有 include 到一个临时文件中
+          # -P 消除行号干扰, -nostdinc 保证纯净, -I 指定物理搜索路径
+          cpp -I "$SRC_DTS_PATH" -I "$INCLUDE_PATH" -nostdinc -undef -x assembler-with-cpp -P ../mt7981b-sl3000-emmc.dts ./sl3000_physical_melted.dts
+          
+          echo "==== [物理全路径强制同步] ===="
           make target/linux/prepare -j$(nproc)
-          
-          # 2. 找到所有编译时可能的 DTS 路径
           find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r DTS_DIR; do
-            echo "正在修复目录: $DTS_DIR"
+            # 🎯 将生成的单体文件分发，从此不依赖任何 .dtsi 外部文件
+            cp -fv ./sl3000_physical_melted.dts "$DTS_DIR/mt7981b-sl3000-emmc.dts"
+            cp -fv ./sl3000_physical_melted.dts "$DTS_DIR/mt7981-rfb.dts"
             
-            # 🎯 核心逻辑：将官方 files-6.12 下的所有 .dtsi 物理拷贝到目标目录
-            # 这样你的 #include "mt7981b.dtsi" 就能在原地被编译器找到，Label 也会自动对齐
-            cp -fv $SRC_DTS_PATH/*.dtsi "$DTS_DIR/"
-            
-            # 3. 物理覆盖你的设备文件
-            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/mt7981b-sl3000-emmc.dts"
-            
-            # 4. 物理劫持官方 RFB 以确保编译链路触发
-            cp -fv ../mt7981b-sl3000-emmc.dts "$DTS_DIR/mt7981-rfb.dts"
-            
-            # 5. 注册到 Makefile
             if [ -f "$DTS_DIR/Makefile" ]; then
               sed -i '/mt7981b-sl3000-emmc.dtb/d' "$DTS_DIR/Makefile"
               echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$DTS_DIR/Makefile"
@@ -76,7 +70,7 @@ jobs:
       - name: 8. [拆分 B] 构建固件
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 🎯 [补丁] mkhash 物理修复
+          # 🎯 [物理劫持补丁] mkhash 修复
           HOST_BIN="$(pwd)/staging_dir/host/bin"
           [ -f "$HOST_BIN/mkhash" ] && sudo ln -sf "$HOST_BIN/mkhash" /usr/bin/mkhash || true
           
@@ -93,6 +87,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-TotalFix-${{ github.run_id }}
+          tag_name: SL3000-Melted-Final-${{ github.run_id }}
           files: ${{ env.WORKDIR }}/${{ env.FIRMWARE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
