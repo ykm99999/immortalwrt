@@ -19,17 +19,17 @@ rm -rf tmp .config
     echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y"
 } > .config
 
-# 🎯 [核心补丁：128M 转换] 物理修复算术溢出错误
+# 🎯 [补丁] 128M 物理转换防止溢出
 find target/linux/mediatek/image -name "*.mk" -o -name "Makefile" | xargs -r sed -i 's/128M/134217728/g' 2>/dev/null || true
 
-# 🎯 [核心补丁：分区对齐] 强制同步 Rootfs 分区大小
+# 🎯 [补丁] 锁定 Rootfs 分区大小
 sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=1024/' .config
 
-# 🎯 [核心补丁：设备定义] 物理覆盖 filogic.mk
+# 🎯 [补丁] 覆盖设备定义
 if [ -f "${SRC_DIR}/filogic.mk" ]; then
     cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
 fi
 
-# 3. 锁定配置并同步（解决 config out of sync 警告）
+# 3. 锁定配置
 make defconfig
 make oldconfig
