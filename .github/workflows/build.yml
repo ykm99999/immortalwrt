@@ -1,4 +1,4 @@
-name: SL3000-2512-V11-Final
+name: SL3000-2512-Official-Source-Linear
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. [磁盘补丁] 空间清理与 12G Swap
+      - name: 2. [补丁] 磁盘空间优化与 12G Swap
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /etc/mysql /etc/php || true
           sudo docker image prune -a -f || true
@@ -30,28 +30,35 @@ jobs:
             gettext git libncurses-dev libssl-dev python3-distutils python3-pyelftools python3-setuptools \
             swig unzip zlib1g-dev rsync wget file libelf-dev device-tree-compiler qemu-utils
 
-      - name: 4. 克隆源码 (25.12)
-        run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
+      - name: 4. [物理修正] 克隆官方 OpenWrt 25.12 源码
+        # 🎯 物理对齐你提到的源路径官方仓库
+        run: git clone --depth=1 -b openwrt-25.12 https://github.com/openwrt/openwrt.git ${{ env.WORKDIR }}
 
       - name: 5. 运行脚本补丁
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: 6. [拆分构建 A] 构建工具链
+      - name: 6. [拆分 A] 构建官方工具链
         working-directory: ${{ env.WORKDIR }}
         run: |
           make tools/install -j$(nproc) || make tools/install -j1 V=s
           make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
 
-      - name: 7. [DTS补丁] 物理注入 6.12 依赖
+      - name: 7. [补丁] DTS 物理合体 (files-6.12 官方路径)
         working-directory: ${{ env.WORKDIR }}
         run: |
+          # 🎯 物理指向官方 25.12 的源路径
           SRC_DTS_PATH="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
           cp -fv ../mt7981b-sl3000-emmc.dts ./combined.dts
+          
+          # 物理递归注入依赖
           [ -f "$SRC_DTS_PATH/mt7981b.dtsi" ] && sed -i '/#include "mt7981b.dtsi"/r '"$SRC_DTS_PATH/mt7981b.dtsi" ./combined.dts
           [ -f "$SRC_DTS_PATH/mt7981.dtsi" ] && sed -i '/#include "mt7981.dtsi"/r '"$SRC_DTS_PATH/mt7981.dtsi" ./combined.dts
+          
+          # 物理抹除 include，实现单文件闭环
           sed -i '/#include "mt7981.dtsi"/d' ./combined.dts
           sed -i '/#include "mt7981b.dtsi"/d' ./combined.dts
           
+          echo "==== [全路径物理同步分发] ===="
           make target/linux/prepare -j$(nproc)
           find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r DTS_DIR; do
             cp -fv ./combined.dts "$DTS_DIR/mt7981b-sl3000-emmc.dts"
@@ -62,17 +69,17 @@ jobs:
             fi
           done
 
-      - name: 8. [拆分构建 B] 构建固件
+      - name: 8. [拆分 B] 构建官方目标固件
         working-directory: ${{ env.WORKDIR }}
         run: |
-          # 🎯 [劫持补丁] mkhash 物理修复
+          # 🎯 [物理补丁] mkhash 修复
           HOST_BIN="$(pwd)/staging_dir/host/bin"
           [ -f "$HOST_BIN/mkhash" ] && sudo ln -sf "$HOST_BIN/mkhash" /usr/bin/mkhash || true
           
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 9. 导出结果
+      - name: 9. 导出固件
         working-directory: ${{ env.WORKDIR }}
         run: |
           FIRMWARE=$(find bin/targets/ -name "*sl3000*.bin" | head -n 1)
@@ -82,6 +89,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-V11-${{ github.run_id }}
+          tag_name: SL3000-Official-2512-${{ github.run_id }}
           files: ${{ env.WORKDIR }}/${{ env.FIRMWARE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
