@@ -5,15 +5,11 @@ REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 SRC_DIR="${REPO_ROOT}/custom-config"
 
-echo -e "\033[32m🚀 [SL3000] 执行三件套物理对齐：锁定 sl,3000-emmc 并强制对齐 1024MB 分区...\033[0m"
+echo -e "\033[32m🚀 [SL3000] 执行 25.12 物理对齐：锁定 ID 并修正内核路径...\033[0m"
 
 cd "${WORKDIR}"
 
-# 1. 物理环境准备
-mkdir -p staging_dir/host
-touch staging_dir/host/.prereq-build
-
-# 2. 🔥 [物理重建 .config] 严格原文照抄 24 行核心配置
+# 1. 物理重建 .config (完全照抄你的 24 行核心配置)
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -42,41 +38,27 @@ rm -f .config
     echo "CONFIG_PACKAGE_nano=y"
 } > .config
 
-# 3. 🔥 [物理地毯式修复] 修正源码中所有设备 ID 冲突
-find target/linux/mediatek/ -type f -name "*.dts*" -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
-find target/linux/mediatek/ -type f -name "*.dtsi*" -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
+# 2. 修正 ID 冲突 (承袭成功案例逻辑)
+find target/linux/mediatek/ -type f \( -name "*.dts*" -o -name "*.dtsi*" \) -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
 
-# 4. 🔥 [物理路径对齐] 注入新版 DTS (25.12 核心修正：files-6.12)
-DTS_PATH_A="target/linux/mediatek/dts"
-DTS_PATH_B="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
-mkdir -p "$DTS_PATH_A" "$DTS_PATH_B"
+# 3. 物理注入 DTS (核心修正：指向 files-6.12)
+DTS_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
+mkdir -p "$DTS_DIR"
 if [ -f "${SRC_DIR}/mt7981b-sl3000-emmc.dts" ]; then
-    cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "$DTS_PATH_A/"
-    cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "$DTS_PATH_B/"
-    # 物理二次校验
-    sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' "$DTS_PATH_A/mt7981b-sl3000-emmc.dts" || true
-    sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' "$DTS_PATH_B/mt7981b-sl3000-emmc.dts" || true
+    cp -fv "${SRC_DIR}/mt7981b-sl3000-emmc.dts" "$DTS_DIR/"
+    sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' "$DTS_DIR/mt7981b-sl3000-emmc.dts"
 fi
 
-# 5. 🔥 [物理镜像定义修复] 注入新版 MK
-mkdir -p target/linux/mediatek/image
+# 4. 物理注入 MK (承袭成功案例逻辑)
 if [ -f "${SRC_DIR}/filogic.mk" ]; then
     cp -fv "${SRC_DIR}/filogic.mk" target/linux/mediatek/image/
-    sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' target/linux/mediatek/image/filogic.mk || true
-    sed -i 's/sl3000-emmc/3000-emmc/g' target/linux/mediatek/image/filogic.mk || true
-    sed -i 's/BOARD_ROOTFS_PARTSIZE := .*/BOARD_ROOTFS_PARTSIZE := 1024/g' target/linux/mediatek/image/filogic.mk || true
-    # 物理屏蔽报错逻辑
-    sed -i 's/pad-to/append-string/g' target/linux/mediatek/image/filogic.mk || true
-    sed -i 's/check-size/append-string/g' target/linux/mediatek/image/filogic.mk || true
+    sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' target/linux/mediatek/image/filogic.mk
+    sed -i 's/sl3000-emmc/3000-emmc/g' target/linux/mediatek/image/filogic.mk
+    sed -i 's/BOARD_ROOTFS_PARTSIZE := .*/BOARD_ROOTFS_PARTSIZE := 1024/g' target/linux/mediatek/image/filogic.mk
+    sed -i 's/pad-to/append-string/g' target/linux/mediatek/image/filogic.mk
 fi
 
-# 6. 修正全局编译宏
-if [ -f "include/image.mk" ]; then
-    sed -i 's/$(STAGING_DIR_HOST)\/bin\/pad-to/append-string/g' include/image.mk || true
-fi
-
-# 7. 物理屏蔽签名校验
-sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/true/g' package/Makefile || true
-sed -i 's/$(STAGING_DIR_HOST)\/bin\/ucert/true/g' package/Makefile || true
-
-echo -e "\033[32m✅ 三件套针对 25.12 物理对齐完成。ID: 3000-emmc。\033[0m"
+# 5. 屏蔽签名与 pad-to 报错 (承袭成功案例逻辑)
+[ -f "include/image.mk" ] && sed -i 's/$(STAGING_DIR_HOST)\/bin\/pad-to/append-string/g' include/image.mk
+sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/true/g' package/Makefile
+sed -i 's/$(STAGING_DIR_HOST)\/bin\/ucert/true/g' package/Makefile
