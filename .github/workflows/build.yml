@@ -1,92 +1,91 @@
-name: SL3000-2512-V15-Absolute-Flatten
+Name: Build_SL3000
 
 on:
   workflow_dispatch:
 
-env:
-  WORKDIR: openwrt
-  DEVICE_NAME: sl3000-emmc
-
 jobs:
   build:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
-      - name: 1. 检出仓库
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 2. [补丁] 磁盘空间优化与 12G Swap
+      - name: "🚀 [极致补全] 环境物理自愈"
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /etc/mysql /etc/php || true
-          sudo docker image prune -a -f || true
-          sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' azure-cli google-cloud-sdk google-chrome-stable firefox powershell mono-devel || true
-          sudo apt-get autoremove -y && sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
+          sudo apt update
+          sudo apt install -y build-essential clang flex bison gawk gettext \
+            gettext-base git libncurses5-dev libssl-dev python3 python3-distutils \
+            python3-pyelftools rsync unzip zlib1g-dev swig libpython3-dev \
+            device-tree-compiler wget curl file tar bzip2 patch setserial \
+            pkg-config qemu-utils
           sudo swapoff -a || true
-          sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
-      - name: 3. 安装依赖
+      - name: "📂 Clone ImmortalWrt (25.12)"
+        run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
+
+      - name: "⚡ [延续] 物理开启缓存机制"
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/staging_dir
+            openwrt/build_dir/host
+          key: ${{ runner.os }}-openwrt-cache-${{ hashFiles('openwrt/include/toplevel.mk') }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-cache-
+
+      - name: Update Feeds
+        working-directory: ./openwrt
+        run: ./scripts/feeds update -a && ./scripts/feeds install -a > /dev/null 2>&1
+
+      - name: Run patch script
+        run: chmod +x scripts/sl3000-patch.sh && ./scripts/sl3000-patch.sh
+
+      - name: Build Toolchain
+        working-directory: ./openwrt
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
-            gettext git libncurses-dev libssl-dev python3-distutils python3-pyelftools python3-setuptools \
-            swig unzip zlib1g-dev rsync wget file libelf-dev device-tree-compiler qemu-utils
+          make defconfig FORCE=1
+          make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
+          make toolchain/install -j$(nproc) FORCE=1 || make toolchain/install -j1 V=s FORCE=1
 
-      - name: 4. 克隆源码 (25.12)
-        run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
-
-      - name: 5. 运行脚本补丁
-        run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
-
-      - name: 6. [拆分 A] 构建工具链
-        working-directory: ${{ env.WORKDIR }}
+      - name: "🎯 [物理熔断补丁] 彻底解决 25.12 DTS 报错"
+        working-directory: ./openwrt
         run: |
-          make tools/install -j$(nproc) || make tools/install -j1 V=s
-          make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
-
-      - name: 7. [物理熔断] DTS 彻底自洽化 (百分百一次性解决)
-        working-directory: ${{ env.WORKDIR }}
-        run: |
-          # 物理源路径定位
           SRC_DTS_PATH="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
-          INCLUDE_PATH="target/linux/mediatek/files-6.12/include"
-          
-          echo "==== [CPP 物理展开：生成单体 DTS] ===="
-          # 🎯 核心黑科技：强制预处理器展开所有 include 到一个临时文件中
-          # -P 消除行号干扰, -nostdinc 保证纯净, -I 指定物理搜索路径
-          cpp -I "$SRC_DTS_PATH" -I "$INCLUDE_PATH" -nostdinc -undef -x assembler-with-cpp -P ../mt7981b-sl3000-emmc.dts ./sl3000_physical_melted.dts
-          
-          echo "==== [物理全路径强制同步] ===="
+          LINUX_INCLUDE="target/linux/mediatek/files-6.12/include"
+          # 物理展开所有依赖，生成自洽单文件
+          cpp -I "$SRC_DTS_PATH" -I "$LINUX_INCLUDE" -nostdinc -undef -x assembler-with-cpp -P ../custom-config/mt7981b-sl3000-emmc.dts > ./melted.dts
           make target/linux/prepare -j$(nproc)
           find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r DTS_DIR; do
-            # 🎯 将生成的单体文件分发，从此不依赖任何 .dtsi 外部文件
-            cp -fv ./sl3000_physical_melted.dts "$DTS_DIR/mt7981b-sl3000-emmc.dts"
-            cp -fv ./sl3000_physical_melted.dts "$DTS_DIR/mt7981-rfb.dts"
-            
-            if [ -f "$DTS_DIR/Makefile" ]; then
-              sed -i '/mt7981b-sl3000-emmc.dtb/d' "$DTS_DIR/Makefile"
-              echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$DTS_DIR/Makefile"
-            fi
+            cp -fv ./melted.dts "$DTS_DIR/mt7981b-sl3000-emmc.dts"
+            cp -fv ./melted.dts "$DTS_DIR/mt7981-rfb.dts"
           done
 
-      - name: 8. [拆分 B] 构建固件
-        working-directory: ${{ env.WORKDIR }}
+      - name: Build Firmware
+        working-directory: ./openwrt
         run: |
-          # 🎯 [物理劫持补丁] mkhash 修复
-          HOST_BIN="$(pwd)/staging_dir/host/bin"
-          [ -f "$HOST_BIN/mkhash" ] && sudo ln -sf "$HOST_BIN/mkhash" /usr/bin/mkhash || true
-          
-          make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
-          make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
+          make target/linux/compile -j$(nproc) FORCE=1
+          make package/compile -j$(nproc) FORCE=1
+          make package/install -j$(nproc) FORCE=1
+          # 🔥 严格延续你最后的最后一步逻辑
+          make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y \
+            CONFIG_TARGET_KERNEL_PARTSIZE=128 \
+            CONFIG_TARGET_ROOTFS_PARTSIZE=1024 IGNORE_ERRORS=1 FORCE=1
 
-      - name: 9. 导出结果
-        working-directory: ${{ env.WORKDIR }}
-        run: |
-          FIRMWARE=$(find bin/targets/ -name "*sl3000*.bin" | head -n 1)
-          [ -n "$FIRMWARE" ] && echo "FIRMWARE_PATH=$FIRMWARE" >> $GITHUB_ENV || exit 1
-
-      - name: 10. 发布 Release
-        uses: softprops/action-gh-release@v2
-        if: success()
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
-          tag_name: SL3000-Melted-Final-${{ github.run_id }}
-          files: ${{ env.WORKDIR }}/${{ env.FIRMWARE_PATH }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          name: SL3000-Firmware-2512
+          path: openwrt/bin/targets/mediatek/filogic/
+
+      - name: "🚢 [延续] 自动发布固件"
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: SL3000-v25.12-${{ github.run_id }}
+          files: |
+            openwrt/bin/targets/mediatek/filogic/*.bin
+            openwrt/bin/targets/mediatek/filogic/*.config
