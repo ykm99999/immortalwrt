@@ -1,4 +1,4 @@
-name: SL3000-2512-V8-Total-Fix
+name: SL3000-2512-V11-Final
 
 on:
   workflow_dispatch:
@@ -14,25 +14,16 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. [磁盘优化补丁] 深度清理与 12G Swap 扩展
+      - name: 2. [磁盘补丁] 空间清理与 12G Swap
         run: |
-          echo "==== [物理清理无用组件] ===="
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /etc/mysql /etc/php || true
           sudo docker image prune -a -f || true
-          
-          echo "==== [卸载大型软件包] ===="
           sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' azure-cli google-cloud-sdk google-chrome-stable firefox powershell mono-devel || true
           sudo apt-get autoremove -y && sudo apt-get clean
-          
-          echo "==== [扩展 12GB Swap 分区] ===="
           sudo swapoff -a || true
-          sudo fallocate -l 12G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          df -h
+          sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
-      - name: 3. 安装全量依赖
+      - name: 3. 安装依赖环境
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
@@ -45,23 +36,22 @@ jobs:
       - name: 5. 运行脚本补丁
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: 6. [物理合体补丁] 递归注入 files-6.12 依赖 (单文件化)
+      - name: 6. [拆分构建 A] 构建工具链
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          make tools/install -j$(nproc) || make tools/install -j1 V=s
+          make toolchain/install -j$(nproc) || make toolchain/install -j1 V=s
+
+      - name: 7. [DTS补丁] 物理注入 6.12 依赖
         working-directory: ${{ env.WORKDIR }}
         run: |
           SRC_DTS_PATH="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
-          
-          echo "==== [物理代码缝合：files-6.12] ===="
           cp -fv ../mt7981b-sl3000-emmc.dts ./combined.dts
-          
-          # 🎯 物理注入：mt7981b.dtsi 和 mt7981.dtsi 的全部内容
           [ -f "$SRC_DTS_PATH/mt7981b.dtsi" ] && sed -i '/#include "mt7981b.dtsi"/r '"$SRC_DTS_PATH/mt7981b.dtsi" ./combined.dts
           [ -f "$SRC_DTS_PATH/mt7981.dtsi" ] && sed -i '/#include "mt7981.dtsi"/r '"$SRC_DTS_PATH/mt7981.dtsi" ./combined.dts
-          
-          # 🎯 物理抹除：删除所有 include 语句，彻底切断外部依赖
           sed -i '/#include "mt7981.dtsi"/d' ./combined.dts
           sed -i '/#include "mt7981b.dtsi"/d' ./combined.dts
           
-          echo "==== [全路径强制同步] ===="
           make target/linux/prepare -j$(nproc)
           find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r DTS_DIR; do
             cp -fv ./combined.dts "$DTS_DIR/mt7981b-sl3000-emmc.dts"
@@ -72,29 +62,26 @@ jobs:
             fi
           done
 
-      - name: 7. 最终固件构建
+      - name: 8. [拆分构建 B] 构建固件
         working-directory: ${{ env.WORKDIR }}
         run: |
-          make tools/install -j$(nproc)
-          make toolchain/install -j$(nproc)
-          
-          # 🎯 [物理补丁：mkhash 劫持]
+          # 🎯 [劫持补丁] mkhash 物理修复
           HOST_BIN="$(pwd)/staging_dir/host/bin"
           [ -f "$HOST_BIN/mkhash" ] && sudo ln -sf "$HOST_BIN/mkhash" /usr/bin/mkhash || true
           
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
-      - name: 8. 生成发布环境
+      - name: 9. 导出结果
         working-directory: ${{ env.WORKDIR }}
         run: |
           FIRMWARE=$(find bin/targets/ -name "*sl3000*.bin" | head -n 1)
           [ -n "$FIRMWARE" ] && echo "FIRMWARE_PATH=$FIRMWARE" >> $GITHUB_ENV || exit 1
 
-      - name: 9. 上传 Release
+      - name: 10. 发布 Release
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-FullFix-${{ github.run_id }}
+          tag_name: SL3000-V11-${{ github.run_id }}
           files: ${{ env.WORKDIR }}/${{ env.FIRMWARE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
