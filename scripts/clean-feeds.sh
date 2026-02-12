@@ -19,13 +19,13 @@ rm -rf tmp .config
     echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y"
 } > .config
 
-# 🎯 [补丁] 128M 物理转换防止溢出
+# 🎯 [物理补丁] 128M 转换为纯数字，防止 Makefile 算术溢出
 find target/linux/mediatek/image -name "*.mk" -o -name "Makefile" | xargs -r sed -i 's/128M/134217728/g' 2>/dev/null || true
 
-# 🎯 [补丁] 锁定 Rootfs 分区大小
+# 🎯 [物理补丁] 锁定 Rootfs 分区 (1024MB)
 sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=1024/' .config
 
-# 🎯 [补丁] 覆盖设备定义
+# 🎯 [物理补丁] 覆盖设备定义文件
 if [ -f "${SRC_DIR}/filogic.mk" ]; then
     cp -fv "${SRC_DIR}/filogic.mk" "target/linux/mediatek/image/filogic.mk"
 fi
