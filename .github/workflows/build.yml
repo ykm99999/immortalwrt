@@ -1,4 +1,4 @@
-name: SL3000-2512-Physical-Final-v7
+name: SL3000-2512-V612-Final
 
 on:
   workflow_dispatch:
@@ -14,13 +14,11 @@ jobs:
       - name: 1. 检出仓库
         uses: actions/checkout@v4
 
-      - name: 2. 磁盘优化与全量依赖安装
+      - name: 2. 安装编译依赖
         run: |
-          echo "==== [清理磁盘空间] ===="
           sudo rm -rf /usr/share/dotnet /opt/ghc /var/lib/docker /usr/local/lib/android || true
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
-          echo "==== [安装核心编译工具] ===="
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
             gettext git libncurses-dev libssl-dev python3-distutils python3-pyelftools python3-setuptools \
@@ -29,67 +27,58 @@ jobs:
       - name: 3. 克隆源码 (25.12)
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git ${{ env.WORKDIR }}
 
-      - name: 4. 运行物理覆盖脚本
-        run: |
-          chmod +x scripts/clean-feeds.sh
-          ./scripts/clean-feeds.sh
+      - name: 4. 执行补丁脚本
+        run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: 5. 编译基础工具链
         working-directory: ${{ env.WORKDIR }}
         run: |
-          ./scripts/feeds update -a && ./scripts/feeds install -a
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
 
-      - name: 6. 核心物理合体 (🎯 彻底终结依赖报错)
+      - name: 6. 核心物理合体 (🎯 针对 files-6.12 深度注入)
         working-directory: ${{ env.WORKDIR }}
         run: |
-          echo "==== [准备内核源码树] ===="
-          make target/linux/prepare -j$(nproc)
+          # 定义源文件所在的 6.12 物理路径
+          SRC_DTS_PATH="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
           
-          echo "==== [定位内核级依赖文件] ===="
-          # 🎯 物理修复：排除 u-boot 干扰，锁定 linux 内核 dtsi
-          DTSI_PATH=$(find build_dir/target-* -name "mt7981.dtsi" | grep "linux-" | head -n 1)
-          
-          if [ -z "$DTSI_PATH" ]; then
-            echo "❌ 严重错误：未找到内核级 mt7981.dtsi"
-            exit 1
-          fi
-          echo "📍 确认内核依赖路径: $DTSI_PATH"
-          
-          echo "==== [执行物理代码注入] ===="
-          # 1. 拷贝主 DTS 作为模板
+          echo "==== [执行多级物理依赖注入] ===="
+          # 创建一个完全自洽的临时 DTS
           cp -fv ../mt7981b-sl3000-emmc.dts ./combined.dts
           
-          # 2. 将 mt7981.dtsi 内容注入到 /dts-v1/; 声明之后
-          sed -i '/\/dts-v1\/;/r '"$DTSI_PATH" ./combined.dts
+          # 🎯 物理注入第一层：mt7981b.dtsi
+          if [ -f "$SRC_DTS_PATH/mt7981b.dtsi" ]; then
+             sed -i '/#include "mt7981b.dtsi"/r '"$SRC_DTS_PATH/mt7981b.dtsi" ./combined.dts
+          fi
           
-          # 3. 🎯 彻底抹除 include 语句，将文件变为完全独立的自洽文件
+          # 🎯 物理注入第二层：mt7981.dtsi
+          if [ -f "$SRC_DTS_PATH/mt7981.dtsi" ]; then
+             sed -i '/#include "mt7981.dtsi"/r '"$SRC_DTS_PATH/mt7981.dtsi" ./combined.dts
+          fi
+
+          # 🎯 物理抹除所有 include 引用，防止编译器二次查找
           sed -i '/#include "mt7981.dtsi"/d' ./combined.dts
           sed -i '/#include "mt7981b.dtsi"/d' ./combined.dts
           
-          echo "==== [全路径物理覆盖] ===="
-          # 寻找所有可能的编译目录进行覆盖
+          echo "==== [全路径强制分发] ===="
+          make target/linux/prepare -j$(nproc)
           find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r DTS_DIR; do
-            # 物理篡改：同时覆盖自定义 DTS 和官方 RFB，确保万无一失
             cp -fv ./combined.dts "$DTS_DIR/mt7981b-sl3000-emmc.dts"
             cp -fv ./combined.dts "$DTS_DIR/mt7981-rfb.dts"
             
-            # 强制注册到 Makefile
             if [ -f "$DTS_DIR/Makefile" ]; then
               sed -i '/mt7981b-sl3000-emmc.dtb/d' "$DTS_DIR/Makefile"
               echo 'dtb-$(CONFIG_ARCH_MEDIATEK) += mt7981b-sl3000-emmc.dtb' >> "$DTS_DIR/Makefile"
             fi
           done
 
-      - name: 7. 最终固件编译
+      - name: 7. 最终构建固件
         working-directory: ${{ env.WORKDIR }}
         run: |
-          echo "==== [劫持宿主工具链] ===="
+          # 物理劫持 mkhash 工具链
           HOST_BIN="$(pwd)/staging_dir/host/bin"
           [ -f "$HOST_BIN/mkhash" ] && sudo ln -sf "$HOST_BIN/mkhash" /usr/bin/mkhash || true
           
-          echo "==== [启动安装级构建] ===="
           make target/linux/install -j$(nproc) DEVICE_${{ env.DEVICE_NAME }}=y || \
           make target/linux/install -j1 V=s DEVICE_${{ env.DEVICE_NAME }}=y
 
@@ -100,14 +89,13 @@ jobs:
           if [ -n "$FIRMWARE" ]; then
             echo "FIRMWARE_PATH=$FIRMWARE" >> $GITHUB_ENV
           else
-            echo "❌ 固件未生成，检查构建日志！"
-            exit 1
+            echo "❌ 固件生成失败" && exit 1
           fi
 
-      - name: 9. 上传固件
+      - name: 9. 上传
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-V7-${{ github.run_id }}
+          tag_name: SL3000-Final-6.12-${{ github.run_id }}
           files: ${{ env.WORKDIR }}/${{ env.FIRMWARE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
