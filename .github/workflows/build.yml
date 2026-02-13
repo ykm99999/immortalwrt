@@ -42,11 +42,13 @@ jobs:
         run: ./scripts/feeds update -a && ./scripts/feeds install -a > /dev/null 2>&1
 
       - name: "运行补丁脚本"
+        # 🚀 [物理硬修复] 依靠修复后的 clean-feeds.sh 处理 .config/DTS/MK/Include 软链接
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "构建工具链"
         working-directory: ./openwrt
         run: |
+          # 🎯 物理对齐：不要重新 rm .config，因为脚本已经生成好了
           make defconfig FORCE=1
           make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
           make toolchain/install -j$(nproc) FORCE=1 || make toolchain/install -j1 V=s FORCE=1
@@ -60,32 +62,25 @@ jobs:
             openwrt/build_dir/host
           key: ${{ runner.os }}-openwrt-2512-${{ hashFiles('openwrt/include/toplevel.mk') }}
 
-      - name: "🎯 [25.12 适配] 物理熔断DTS 报错"
+      - name: "🎯 [25.12 适配] 物理硬修复环境注入"
         working-directory: ./openwrt
         run: |
-          # 🚀 [物理硬修复] 6.12 内核头文件绝对路径深钻
-          DTS_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
-          # 关键点：必须同时包含 include 和 include/dt-bindings 两个路径
-          INC_ROOT="target/linux/mediatek/files-6.12/include"
-          
-          # 🎯 精准打击：增加 -I "$INC_ROOT" 强制对齐 gpio.h
-          cpp -I "$DTS_DIR" -I "$INC_ROOT" -nostdinc -undef -x assembler-with-cpp -P ../mt7981b-3000-emmc.dts > ./melted.dts
-          
+          # 🚀 [物理硬修复] 预先准备内核源码树环境，确保编译时 include 存在
           make target/linux/prepare -j$(nproc)
+          # 再次确认脚本注入的 DTS 已到位
           find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r TARGET_DIR; do
-            cp -fv ./melted.dts "$TARGET_DIR/mt7981b-3000-emmc.dts"
-            cp -fv ./melted.dts "$TARGET_DIR/mt7981-rfb.dts"
+            cp -fv ../mt7981b-3000-emmc.dts "$TARGET_DIR/mt7981b-3000-emmc.dts"
           done
 
       - name: "构建固件"
         working-directory: ./openwrt
         run: |
+          # 🎯 物理对齐：使用脚本中已经锁定的配置进行全速编译
           make target/linux/compile -j$(nproc) FORCE=1
           make package/compile -j$(nproc) FORCE=1
           make package/install -j$(nproc) FORCE=1
-          make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y \
-            CONFIG_TARGET_KERNEL_PARTSIZE=128 \
-            CONFIG_TARGET_ROOTFS_PARTSIZE=1024 IGNORE_ERRORS=1 FORCE=1
+          # 🎯 严格承袭：DEVICE_sl3000-emmc 名称对齐
+          make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y IGNORE_ERRORS=1 FORCE=1
 
       - name: "上传固件"
         uses: actions/upload-artifact@v4
