@@ -26,12 +26,14 @@ jobs:
       - name: "📂 Clone ImmortalWrt (25.12)"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
+      # 🔥 [物理补齐] 绝对不再漏掉的缓存机制
       - name: "⚡ [延续成功案例] 物理开启缓存机制"
         uses: actions/cache@v4
         with:
           path: |
             openwrt/staging_dir
             openwrt/build_dir/host
+          # 🎯 物理延续：严格使用你成功案例中的缓存 Key 逻辑
           key: ${{ runner.os }}-openwrt-cache-${{ hashFiles('openwrt/include/toplevel.mk') }}
           restore-keys: |
             ${{ runner.os }}-openwrt-cache-
@@ -41,7 +43,7 @@ jobs:
         run: ./scripts/feeds update -a && ./scripts/feeds install -a > /dev/null 2>&1
 
       - name: Run patch script
-        # 🎯 物理对齐：脚本路径绝对死锁
+        # 🎯 物理死锁：scripts/clean-feeds.sh
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: Build Toolchain
@@ -54,10 +56,10 @@ jobs:
       - name: "🎯 [25.12 适配] 物理熔断 DTS 报错"
         working-directory: ./openwrt
         run: |
-          # 物理修复：包含 KERNEL_INC 解决 gpio.h 缺失问题
+          # 物理修复路径：解决 gpio.h 缺失
           DTS_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
           KERNEL_INC="target/linux/mediatek/files-6.12/include"
-          # 🎯 物理文件名对齐：mt7981b-3000-emmc.dts
+          # 🎯 文件名对齐：mt7981b-3000-emmc.dts
           cpp -I "$DTS_DIR" -I "$KERNEL_INC" -nostdinc -undef -x assembler-with-cpp -P ../mt7981b-3000-emmc.dts > ./melted.dts
           make target/linux/prepare -j$(nproc)
           find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r TARGET_DIR; do
@@ -71,7 +73,7 @@ jobs:
           make target/linux/compile -j$(nproc) FORCE=1
           make package/compile -j$(nproc) FORCE=1
           make package/install -j$(nproc) FORCE=1
-          # 🔥 严格原文照抄 1024MB 成功命令
+          # 🔥 锁定 1024MB 成功命令
           make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y \
             CONFIG_TARGET_KERNEL_PARTSIZE=128 \
             CONFIG_TARGET_ROOTFS_PARTSIZE=1024 IGNORE_ERRORS=1 FORCE=1
@@ -82,12 +84,3 @@ jobs:
         with:
           name: SL3000-Firmware-2512
           path: openwrt/bin/targets/mediatek/filogic/
-
-      - name: "🚢 [延续成功案例] 自动发布固件"
-        if: success()
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: SL3000-v25.12-${{ github.run_id }}
-          files: |
-            openwrt/bin/targets/mediatek/filogic/*.bin
-            openwrt/bin/targets/mediatek/filogic/*.config
