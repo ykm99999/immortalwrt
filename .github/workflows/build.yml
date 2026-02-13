@@ -42,13 +42,12 @@ jobs:
         run: ./scripts/feeds update -a && ./scripts/feeds install -a > /dev/null 2>&1
 
       - name: "运行补丁脚本"
-        # 🚀 [物理硬修复] 依靠修复后的 clean-feeds.sh 处理 .config/DTS/MK/Include 软链接
+        # 🚀 [物理硬修复] 依靠 clean-feeds.sh 处理基础 .config 和 MK 注入
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "构建工具链"
         working-directory: ./openwrt
         run: |
-          # 🎯 物理对齐：脚本已生成 .config，此处 defconfig 补全依赖
           make defconfig FORCE=1
           make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
           make toolchain/install -j$(nproc) FORCE=1 || make toolchain/install -j1 V=s FORCE=1
@@ -68,34 +67,42 @@ jobs:
           # 1. 物理展开内核源码
           make target/linux/prepare -j$(nproc)
           
-          # 2. 🚀 [物理硬修复] 锁定内核 DTS 工作目录并物理注入 dt-bindings
+          # 2. 🚀 [物理硬修复] 定位内核真正的 DTS 工作目录
           KERNEL_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           
           if [ -n "$KERNEL_DTS_DIR" ]; then
               echo "🎯 物理锁定内核 DTS 目录: $KERNEL_DTS_DIR"
-              # 强制同步仓库根目录的 DTS 到编译目录
-              cp -fv ../mt7981b-3000-emmc.dts "$KERNEL_DTS_DIR/"
+              cd "$KERNEL_DTS_DIR"
               
-              # 🚀 [关键修复] 建立物理软链接，防止 6.12 内核找不到头文件导致中断
-              mkdir -p "$KERNEL_DTS_DIR/dt-bindings"
-              ln -sf "../../../../../include/dt-bindings/gpio" "$KERNEL_DTS_DIR/dt-bindings/gpio"
-              ln -sf "../../../../../include/dt-bindings/input" "$KERNEL_DTS_DIR/dt-bindings/input"
-              ln -sf "../../../../../include/dt-bindings/interrupt-controller" "$KERNEL_DTS_DIR/dt-bindings/interrupt-controller"
-              ln -sf "../../../../../include/dt-bindings/leds" "$KERNEL_DTS_DIR/dt-bindings/leds"
+              # 🔥 [关键修复] 解决 #include "mt7981.dtsi" 找不到的问题 (物理软链接映射)
+              [ -f "mt7981b.dtsi" ] && ln -sf mt7981b.dtsi mt7981.dtsi
+              
+              # 🔥 [物理注入] 将您的 DTS 强行覆盖官方文件，解决 Makefile 锁定问题
+              cp -fv ../../../mt7981b-3000-emmc.dts ./mt7981b-3000-emmc.dts
+              cp -fv ../../../mt7981b-3000-emmc.dts ./mt7981-rfb.dts
+              
+              # 🔥 [头文件修复] 建立物理 dt-bindings 路径桥梁
+              mkdir -p "dt-bindings"
+              ln -sf "../../../../../include/dt-bindings/gpio" "./dt-bindings/gpio"
+              ln -sf "../../../../../include/dt-bindings/input" "./dt-bindings/input"
+              ln -sf "../../../../../include/dt-bindings/interrupt-controller" "./dt-bindings/interrupt-controller"
+              ln -sf "../../../../../include/dt-bindings/leds" "./dt-bindings/leds"
+              ln -sf "../../../../../include/dt-bindings/pinctrl" "./dt-bindings/pinctrl"
           else
-              echo "❌ 错误：未找到内核 DTS 目录，物理硬修复注入失败！"
+              echo "❌ 错误：无法定位内核物理路径"
               exit 1
           fi
 
       - name: "构建固件"
         working-directory: ./openwrt
         run: |
-          # 🎯 物理对齐：全速编译
           make target/linux/compile -j$(nproc) FORCE=1
           make package/compile -j$(nproc) FORCE=1
           make package/install -j$(nproc) FORCE=1
-          # 🎯 严格承袭：DEVICE 名称与 MK 物理对齐
-          make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y IGNORE_ERRORS=1 FORCE=1
+          # 🎯 物理对齐：锁定设备名称并强制执行分区定义
+          make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y \
+            CONFIG_TARGET_KERNEL_PARTSIZE=128 \
+            CONFIG_TARGET_ROOTFS_PARTSIZE=1024 IGNORE_ERRORS=1 FORCE=1
 
       - name: "上传固件"
         uses: actions/upload-artifact@v4
