@@ -1,6 +1,7 @@
 #!/bin/bash
 set -eo pipefail
 
+# 🎯 物理对齐：脚本在 scripts/ 下，仓库根目录是 ..
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 SRC_DIR="${REPO_ROOT}"
@@ -9,11 +10,11 @@ echo -e "\033[32m🚀 [SL3000] 执行物理对齐：脚本路径 scripts/clean-f
 
 cd "${WORKDIR}"
 
-# 1. 物理环境准备
+# 1. 物理环境准备 (原文照抄)
 mkdir -p staging_dir/host
 touch staging_dir/host/.prereq-build
 
-# 2. 🔥 [.config] 24 行原文照抄
+# 2. 🔥 [.config] 严格原文照抄 24 行核心配置
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -46,6 +47,7 @@ rm -f .config
 find target/linux/mediatek/ -type f \( -name "*.dts*" -o -name "*.dtsi*" \) -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
 
 # 4. 🔥 [DTS 注入] 适配 25.12 路径
+# 🎯 物理源：mt7981b-3000-emmc.dts (仓库根目录读取)
 DTS_PATH_A="target/linux/mediatek/dts"
 DTS_PATH_B="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
 mkdir -p "$DTS_PATH_A" "$DTS_PATH_B"
@@ -54,14 +56,16 @@ if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
     cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH_B/"
 fi
 
-# 5. 🔥 [MK 注入] 物理源根目录
+# 5. 🔥 [MK 注入] 物理源仓库根目录
 mkdir -p target/linux/mediatek/image
 if [ -f "${SRC_DIR}/filogic.mk" ]; then
     cp -fv "${SRC_DIR}/filogic.mk" target/linux/mediatek/image/
     sed -i 's/BOARD_ROOTFS_PARTSIZE := .*/BOARD_ROOTFS_PARTSIZE := 1024/g' target/linux/mediatek/image/filogic.mk || true
 fi
 
-# 6. 物理屏蔽补丁
+# 6. 物理屏蔽补丁 (原文照抄)
 [ -f "include/image.mk" ] && sed -i 's/$(STAGING_DIR_HOST)\/bin\/pad-to/append-string/g' include/image.mk || true
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/true/g' package/Makefile || true
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/ucert/true/g' package/Makefile || true
+
+echo -e "\033[32m✅ 缓存补齐，路径死锁。工程体系已物理闭环。\033[0m"
