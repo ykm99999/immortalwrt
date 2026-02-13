@@ -47,13 +47,23 @@ rm -f .config
 find target/linux/mediatek/ -type f \( -name "*.dts*" -o -name "*.dtsi*" \) -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
 
 # 4. 🔥 [DTS 注入] 适配 25.12 的 files-6.12 路径
-# 🎯 物理源：从仓库根目录读取 mt7981b-3000-emmc.dts
 DTS_PATH_A="target/linux/mediatek/dts"
 DTS_PATH_B="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
 mkdir -p "$DTS_PATH_A" "$DTS_PATH_B"
 if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
     cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH_A/"
     cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH_B/"
+    
+    # 🚀 [物理硬修复] 深度钻探修复：解决 dt-bindings/gpio/gpio.h 缺失
+    # 原理：在 DTS 编译目录物理建立指向内核 include 的软链接
+    KERNEL_VER=$(ls target/linux/mediatek/ | grep "files-" | cut -d'-' -f2 | head -n1)
+    if [ -n "$KERNEL_VER" ]; then
+        mkdir -p "target/linux/mediatek/files-${KERNEL_VER}/arch/arm64/boot/dts/mediatek/dt-bindings"
+        # 建立物理映射，消除 fatal error
+        ln -sf "../../../../../../../../../include/dt-bindings/gpio" "target/linux/mediatek/files-${KERNEL_VER}/arch/arm64/boot/dts/mediatek/dt-bindings/gpio"
+        ln -sf "../../../../../../../../../include/dt-bindings/input" "target/linux/mediatek/files-${KERNEL_VER}/arch/arm64/boot/dts/mediatek/dt-bindings/input"
+        ln -sf "../../../../../../../../../include/dt-bindings/interrupt-controller" "target/linux/mediatek/files-${KERNEL_VER}/arch/arm64/boot/dts/mediatek/dt-bindings/interrupt-controller"
+    fi
 else
     echo -e "\033[31m❌ 错误：仓库根目录找不到 mt7981b-3000-emmc.dts！\033[0m"
     exit 1
@@ -63,7 +73,7 @@ fi
 mkdir -p target/linux/mediatek/image
 if [ -f "${SRC_DIR}/filogic.mk" ]; then
     cp -fv "${SRC_DIR}/filogic.mk" target/linux/mediatek/image/
-    # 强制物理同步分区数值
+    # 强制物理同步分区数值（严格承袭逻辑）
     sed -i 's/BOARD_ROOTFS_PARTSIZE := .*/BOARD_ROOTFS_PARTSIZE := 1024/g' target/linux/mediatek/image/filogic.mk || true
 fi
 
@@ -72,4 +82,4 @@ fi
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/true/g' package/Makefile || true
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/ucert/true/g' package/Makefile || true
 
-echo -e "\033[32m✅ 脚本已物理修复。DTS 路径已指向 files-6.12 并对齐文件名。\033[0m"
+echo -e "\033[32m✅ 脚本已物理修复。DTS 路径及 dt-bindings 软链接已完成深钻锁定。\033[0m"
