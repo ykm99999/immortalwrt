@@ -4,13 +4,14 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
+/* 🎯 物理适配 25.12/Kernel 6.12 的标准路径包含 */
 #include "mt7981.dtsi"
 
 / {
     #address-cells = <2>;
     #size-cells = <2>;
 
-    /* 物理对齐：SL 3000 eMMC 专用识别码 */
+    /* 物理对齐：SL 3000 eMMC 专用识别码 (与脚本中的 sed 替换逻辑匹配) */
     model = "SL 3000 (eMMC) Custom Edition";
     compatible = "sl,3000-emmc", "mediatek,mt7981";
 
@@ -106,20 +107,10 @@
         conf-cmd-dat {
             pins = "EMMC_DATA0", "EMMC_DATA1", "EMMC_DATA2", "EMMC_DATA3",
                    "EMMC_DATA4", "EMMC_DATA5", "EMMC_DATA6", "EMMC_DATA7", "EMMC_CMD";
-            input-enable;
-            drive-strength = <4>;
-            bias-pull-up;
+            input-enable; drive-strength = <4>; bias-pull-up;
         };
-        conf-clk {
-            pins = "EMMC_CK";
-            drive-strength = <6>;
-            bias-pull-down;
-        };
-        conf-rst {
-            pins = "EMMC_RSTB";
-            drive-strength = <4>;
-            bias-pull-up;
-        };
+        conf-clk { pins = "EMMC_CK"; drive-strength = <6>; bias-pull-down; };
+        conf-rst { pins = "EMMC_RSTB"; drive-strength = <4>; bias-pull-up; };
     };
 
     mmc0_pins_uhs: mmc0-pins-uhs {
@@ -127,9 +118,7 @@
         conf-cmd-dat {
             pins = "EMMC_DATA0", "EMMC_DATA1", "EMMC_DATA2", "EMMC_DATA3",
                    "EMMC_DATA4", "EMMC_DATA5", "EMMC_DATA6", "EMMC_DATA7", "EMMC_CMD";
-            input-enable;
-            drive-strength = <4>;
-            bias-pull-up;
+            input-enable; drive-strength = <4>; bias-pull-up;
         };
     };
 
