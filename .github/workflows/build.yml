@@ -23,61 +23,71 @@ jobs:
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
-      - name: "📂 Clone ImmortalWrt (25.12)"
+      - name: "📂 克隆 ImmortalWrt (25.12)"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      # 🔥 [物理锁死] 绝不准再漏掉的缓存机制
-      - name: "⚡ [延续成功案例] 物理开启缓存机制"
-        uses: actions/cache@v4
+      - name: "⚡ 缓存恢复"
+        id: cache-restore
+        uses: actions/cache/restore@v4
         with:
           path: |
             openwrt/staging_dir
             openwrt/build_dir/host
-          key: ${{ runner.os }}-openwrt-cache-${{ hashFiles('openwrt/include/toplevel.mk') }}
+          key: ${{ runner.os }}-openwrt-2512-${{ hashFiles('openwrt/include/toplevel.mk') }}
           restore-keys: |
-            ${{ runner.os }}-openwrt-cache-
+            ${{ runner.os }}-openwrt-2512-
 
-      - name: Update Feeds
+      - name: "更新信息流"
         working-directory: ./openwrt
         run: ./scripts/feeds update -a && ./scripts/feeds install -a > /dev/null 2>&1
 
-      - name: Run patch script
-        # 🎯 物理死锁路径：scripts/clean-feeds.sh
+      - name: "运行补丁脚本"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: Build Toolchain
+      - name: "构建工具链"
         working-directory: ./openwrt
         run: |
           make defconfig FORCE=1
           make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
           make toolchain/install -j$(nproc) FORCE=1 || make toolchain/install -j1 V=s FORCE=1
 
-      - name: "🎯 [25.12 适配] 物理熔断 DTS 报错"
+      - name: "⚡ 手动保存缓存"
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            openwrt/staging_dir
+            openwrt/build_dir/host
+          key: ${{ runner.os }}-openwrt-2512-${{ hashFiles('openwrt/include/toplevel.mk') }}
+
+      - name: "🎯 [25.12 适配] 物理熔断DTS 报错"
         working-directory: ./openwrt
         run: |
-          # 物理修复：包含 KERNEL_INC 解决 6.12 内核头文件缺失
+          # 🚀 [物理硬修复] 6.12 内核头文件绝对路径深钻
           DTS_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
-          KERNEL_INC="target/linux/mediatek/files-6.12/include"
-          # 🎯 文件名对齐：mt7981b-3000-emmc.dts (从根目录 .. 提取)
-          cpp -I "$DTS_DIR" -I "$KERNEL_INC" -nostdinc -undef -x assembler-with-cpp -P ../mt7981b-3000-emmc.dts > ./melted.dts
+          # 关键点：必须同时包含 include 和 include/dt-bindings 两个路径
+          INC_ROOT="target/linux/mediatek/files-6.12/include"
+          
+          # 🎯 精准打击：增加 -I "$INC_ROOT" 强制对齐 gpio.h
+          cpp -I "$DTS_DIR" -I "$INC_ROOT" -nostdinc -undef -x assembler-with-cpp -P ../mt7981b-3000-emmc.dts > ./melted.dts
+          
           make target/linux/prepare -j$(nproc)
           find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r TARGET_DIR; do
             cp -fv ./melted.dts "$TARGET_DIR/mt7981b-3000-emmc.dts"
             cp -fv ./melted.dts "$TARGET_DIR/mt7981-rfb.dts"
           done
 
-      - name: Build Firmware
+      - name: "构建固件"
         working-directory: ./openwrt
         run: |
           make target/linux/compile -j$(nproc) FORCE=1
           make package/compile -j$(nproc) FORCE=1
           make package/install -j$(nproc) FORCE=1
-          # 🔥 物理锁定 1024MB 成功命令
           make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y \
             CONFIG_TARGET_KERNEL_PARTSIZE=128 \
             CONFIG_TARGET_ROOTFS_PARTSIZE=1024 IGNORE_ERRORS=1 FORCE=1
 
-      - name: Upload firmware
+      - name: "上传固件"
         uses: actions/upload-artifact@v4
         if: always()
         with:
