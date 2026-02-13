@@ -48,7 +48,7 @@ jobs:
       - name: "构建工具链"
         working-directory: ./openwrt
         run: |
-          # 🎯 物理对齐：不要重新 rm .config，因为脚本已经生成好了
+          # 🎯 物理对齐：脚本已生成 .config，此处 defconfig 补全依赖
           make defconfig FORCE=1
           make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
           make toolchain/install -j$(nproc) FORCE=1 || make toolchain/install -j1 V=s FORCE=1
@@ -65,21 +65,36 @@ jobs:
       - name: "🎯 [25.12 适配] 物理硬修复环境注入"
         working-directory: ./openwrt
         run: |
-          # 🚀 [物理硬修复] 预先准备内核源码树环境，确保编译时 include 存在
+          # 1. 物理展开内核源码
           make target/linux/prepare -j$(nproc)
-          # 再次确认脚本注入的 DTS 已到位
-          find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r TARGET_DIR; do
-            cp -fv ../mt7981b-3000-emmc.dts "$TARGET_DIR/mt7981b-3000-emmc.dts"
-          done
+          
+          # 2. 🚀 [物理硬修复] 锁定内核 DTS 工作目录并物理注入 dt-bindings
+          KERNEL_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
+          
+          if [ -n "$KERNEL_DTS_DIR" ]; then
+              echo "🎯 物理锁定内核 DTS 目录: $KERNEL_DTS_DIR"
+              # 强制同步仓库根目录的 DTS 到编译目录
+              cp -fv ../mt7981b-3000-emmc.dts "$KERNEL_DTS_DIR/"
+              
+              # 🚀 [关键修复] 建立物理软链接，防止 6.12 内核找不到头文件导致中断
+              mkdir -p "$KERNEL_DTS_DIR/dt-bindings"
+              ln -sf "../../../../../include/dt-bindings/gpio" "$KERNEL_DTS_DIR/dt-bindings/gpio"
+              ln -sf "../../../../../include/dt-bindings/input" "$KERNEL_DTS_DIR/dt-bindings/input"
+              ln -sf "../../../../../include/dt-bindings/interrupt-controller" "$KERNEL_DTS_DIR/dt-bindings/interrupt-controller"
+              ln -sf "../../../../../include/dt-bindings/leds" "$KERNEL_DTS_DIR/dt-bindings/leds"
+          else
+              echo "❌ 错误：未找到内核 DTS 目录，物理硬修复注入失败！"
+              exit 1
+          fi
 
       - name: "构建固件"
         working-directory: ./openwrt
         run: |
-          # 🎯 物理对齐：使用脚本中已经锁定的配置进行全速编译
+          # 🎯 物理对齐：全速编译
           make target/linux/compile -j$(nproc) FORCE=1
           make package/compile -j$(nproc) FORCE=1
           make package/install -j$(nproc) FORCE=1
-          # 🎯 严格承袭：DEVICE_sl3000-emmc 名称对齐
+          # 🎯 严格承袭：DEVICE 名称与 MK 物理对齐
           make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y IGNORE_ERRORS=1 FORCE=1
 
       - name: "上传固件"
