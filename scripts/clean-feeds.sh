@@ -1,12 +1,12 @@
 #!/bin/bash
 set -eo pipefail
 
-# 🎯 物理对齐：脚本在 scripts/ 下，仓库根目录是 ..
+# 🎯 物理定位：脚本在 scripts/ 下，仓库根目录是 ..
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 SRC_DIR="${REPO_ROOT}"
 
-echo -e "\033[32m🚀 [SL3000] 执行物理对齐：脚本路径 scripts/clean-feeds.sh ...\033[0m"
+echo -e "\033[32m🚀 [SL3000] 执行 25.12 物理对齐：锁定 mt7981b-3000-emmc.dts ...\033[0m"
 
 cd "${WORKDIR}"
 
@@ -43,29 +43,33 @@ rm -f .config
     echo "CONFIG_PACKAGE_nano=y"
 } > .config
 
-# 3. 🔥 [ID 修正] sl,sl3000 -> sl,3000
+# 3. 🔥 [ID 修正] 物理延续：全量替换 sl,sl3000 -> sl,3000
 find target/linux/mediatek/ -type f \( -name "*.dts*" -o -name "*.dtsi*" \) -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
 
-# 4. 🔥 [DTS 注入] 适配 25.12 路径
-# 🎯 物理源：mt7981b-3000-emmc.dts (仓库根目录读取)
+# 4. 🔥 [DTS 注入] 适配 25.12 的 files-6.12 路径
+# 🎯 物理源：从仓库根目录读取 mt7981b-3000-emmc.dts
 DTS_PATH_A="target/linux/mediatek/dts"
 DTS_PATH_B="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
 mkdir -p "$DTS_PATH_A" "$DTS_PATH_B"
 if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
     cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH_A/"
     cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH_B/"
+else
+    echo -e "\033[31m❌ 错误：仓库根目录找不到 mt7981b-3000-emmc.dts！\033[0m"
+    exit 1
 fi
 
-# 5. 🔥 [MK 注入] 物理源仓库根目录
+# 5. 🔥 [MK 注入] 物理源根目录提取 filogic.mk
 mkdir -p target/linux/mediatek/image
 if [ -f "${SRC_DIR}/filogic.mk" ]; then
     cp -fv "${SRC_DIR}/filogic.mk" target/linux/mediatek/image/
+    # 强制物理同步分区数值
     sed -i 's/BOARD_ROOTFS_PARTSIZE := .*/BOARD_ROOTFS_PARTSIZE := 1024/g' target/linux/mediatek/image/filogic.mk || true
 fi
 
-# 6. 物理屏蔽补丁 (原文照抄)
+# 6. 物理屏蔽补丁 (原文照抄自 24.10 成功案例)
 [ -f "include/image.mk" ] && sed -i 's/$(STAGING_DIR_HOST)\/bin\/pad-to/append-string/g' include/image.mk || true
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/true/g' package/Makefile || true
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/ucert/true/g' package/Makefile || true
 
-echo -e "\033[32m✅ 缓存补齐，路径死锁。工程体系已物理闭环。\033[0m"
+echo -e "\033[32m✅ 脚本已物理修复。DTS 路径已指向 files-6.12 并对齐文件名。\033[0m"
