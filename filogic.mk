@@ -4,10 +4,13 @@ define Device/sl3000-emmc
   DEVICE_ALT0_VENDOR := SL
   DEVICE_ALT0_MODEL := SL3000
   DEVICE_ALT0_VARIANT := eMMC 1024MB Rootfs
-  DEVICE_DTS := mt7981b-sl3000-emmc
+  # 🎯 物理对齐：去掉多余的 sl，匹配 mt7981b-3000-emmc.dts
+  DEVICE_DTS := mt7981b-3000-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := sl,3000-emmc mediatek,mt7981
+  # 🎯 物理对齐：128MB Kernel (131072k)
   KERNEL_SIZE := 131072k
+  # 🎯 物理对齐：1024MB Rootfs
   BOARD_ROOTFS_PARTSIZE := 1024
   KERNEL := kernel-bin | lzma | append-dtb
   KERNEL_INITRAMFS := kernel-bin | lzma | append-dtb
