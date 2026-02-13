@@ -24,7 +24,6 @@ jobs:
           sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
       - name: "📂 Clone ImmortalWrt (25.12)"
-        # 🎯 物理对齐：仅将分支从 24.10 改为 25.12
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
       - name: "⚡ [延续成功案例] 物理开启缓存机制"
@@ -33,7 +32,6 @@ jobs:
           path: |
             openwrt/staging_dir
             openwrt/build_dir/host
-          # 🎯 物理延续：严格使用你成功案例中的缓存 Key 逻辑
           key: ${{ runner.os }}-openwrt-cache-${{ hashFiles('openwrt/include/toplevel.mk') }}
           restore-keys: |
             ${{ runner.os }}-openwrt-cache-
@@ -43,7 +41,7 @@ jobs:
         run: ./scripts/feeds update -a && ./scripts/feeds install -a > /dev/null 2>&1
 
       - name: Run patch script
-        # 🎯 物理死锁路径：必须是 scripts/clean-feeds.sh
+        # 🎯 物理对齐：脚本路径绝对死锁
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: Build Toolchain
@@ -56,15 +54,15 @@ jobs:
       - name: "🎯 [25.12 适配] 物理熔断 DTS 报错"
         working-directory: ./openwrt
         run: |
-          # 物理修复点：25.12 源码路径是 files-6.12
-          SRC_DTS_PATH="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
-          LINUX_INCLUDE="target/linux/mediatek/files-6.12/include"
-          # 🎯 物理源：从仓库根目录（..）读取 mt7981b-sl3000-emmc.dts
-          cpp -I "$SRC_DTS_PATH" -I "$LINUX_INCLUDE" -nostdinc -undef -x assembler-with-cpp -P ../mt7981b-sl3000-emmc.dts > ./melted.dts
+          # 物理修复：包含 KERNEL_INC 解决 gpio.h 缺失问题
+          DTS_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
+          KERNEL_INC="target/linux/mediatek/files-6.12/include"
+          # 🎯 物理文件名对齐：mt7981b-3000-emmc.dts
+          cpp -I "$DTS_DIR" -I "$KERNEL_INC" -nostdinc -undef -x assembler-with-cpp -P ../mt7981b-3000-emmc.dts > ./melted.dts
           make target/linux/prepare -j$(nproc)
-          find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r DTS_DIR; do
-            cp -fv ./melted.dts "$DTS_DIR/mt7981b-sl3000-emmc.dts"
-            cp -fv ./melted.dts "$DTS_DIR/mt7981-rfb.dts"
+          find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | while read -r TARGET_DIR; do
+            cp -fv ./melted.dts "$TARGET_DIR/mt7981b-3000-emmc.dts"
+            cp -fv ./melted.dts "$TARGET_DIR/mt7981-rfb.dts"
           done
 
       - name: Build Firmware
@@ -73,7 +71,7 @@ jobs:
           make target/linux/compile -j$(nproc) FORCE=1
           make package/compile -j$(nproc) FORCE=1
           make package/install -j$(nproc) FORCE=1
-          # 🔥 严格延续你最后成功的命令，锁定 1024MB
+          # 🔥 严格原文照抄 1024MB 成功命令
           make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y \
             CONFIG_TARGET_KERNEL_PARTSIZE=128 \
             CONFIG_TARGET_ROOTFS_PARTSIZE=1024 IGNORE_ERRORS=1 FORCE=1
