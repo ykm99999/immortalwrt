@@ -42,7 +42,6 @@ jobs:
         run: ./scripts/feeds update -a && ./scripts/feeds install -a > /dev/null 2>&1
 
       - name: "运行补丁脚本"
-        # 🚀 [物理硬修复] 依靠 clean-feeds.sh 处理基础 .config 和 MK 注入
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "构建工具链"
@@ -64,6 +63,10 @@ jobs:
       - name: "🎯 [25.12 适配] 物理硬修复环境注入"
         working-directory: ./openwrt
         run: |
+          # 🚀 [物理定位] 锁定仓库根目录绝对路径，防止 cp 找不到文件
+          ABS_REPO_ROOT=$(cd .. && pwd)
+          OPENWRT_ROOT=$(pwd)
+
           # 1. 物理展开内核源码
           make target/linux/prepare -j$(nproc)
           
@@ -71,26 +74,24 @@ jobs:
           KERNEL_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           
           if [ -n "$KERNEL_DTS_DIR" ]; then
-              echo "🎯 物理锁定内核 DTS 目录: $KERNEL_DTS_DIR"
+              echo "🎯 物理锁定编译目录: $KERNEL_DTS_DIR"
               cd "$KERNEL_DTS_DIR"
               
-              # 🔥 [关键修复] 解决 #include "mt7981.dtsi" 找不到的问题 (物理软链接映射)
+              # 🔥 [关键修复] 建立映射：让 mt7981.dtsi 指向内核原有的 mt7981b.dtsi
               [ -f "mt7981b.dtsi" ] && ln -sf mt7981b.dtsi mt7981.dtsi
               
-              # 🔥 [物理注入] 将您的 DTS 强行覆盖官方文件，解决 Makefile 锁定问题
-              cp -fv ../../../mt7981b-3000-emmc.dts ./mt7981b-3000-emmc.dts
-              cp -fv ../../../mt7981b-3000-emmc.dts ./mt7981-rfb.dts
+              # 🔥 [物理注入] 使用绝对路径强制同步主 DTS 文件
+              cp -fv "$ABS_REPO_ROOT/mt7981b-3000-emmc.dts" ./mt7981b-3000-emmc.dts
+              cp -fv "$ABS_REPO_ROOT/mt7981b-3000-emmc.dts" ./mt7981-rfb.dts
               
-              # 🔥 [头文件修复] 建立物理 dt-bindings 路径桥梁
+              # 🔥 [头文件修复] 使用绝对路径建立 dt-bindings 桥梁，确保预处理器不报错
               mkdir -p "dt-bindings"
-              ln -sf "../../../../../include/dt-bindings/gpio" "./dt-bindings/gpio"
-              ln -sf "../../../../../include/dt-bindings/input" "./dt-bindings/input"
-              ln -sf "../../../../../include/dt-bindings/interrupt-controller" "./dt-bindings/interrupt-controller"
-              ln -sf "../../../../../include/dt-bindings/leds" "./dt-bindings/leds"
-              ln -sf "../../../../../include/dt-bindings/pinctrl" "./dt-bindings/pinctrl"
+              for sub in gpio input interrupt-controller leds pinctrl; do
+                ln -sf "$OPENWRT_ROOT/include/dt-bindings/$sub" "./dt-bindings/$sub"
+              done
+              echo "✅ 环境注入完成"
           else
-              echo "❌ 错误：无法定位内核物理路径"
-              exit 1
+              echo "❌ 错误：未找到内核物理路径" && exit 1
           fi
 
       - name: "构建固件"
