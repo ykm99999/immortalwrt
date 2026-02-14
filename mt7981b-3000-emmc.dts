@@ -1,147 +1,128 @@
 // SPDX-License-Identifier: (GPL-2.0 OR MIT)
 /dts-v1/;
-
-/* 🚀 [物理硬修复] 修复 6.12 内核头文件引用报错点 */
+#include "mt7981.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
-#include <dt-bindings/leds/common.h>
-/* 严格承袭 25.12 标准内核引用 */
-#include "mt7981.dtsi"
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/pinctrl/mt65xx.h>
 
 / {
-    /* 🎯 物理对齐：参考导出的 23.05 物理识别码 */
-    model = "SL-3000 eMMC bootstrap version";
-    compatible = "sl,3000-emmc", "mediatek,mt7981";
+	model = "SL-3000 eMMC bootstrap version";
+	compatible = "sl,3000-emmc", "mediatek,mt7981";
 
-    /* 🎯 物理对齐：参考导出的 23.05 内存布局 */
-    memory@40000000 {
-        device_type = "memory";
-        reg = <0x0 0x40000000 0x0 0x40000000>;
-    };
+	aliases {
+		serial0 = &uart0;
+	};
 
-    chosen {
-        bootargs = "console=ttyS0,115200n8 earlycon=uart8250,mmio32,0x11002000";
-        stdout-path = "serial0:115200n8";
-    };
+	chosen {
+		stdout-path = "serial0:115200n8";
+		bootargs-append = " root=/dev/mmcblk0p65 rootwait";
+	};
 
-    /* 🎯 物理对齐：参考导出的 23.05 中间节点（逻辑转换） */
-    gpio-keys {
-        compatible = "gpio-keys";
-        reset {
-            label = "reset";
-            gpios = <&pio 1 GPIO_ACTIVE_LOW>;
-            linux,code = <KEY_RESTART>;
-        };
-    };
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 0 0x40000000>; // 1GB RAM
+	};
 
-    gpio-leds {
-        compatible = "gpio-leds";
-        status_blue {
-            label = "blue:status";
-            gpios = <&pio 8 GPIO_ACTIVE_HIGH>;
-        };
-    };
-
-    reg_3p3v: regulator-3p3v {
-        compatible = "regulator-fixed";
-        regulator-name = "fixed-3.3V";
-        regulator-min-microvolt = <3300000>;
-        regulator-max-microvolt = <3300000>;
-        regulator-boot-on;
-        regulator-always-on;
-    };
-};
-
-/* 🚀 [物理硬修复] 针对 eMMC 分区表的绝对路径锁定 */
-&mmc0 {
-    pinctrl-names = "default", "state_uhs";
-    pinctrl-0 = <&mmc0_pins_default>;
-    pinctrl-1 = <&mmc0_pins_uhs>;
-    bus-width = <8>;
-    max-frequency = <200000000>;
-    cap-mmc-highspeed;
-    mmc-hs200-1_8v;
-    mmc-hs400-1_8v;
-    non-removable;
-    vmmc-supply = <&reg_3p3v>;
-    status = "okay";
-
-    partitions {
-        compatible = "fixed-partitions";
-        #address-cells = <1>;
-        #size-cells = <1>;
-
-        partition@0 {
-            label = "gpt";
-            reg = <0x0 0x100000>;
-            read-only;
-        };
-
-        partition@100000 {
-            label = "u-boot-env";
-            reg = <0x100000 0x80000>;
-        };
-
-        partition@180000 {
-            label = "factory";
-            reg = <0x180000 0x200000>;
-            read-only;
-        };
-
-        /* 🔥 物理锁定：Kernel 分区 128MB (0x8000000) - 参考您的原始 MK 要求 */
-        partition@380000 {
-            label = "kernel";
-            reg = <0x380000 0x8000000>;
-        };
-
-        /* 🔥 物理锁定：Rootfs 分区 1024MB (0x40000000) - 参考您的原始 MK 要求 */
-        partition@8380000 {
-            label = "rootfs";
-            reg = <0x8380000 0x40000000>;
-        };
-    };
-};
-
-/* 🚀 [物理硬修复] 保持与 MT7981 6.12 内核标准 PIO 节点逻辑对齐 */
-&pio {
-    mmc0_pins_default: mmc0-pins-default {
-        mux { function = "flash"; groups = "emmc_45"; };
-        conf-cmd-dat {
-            pins = "EMMC_DATA0", "EMMC_DATA1", "EMMC_DATA2", "EMMC_DATA3",
-                   "EMMC_DATA4", "EMMC_DATA5", "EMMC_DATA6", "EMMC_DATA7", "EMMC_CMD";
-            input-enable; drive-strength = <4>; bias-pull-up;
-        };
-        conf-clk { pins = "EMMC_CK"; drive-strength = <6>; bias-pull-down; };
-        conf-rst { pins = "EMMC_RSTB"; drive-strength = <4>; bias-pull-up; };
-    };
-
-    mmc0_pins_uhs: mmc0-pins-uhs {
-        mux { function = "flash"; groups = "emmc_45"; };
-        conf-cmd-dat {
-            pins = "EMMC_DATA0", "EMMC_DATA1", "EMMC_DATA2", "EMMC_DATA3",
-                   "EMMC_DATA4", "EMMC_DATA5", "EMMC_DATA6", "EMMC_DATA7", "EMMC_CMD";
-            input-enable; drive-strength = <4>; bias-pull-up;
-        };
-    };
-
-    uart0_pins: uart0-pins {
-        mux { function = "uart"; groups = "uart0_0_tx_rx"; };
-    };
+	reg_3p3v: regulator-3p3v {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-3.3V";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
 };
 
 &uart0 {
-    pinctrl-names = "default";
-    pinctrl-0 = <&uart0_pins>;
-    status = "okay";
+	status = "okay";
+};
+
+&pio {
+	// 🎯 物理对齐：根据导出数据锁定 emmc_45 组
+	mmc0_pins_default: mmc0-pins-default {
+		mux {
+			function = "flash";
+			groups = "emmc_45";
+		};
+		conf-clk {
+			pins = "MSDC0_CLK";
+			drive-strength = <MTK_DRIVE_12mA>;
+			bias-pull-down = <MTK_PUPD_SET_R1R0_00>;
+		};
+		conf-dat {
+			pins = "MSDC0_DAT0", "MSDC0_DAT1", "MSDC0_DAT2", "MSDC0_DAT3",
+			       "MSDC0_DAT4", "MSDC0_DAT5", "MSDC0_DAT6", "MSDC0_DAT7",
+			       "MSDC0_CMD", "MSDC0_DSL";
+			drive-strength = <MTK_DRIVE_12mA>;
+			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
+		};
+	};
+};
+
+&mmc0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&mmc0_pins_default>;
+	bus-width = <8>;
+	max-frequency = <200000000>;
+	cap-mmc-highspeed;
+	mmc-hs200-1_8v;
+	mmc-hs400-1_8v;
+	non-removable;
+	vmmc-supply = <&reg_3p3v>;
+	status = "okay";
 };
 
 &eth {
-    status = "okay";
-    mediatek,gmac-id = <0>;
-    phy-mode = "2500base-x";
-    fixed-link {
-        speed = <2500>;
-        full-duplex;
-        pause;
-    };
+	status = "okay";
+
+	gmac0: mac@0 {
+		compatible = "mediatek,eth-mac";
+		reg = <0>;
+		phy-mode = "2500base-x"; // 🎯 物理对齐导出数据中的 2.5G 定义
+
+		fixed-link {
+			speed = <2500>;
+			full-duplex;
+			pause;
+		};
+	};
+
+	gmac1: mac@1 {
+		compatible = "mediatek,eth-mac";
+		reg = <1>;
+		phy-mode = "gmii";
+		phy-handle = <&int_gbe_phy>;
+	};
+};
+
+&mdio_bus {
+	switch: switch@1f {
+		compatible = "mediatek,mt7531";
+		reg = <31>;
+		reset-gpios = <&pio 39 GPIO_ACTIVE_HIGH>; // 🎯 物理对齐导出数据 0x27 (39)
+	};
+};
+
+&switch {
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 { reg = <0>; label = "lan1"; };
+		port@1 { reg = <1>; label = "lan2"; };
+		port@2 { reg = <2>; label = "lan3"; };
+		port@3 { reg = <3>; label = "lan4"; };
+
+		port@6 {
+			reg = <6>;
+			ethernet = <&gmac0>;
+			phy-mode = "2500base-x";
+			fixed-link {
+				speed = <2500>;
+				full-duplex;
+				pause;
+			};
+		};
+	};
 };
