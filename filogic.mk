@@ -5,10 +5,14 @@ define Device/sl3000-emmc
   DEVICE_ALT0_MODEL := SL3000
   DEVICE_ALT0_VARIANT := eMMC 1024MB Rootfs
   
+  # 🎯 [物理兼容性修复] 强行标记为 1.0，允许从 23.05 (Legacy) 系统物理刷入
+  DEVICE_COMPAT_VERSION := 1.0
+  
   DEVICE_DTS := mt7981b-3000-emmc
   DEVICE_DTS_DIR := $(DTS_DIR)/mediatek
   
-  SUPPORTED_DEVICES := sl,3000-emmc mediatek,mt7981
+  # 🎯 [ID 物理对齐] 同时锁定新旧两个 ID，彻底解决 "Image check failed"
+  SUPPORTED_DEVICES := sl,3000-emmc sl,sl3000-emmc mediatek,mt7981
   
   # 🚀 [物理硬修复] 彻底舍弃十六进制，使用 dd 识别的十进制字节单位 (128MB)
   KERNEL_SIZE := 131072k
