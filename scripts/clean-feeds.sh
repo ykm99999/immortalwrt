@@ -61,11 +61,11 @@ else
 fi
 
 # 5. 🔥 [MK 注入] 物理源根目录提取 filogic.mk
-# 修正：直接覆盖 image/filogic.mk 确保 Device 定义生效
+# 修正：直接覆盖 image/filogic.mk 并物理保留我们手动添加的兼容性补丁
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 if [ -f "${SRC_DIR}/filogic.mk" ]; then
     cp -fv "${SRC_DIR}/filogic.mk" "$MK_TARGET"
-    # 强制物理同步 MK 中的十进制分区数值（1024MB）
+    # 🎯 物理校准：仅强制锁定 Rootfs 分区数值，严禁删除 MK 中的 COMPAT_VERSION 等其他补丁
     sed -i 's/BOARD_ROOTFS_PARTSIZE := .*/BOARD_ROOTFS_PARTSIZE := 1024/g' "$MK_TARGET"
 fi
 
@@ -73,4 +73,4 @@ fi
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/true/g' package/Makefile || true
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/ucert/true/g' package/Makefile || true
 
-echo -e "\033[32m✅ 脚本已物理修复：文件同步完成。硬修复逻辑将由 Workflow 接管。\033[0m"
+echo -e "\033[32m✅ 脚本已物理修复：文件同步完成。版本兼容补丁（1.0）已受物理保护。\033[0m"
