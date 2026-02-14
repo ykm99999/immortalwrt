@@ -6,7 +6,7 @@ REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 SRC_DIR="${REPO_ROOT}"
 
-echo -e "\033[32m🚀 [SL3000] 执行 25.12 物理对齐：锁定 mt7981b-3000-emmc.dts ...\033[0m"
+echo -e "\033[32m🚀 [SL3000] 执行 25.12 物理对齐：同步源文件 ...\033[0m"
 
 cd "${WORKDIR}"
 
@@ -14,7 +14,7 @@ cd "${WORKDIR}"
 mkdir -p staging_dir/host
 touch staging_dir/host/.prereq-build
 
-# 2. 🔥 [.config] 严格原文照抄 24 行核心配置
+# 2. 🔥 [.config] 严格对齐您的 24 行核心配置
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -43,43 +43,34 @@ rm -f .config
     echo "CONFIG_PACKAGE_nano=y"
 } > .config
 
-# 3. 🔥 [ID 修正] 物理延续：全量替换 sl,sl3000 -> sl,3000
+# 3. 🔥 [ID 修正] 物理延续：全量替换 sl,sl3000 -> sl,3000 (匹配您导出的 DTS)
 find target/linux/mediatek/ -type f \( -name "*.dts*" -o -name "*.dtsi*" \) -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
 
-# 4. 🔥 [DTS 注入] 适配 25.12 的 files-6.12 路径
-DTS_PATH_A="target/linux/mediatek/dts"
-DTS_PATH_B="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
-mkdir -p "$DTS_PATH_A" "$DTS_PATH_B"
+# 4. 🔥 [DTS 注入] 同步到源码预置目录
+# 修正：25.12 主要使用 files-6.12 目录作为覆盖源
+DTS_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
+mkdir -p "$DTS_DIR"
+
 if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
-    cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH_A/"
-    cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH_B/"
-    
-    # 🚀 [物理硬修复] 深度钻探修复：解决 dt-bindings/gpio/gpio.h 缺失
-    # 原理：在 DTS 编译目录物理建立指向内核 include 的软链接
-    KERNEL_VER=$(ls target/linux/mediatek/ | grep "files-" | cut -d'-' -f2 | head -n1)
-    if [ -n "$KERNEL_VER" ]; then
-        mkdir -p "target/linux/mediatek/files-${KERNEL_VER}/arch/arm64/boot/dts/mediatek/dt-bindings"
-        # 建立物理映射，消除 fatal error
-        ln -sf "../../../../../../../../../include/dt-bindings/gpio" "target/linux/mediatek/files-${KERNEL_VER}/arch/arm64/boot/dts/mediatek/dt-bindings/gpio"
-        ln -sf "../../../../../../../../../include/dt-bindings/input" "target/linux/mediatek/files-${KERNEL_VER}/arch/arm64/boot/dts/mediatek/dt-bindings/input"
-        ln -sf "../../../../../../../../../include/dt-bindings/interrupt-controller" "target/linux/mediatek/files-${KERNEL_VER}/arch/arm64/boot/dts/mediatek/dt-bindings/interrupt-controller"
-    fi
+    cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_DIR/mt7981b-3000-emmc.dts"
+    # 物理李代桃僵：确保官方模板也被替换
+    cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_DIR/mt7981-rfb.dts"
 else
     echo -e "\033[31m❌ 错误：仓库根目录找不到 mt7981b-3000-emmc.dts！\033[0m"
     exit 1
 fi
 
 # 5. 🔥 [MK 注入] 物理源根目录提取 filogic.mk
-mkdir -p target/linux/mediatek/image
+# 修正：直接覆盖 image/filogic.mk 确保 Device 定义生效
+MK_TARGET="target/linux/mediatek/image/filogic.mk"
 if [ -f "${SRC_DIR}/filogic.mk" ]; then
-    cp -fv "${SRC_DIR}/filogic.mk" target/linux/mediatek/image/
-    # 强制物理同步分区数值（严格承袭逻辑）
-    sed -i 's/BOARD_ROOTFS_PARTSIZE := .*/BOARD_ROOTFS_PARTSIZE := 1024/g' target/linux/mediatek/image/filogic.mk || true
+    cp -fv "${SRC_DIR}/filogic.mk" "$MK_TARGET"
+    # 强制物理同步 MK 中的十进制分区数值（1024MB）
+    sed -i 's/BOARD_ROOTFS_PARTSIZE := .*/BOARD_ROOTFS_PARTSIZE := 1024/g' "$MK_TARGET"
 fi
 
-# 6. 物理屏蔽补丁 (原文照抄自 24.10 成功案例)
-[ -f "include/image.mk" ] && sed -i 's/$(STAGING_DIR_HOST)\/bin\/pad-to/append-string/g' include/image.mk || true
+# 6. 物理屏蔽签名校验 (原文照抄，确保流程不中断)
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/true/g' package/Makefile || true
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/ucert/true/g' package/Makefile || true
 
-echo -e "\033[32m✅ 脚本已物理修复。DTS 路径及 dt-bindings 软链接已完成深钻锁定。\033[0m"
+echo -e "\033[32m✅ 脚本已物理修复：文件同步完成。硬修复逻辑将由 Workflow 接管。\033[0m"
