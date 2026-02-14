@@ -42,7 +42,6 @@ jobs:
         run: ./scripts/feeds update -a && ./scripts/feeds install -a > /dev/null 2>&1
 
       - name: "运行补丁脚本"
-        # 🚀 此脚本负责注入 .config / DTS / filogic.mk
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "构建工具链"
@@ -64,33 +63,27 @@ jobs:
       - name: "🎯 [25.12 适配] 物理硬修复环境注入"
         working-directory: ./openwrt
         run: |
-          # 🚀 [物理锁定] 获取绝对路径，解决 cp: cannot stat 报错
           ABS_REPO_ROOT=$(cd .. && pwd)
           OPENWRT_ROOT=$(pwd)
 
-          # 1. 物理展开内核源码 (必须先执行此步，build_dir 才会出现)
           make target/linux/prepare -j$(nproc)
           
-          # 2. 🚀 [精准寻址] 定位编译期间动态生成的 DTS 目录
           KERNEL_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
           
           if [ -n "$KERNEL_DTS_DIR" ]; then
               echo "🎯 物理锁定内核 DTS 目录: $KERNEL_DTS_DIR"
               cd "$KERNEL_DTS_DIR"
               
-              # 🔥 [熔断修复] 映射 mt7981.dtsi，防止编译器找不到文件
               [ -f "mt7981b.dtsi" ] && ln -sf mt7981b.dtsi mt7981.dtsi
               
-              # 🔥 [物理强灌] 注入您的 DTS 并覆盖官方模板，确保分区表强制生效
               cp -fv "$ABS_REPO_ROOT/mt7981b-3000-emmc.dts" ./mt7981b-3000-emmc.dts
               cp -fv "$ABS_REPO_ROOT/mt7981b-3000-emmc.dts" ./mt7981-rfb.dts
               
-              # 🔥 [头文件桥接] 使用绝对路径建立 dt-bindings 链接，解决编译 fatal error
               mkdir -p "dt-bindings"
               for sub in gpio input interrupt-controller leds pinctrl; do
                 ln -sf "$OPENWRT_ROOT/include/dt-bindings/$sub" "./dt-bindings/$sub"
               done
-              echo "✅ 环境注入与路径深钻修复完成。"
+              echo "✅ 环境注入完成"
           else
               echo "❌ 错误：无法定位内核物理路径" && exit 1
           fi
@@ -98,28 +91,45 @@ jobs:
       - name: "构建固件"
         working-directory: ./openwrt
         run: |
-          # 🚀 [末端锁定] 强制再次检查分区数值，确保 128MB/1024MB 最终一致性
           sed -i 's/CONFIG_TARGET_KERNEL_PARTSIZE=.*/CONFIG_TARGET_KERNEL_PARTSIZE=128/' .config
           sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=1024/' .config
           
           make target/linux/compile -j$(nproc) FORCE=1
           make package/compile -j$(nproc) FORCE=1
           make package/install -j$(nproc) FORCE=1
-          # 🎯 物理对齐：锁定设备名称 sl3000-emmc 并关闭签名校验
           make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y IGNORE_ERRORS=1 FORCE=1
 
       - name: "📦 固件物理归集"
         working-directory: ./openwrt/bin/targets/mediatek/filogic/
         run: |
           echo "🎯 正在整理最终产出固件..."
-          # 将可能带 rfb 字样的固件物理复制为 SL3000 最终名称
-          for f in *sysupgrade.bin; do
-            cp -v "$f" "SL3000-eMMC-Final-sysupgrade.bin"
-          done
+          # 物理锁定：确保包含 squashfs 字段的固件被正确捕获并更名
+          cp -v *sl3000-emmc*sysupgrade.bin SL3000-eMMC-Final-sysupgrade.bin || true
+          cp -v *sl3000-emmc*factory.bin SL3000-eMMC-Final-factory.bin || true
+          # 生成校验码
+          sha256sum SL3000-eMMC-Final-sysupgrade.bin > sha256sums.txt
 
-      - name: "上传固件"
+      - name: "🚀 自动发布到 GitHub Releases"
+        uses: softprops/action-gh-release@v2
+        if: success()
+        with:
+          tag_name: SL3000-25.12-${{ github.run_id }}
+          name: SL3000 (eMMC) 25.12 固件 - 物理修复版
+          body: |
+            ### 📝 固件说明
+            - **内核**: 6.12 (ImmortalWrt 25.12)
+            - **物理布局**: 内核 128MB / 根文件系统 1024MB
+            - **物理校准**: 已执行 dd 填充及 dt-bindings 路径深钻修复
+          files: |
+            openwrt/bin/targets/mediatek/filogic/SL3000-eMMC-Final-sysupgrade.bin
+            openwrt/bin/targets/mediatek/filogic/SL3000-eMMC-Final-factory.bin
+            openwrt/bin/targets/mediatek/filogic/sha256sums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "上传 Artifact (备份)"
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: SL3000-25.12-Firmware
+          name: SL3000-25.12-Final-Artifact
           path: openwrt/bin/targets/mediatek/filogic/*.bin
