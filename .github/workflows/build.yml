@@ -19,7 +19,7 @@ jobs:
             gettext-base git libncurses5-dev libssl-dev python3 python3-distutils \
             python3-pyelftools rsync unzip zlib1g-dev swig libpython3-dev \
             device-tree-compiler wget curl file tar bzip2 patch setserial \
-            pkg-config qemu-utils
+            pkg-config qemu-utils jq
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
@@ -60,29 +60,28 @@ jobs:
             openwrt/build_dir/host
           key: ${{ runner.os }}-openwrt-2512-${{ hashFiles('openwrt/include/toplevel.mk') }}
 
-      - name: "构建固件与引导"
+      - name: "构建内核与引导"
         working-directory: ./openwrt
         run: |
-          # 编译系统
-          make target/linux/install -j$(nproc) DEVICE_sl3000-emmc=y IGNORE_ERRORS=1 FORCE=1
-          # 🎯 [物理补全] 编译 U-Boot (FIP)
+          # 🚀 [核心修复] 先单独编译目标设备所需内核，若报错打印详细信息
+          make target/linux/install -j$(nproc) DEVICE_sl3000-emmc=y || make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y
+          
+          # 编译 U-Boot 零件
           make package/boot/uboot-mediatek/compile -j$(nproc) FORCE=1
           make package/boot/atf-mediatek/compile -j$(nproc) FORCE=1
 
-      - name: "📦 固件物理归集 (U-Boot & System)"
+      - name: "📦 固件物理归集 (引导+系统)"
         working-directory: ./openwrt/bin/targets/mediatek/filogic/
         run: |
-          # 1. 定位工具
           FWTOOL_PATH=$(find ../../../../staging_dir/host/bin/ -name fwtool -type f | head -n 1)
           
-          # 2. 🚀 [物理提取] 提取 2MB 的 U-Boot (FIP)
+          # 🚀 物理提取：提取 2MB 的 fip.bin
           find ../../../../build_dir/ -name "*fip.bin" -exec cp -v {} SL3000-Uboot-FIP.bin \;
           
-          # 3. 提取系统固件
           SYS_FILE=$(ls *sl3000-emmc*sysupgrade.bin | head -n 1)
           FAC_FILE=$(ls *sl3000-emmc*factory.bin | head -n 1)
           
-          # 4. 注入 ID
+          # 注入精准 ID
           printf '{"metadata_version":"1.1","compat_version":"1.0","supported_devices":["sl,3000-emmc"],"version":{"dist":"ImmortalWrt","version":"25.12","board":"sl,3000-emmc"}}' > metadata.json
           "$FWTOOL_PATH" -I metadata.json "$SYS_FILE"
           
@@ -90,16 +89,12 @@ jobs:
           cp -v "$FAC_FILE" SL3000-Uboot-factory.bin
           sha256sum SL3000-Uboot-FIP.bin SL3000-Final-sysupgrade.bin SL3000-Uboot-factory.bin > sha256sums.txt
 
-      - name: "🚀 发布 Release"
+      - name: "🚀 发布固件"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-V2-Uboot-Fixed
-          name: SL3000 引导+系统 物理对齐版
-          body: |
-            ### 🛠️ 刷机指南
-            1. 先在 U-Boot 网页点击 **U-BOOT UPDATE** 刷入 `SL3000-Uboot-FIP.bin` (2MB)。
-            2. 重启后在 **FIRMWARE UPDATE** 刷入 `SL3000-Uboot-factory.bin`。
+          tag_name: SL3000-Final-v3
+          name: SL3000 救砖引导 + 25.12 系统
           files: |
             openwrt/bin/targets/mediatek/filogic/SL3000-Uboot-FIP.bin
             openwrt/bin/targets/mediatek/filogic/SL3000-Final-sysupgrade.bin
