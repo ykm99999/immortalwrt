@@ -1,7 +1,6 @@
 #!/bin/bash
 set -eo pipefail
 
-# 🎯 物理定位
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 SRC_DIR="${REPO_ROOT}"
@@ -12,7 +11,7 @@ cd "${WORKDIR}"
 mkdir -p staging_dir/host
 touch staging_dir/host/.prereq-build
 
-# 2. 🔥 [.config] 严格延续您的全量设置，不准漏掉任何补丁
+# 2. 🔥 [.config] 严格延续之前所有验证过的设置 (kmod, luci, f2fs, jq 等)
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -22,7 +21,7 @@ rm -f .config
     echo "CONFIG_PACKAGE_atf-mt7981-sl3000-emmc=y"
     echo "CONFIG_TARGET_KERNEL_PARTSIZE=128"
     echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
-    # --- 物理承袭您的原始软件包 ---
+    # --- 物理延续原始软件包清单 ---
     echo "CONFIG_PACKAGE_kmod-mmc=y"
     echo "CONFIG_PACKAGE_kmod-sdhci-mtk=y"
     echo "CONFIG_PACKAGE_kmod-fs-f2fs=y"
@@ -43,7 +42,7 @@ rm -f .config
     echo "CONFIG_PACKAGE_jq=y"
 } > .config
 
-# 3. 🔥 [DTS 物理对齐] 暴力递归注入，解决内核编译找不到 DTS 的问题
+# 3. 🔥 [DTS 注入] 延续递归覆盖所有内核路径
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
@@ -53,7 +52,7 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     fi
 done
 
-# 4. 🔥 [MK 注入] 维持物理精简，严禁画蛇添足加 pad
+# 4. 🔥 [MK 注入] 物理延续移除 pad 填充逻辑
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 cat <<EOF > "filogic.mk.final"
 define Device/sl3000-emmc
@@ -78,7 +77,3 @@ endef
 TARGET_DEVICES += sl3000-emmc
 EOF
 cp -fv "filogic.mk.final" "$MK_TARGET"
-
-# 5. 屏蔽签名
-sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/true/g' package/Makefile || true
-sed -i 's/$(STAGING_DIR_HOST)\/bin\/ucert/true/g' package/Makefile || true
