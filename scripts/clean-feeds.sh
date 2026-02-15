@@ -1,20 +1,20 @@
 #!/bin/bash
 set -eo pipefail
 
-# 🎯 物理定位
+# 🎯 物理路径定义
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 SRC_DIR="${REPO_ROOT}"
 
-echo -e "\033[32m🚀 [SL3000] 正在执行 136MB U-Boot 物理对齐脚本 ...\033[0m"
+echo -e "\033[32m🚀 [SL3000] 执行 120MB U-Boot 物理对齐逻辑 ...\033[0m"
 
 cd "${WORKDIR}"
 
-# 1. 物理环境准备 (原文照抄)
+# 1. 环境自愈
 mkdir -p staging_dir/host
 touch staging_dir/host/.prereq-build
 
-# 2. 🔥 [.config] 锁定物理分区尺寸与核心组件
+# 2. 🔥 [.config] 物理分区锁定
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -23,30 +23,9 @@ rm -f .config
     echo "CONFIG_TARGET_KERNEL_PARTSIZE=128"
     echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
     echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y"
-    echo "CONFIG_TARGET_IMAGES_GZIP=y"
-    echo "CONFIG_PACKAGE_kmod-mmc=y"
-    echo "CONFIG_PACKAGE_kmod-sdhci-mtk=y"
-    echo "CONFIG_PACKAGE_kmod-fs-f2fs=y"
-    echo "CONFIG_PACKAGE_f2fs-tools=y"
-    echo "CONFIG_PACKAGE_f2fsck=y"
-    echo "CONFIG_PACKAGE_parted=y"
-    echo "CONFIG_PACKAGE_lsblk=y"
-    echo "CONFIG_PACKAGE_blkid=y"
-    echo "CONFIG_PACKAGE_block-mount=y"
-    echo "CONFIG_PACKAGE_kmod-zram=y"
-    echo "CONFIG_PACKAGE_zram-swap=y"
-    echo "CONFIG_PACKAGE_luci=y"
-    echo "CONFIG_PACKAGE_luci-theme-bootstrap=y"
-    echo "CONFIG_PACKAGE_curl=y"
-    echo "CONFIG_PACKAGE_wget-ssl=y"
-    echo "CONFIG_PACKAGE_htop=y"
-    echo "CONFIG_PACKAGE_nano=y"
 } > .config
 
-# 3. 🔥 [ID 修正] 物理全量替换，确保识别为 sl,3000-emmc
-find target/linux/mediatek/ -type f \( -name "*.dts*" -o -name "*.dtsi*" \) -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
-
-# 4. 🔥 [DTS 注入] 覆盖内核目录
+# 3. 🔥 [DTS 注入] 
 DTS_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
 mkdir -p "$DTS_DIR"
 if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
@@ -54,10 +33,9 @@ if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
     cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_DIR/mt7981-rfb.dts"
 fi
 
-# 5. 🔥 [MK 注入] 严禁偷工减料，强制写入 U-Boot 构建逻辑
+# 4. 🔥 [MK 注入] 物理硬写，锁定 90MB 填充
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
-# 我们直接在脚本内物理构造 Device 定义，确保 100% 准确
-cat <<EOF > "${SRC_DIR}/filogic.mk"
+cat <<EOF > "filogic.mk"
 define Device/sl3000-emmc
   DEVICE_VENDOR := SL
   DEVICE_MODEL := 3000 (eMMC)
@@ -68,7 +46,7 @@ define Device/sl3000-emmc
   DEVICE_DTS := mt7981b-3000-emmc
   DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := sl,3000-emmc sl,sl3000-emmc mediatek,mt7981
-  KERNEL_SIZE := 131072k
+  KERNEL_SIZE := 92160k
   BOARD_ROOTFS_PARTSIZE := 1024
   KERNEL := kernel-bin | lzma | uImage lzma
   KERNEL_INITRAMFS := kernel-bin | lzma | uImage lzma
@@ -80,11 +58,10 @@ define Device/sl3000-emmc
 endef
 TARGET_DEVICES += sl3000-emmc
 EOF
+cp -fv "filogic.mk" "$MK_TARGET"
 
-cp -fv "${SRC_DIR}/filogic.mk" "$MK_TARGET"
-
-# 6. 物理屏蔽签名校验 (原文照抄)
+# 5. 屏蔽签名检查
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/true/g' package/Makefile || true
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/ucert/true/g' package/Makefile || true
 
-echo -e "\033[32m✅ 脚本物理对齐完成：uImage 封装与 136MB 填充已就绪。\033[0m"
+echo -e "\033[32m✅ 补丁注入完成：90MB 填充格式就绪。\033[0m"
