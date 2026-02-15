@@ -6,7 +6,7 @@ REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 SRC_DIR="${REPO_ROOT}"
 
-echo -e "\033[32m🚀 [SL3000] 执行 2MB U-Boot + 系统固件物理对齐脚本 ...\033[0m"
+echo -e "\033[32m🚀 [SL3000] 执行物理自愈补丁（自适应内核路径） ...\033[0m"
 
 cd "${WORKDIR}"
 
@@ -14,20 +14,21 @@ cd "${WORKDIR}"
 mkdir -p staging_dir/host
 touch staging_dir/host/.prereq-build
 
-# 2. 🔥 [.config] 延续您的配置并补全 U-Boot 编译标志
+# 2. 🔥 [.config] 延续您的所有插件，补全 host 工具依赖
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
     echo "CONFIG_TARGET_mediatek_filogic=y"
     echo "CONFIG_TARGET_mediatek_filogic_DEVICE_sl3000-emmc=y"
-    # 🎯 [补全] 强制选中 U-Boot 和 ATF 编译，产出 2MB fip.bin
     echo "CONFIG_PACKAGE_u-boot-sl3000-emmc=y"
     echo "CONFIG_PACKAGE_atf-mt7981-sl3000-emmc=y"
+    # 物理补全依赖
+    echo "CONFIG_PACKAGE_jq=y"
     echo "CONFIG_TARGET_KERNEL_PARTSIZE=128"
     echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
     echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y"
     echo "CONFIG_TARGET_IMAGES_GZIP=y"
-    # --- 延续您的软件包配置 (不偷工减料) ---
+    # --- 延续您的原始插件配置 ---
     echo "CONFIG_PACKAGE_kmod-mmc=y"
     echo "CONFIG_PACKAGE_kmod-sdhci-mtk=y"
     echo "CONFIG_PACKAGE_kmod-fs-f2fs=y"
@@ -50,15 +51,25 @@ rm -f .config
 # 3. 🔥 [ID 修正]
 find target/linux/mediatek/ -type f \( -name "*.dts*" -o -name "*.dtsi*" \) -exec sed -i 's/sl,sl3000-emmc/sl,3000-emmc/g' {} +
 
-# 4. 🔥 [DTS 注入]
-DTS_DIR="target/linux/mediatek/files-6.12/arch/arm64/boot/dts/mediatek"
-mkdir -p "$DTS_DIR"
-if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
-    cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_DIR/mt7981b-3000-emmc.dts"
-    cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_DIR/mt7981-rfb.dts"
+# 4. 🔥 [DTS 物理自适应注入] 
+# 修复 target/linux 报错的关键：扫描所有可能的内核 files 目录
+KERNEL_FILES_DIRS=$(ls -d target/linux/mediatek/files-* 2>/dev/null || true)
+if [ -z "$KERNEL_FILES_DIRS" ]; then
+    echo "⚠️ 未发现 files-* 目录，正在创建默认 6.x 路径"
+    KERNEL_FILES_DIRS="target/linux/mediatek/files-6.12"
 fi
 
-# 5. 🔥 [MK 注入] 物理适配 2MB FIP + 精简系统逻辑
+for KD in $KERNEL_FILES_DIRS; do
+    DTS_DEST="$KD/arch/arm64/boot/dts/mediatek"
+    mkdir -p "$DTS_DEST"
+    if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
+        cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_DEST/mt7981b-3000-emmc.dts"
+        cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_DEST/mt7981-rfb.dts"
+        echo "✅ DTS 已物理注入到: $DTS_DEST"
+    fi
+done
+
+# 5. 🔥 [MK 注入] 延续之前版本，移除填充逻辑
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 cat <<EOF > "${SRC_DIR}/filogic.mk"
 define Device/sl3000-emmc
@@ -71,17 +82,12 @@ define Device/sl3000-emmc
   DEVICE_DTS := mt7981b-3000-emmc
   DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek
   SUPPORTED_DEVICES := sl,3000-emmc sl,sl3000-emmc mediatek,mt7981
-  
-  # 🚀 [物理修正] 移除 KERNEL_SIZE 锁定以生成 ~40MB 系统包，确保旧版 U-Boot 能刷入
   BOARD_ROOTFS_PARTSIZE := 1024
-  
   KERNEL := kernel-bin | lzma | uImage lzma
   KERNEL_INITRAMFS := kernel-bin | lzma | uImage lzma
   DEVICE_PACKAGES := kmod-mmc kmod-sdhci-mtk kmod-fs-f2fs f2fs-tools f2fsck \\
 	parted lsblk blkid block-mount kmod-zram zram-swap
   IMAGES := sysupgrade.bin factory.bin
-  
-  # 🎯 物理紧凑结构：直接拼接，不留 128MB 空白
   IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
   IMAGE/factory.bin := append-kernel | append-rootfs | pad-rootfs
 endef
@@ -89,6 +95,6 @@ TARGET_DEVICES += sl3000-emmc
 EOF
 cp -fv "${SRC_DIR}/filogic.mk" "$MK_TARGET"
 
-# 6. 物理屏蔽签名校验
+# 6. 物理屏蔽签名校验 (原文照抄)
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/usign/true/g' package/Makefile || true
 sed -i 's/$(STAGING_DIR_HOST)\/bin\/ucert/true/g' package/Makefile || true
