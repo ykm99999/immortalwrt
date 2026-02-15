@@ -7,11 +7,11 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. 物理环境准备 (严禁偷工减料)
+# 1. 物理环境准备
 mkdir -p staging_dir/host
 touch staging_dir/host/.prereq-build
 
-# 2. 🔥 [.config] 严格延续之前所有验证过的设置 (kmod, luci, f2fs, jq 等)
+# 2. 🔥 [.config] 延续所有全量配置
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -21,7 +21,7 @@ rm -f .config
     echo "CONFIG_PACKAGE_atf-mt7981-sl3000-emmc=y"
     echo "CONFIG_TARGET_KERNEL_PARTSIZE=128"
     echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
-    # --- 物理延续原始软件包清单 ---
+    # --- 物理延续您的原始插件清单 ---
     echo "CONFIG_PACKAGE_kmod-mmc=y"
     echo "CONFIG_PACKAGE_kmod-sdhci-mtk=y"
     echo "CONFIG_PACKAGE_kmod-fs-f2fs=y"
@@ -42,7 +42,7 @@ rm -f .config
     echo "CONFIG_PACKAGE_jq=y"
 } > .config
 
-# 3. 🔥 [DTS 注入] 延续递归覆盖所有内核路径
+# 3. 🔥 [DTS 注入]
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
@@ -52,7 +52,7 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     fi
 done
 
-# 4. 🔥 [MK 注入] 物理延续移除 pad 填充逻辑
+# 4. 🔥 [MK 注入]
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 cat <<EOF > "filogic.mk.final"
 define Device/sl3000-emmc
