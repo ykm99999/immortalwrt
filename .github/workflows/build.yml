@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🚀 [极致补全] 环境物理自愈"
+      - name: "🚀 环境物理自愈"
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
           sudo apt update
@@ -23,40 +23,36 @@ jobs:
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
-      - name: "📂 克隆 ImmortalWrt (25.12)"
+      - name: "📂 克隆源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "更新信息流"
+      - name: "更新 feeds"
         working-directory: ./openwrt
-        run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+        run: ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: "⚡ 运行物理对齐补丁"
+      - name: "⚡ 执行补丁"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 彻底编译 (make world)"
         working-directory: ./openwrt
         run: |
           make defconfig
-          # 使用 make world 自动处理所有 target/linux 和 package 之间的物理依赖
-          # 这是彻底解决 "No rule to make target .config" 的唯一手段
+          # 物理闭合：不拆分步骤，一次性跑完所有依赖
           make -j$(nproc) world || make -j1 V=s world
 
-      - name: "📦 固件物理归集"
+      - name: "📦 固件归集"
         working-directory: ./openwrt
         run: |
           OUTPUT_DIR="bin/targets/mediatek/filogic"
           FWTOOL_PATH=$(find staging_dir/host/bin/ -name fwtool -type f | head -n 1)
           
-          # 🚀 [彻底解决] 无论 fip.bin 在哪，物理锁定并提取
+          # 暴力搜索提取 2MB 引导零件
           find build_dir/ -name "*fip.bin" -exec cp -v {} "$OUTPUT_DIR/SL3000-Uboot-FIP.bin" \;
           
           cd "$OUTPUT_DIR"
           SYS_FILE=$(ls *sl3000-emmc*sysupgrade.bin | head -n 1)
           FAC_FILE=$(ls *sl3000-emmc*factory.bin | head -n 1)
           
-          # 物理注入 ID
           printf '{"metadata_version":"1.1","compat_version":"1.0","supported_devices":["sl,3000-emmc"],"version":{"dist":"ImmortalWrt","version":"25.12","board":"sl,3000-emmc"}}' > metadata.json
           [ -f "$SYS_FILE" ] && "$FWTOOL_PATH" -I metadata.json "$SYS_FILE"
           
@@ -69,11 +65,6 @@ jobs:
         if: success()
         with:
           tag_name: SL3000-Final-Fixed
-          name: SL3000 引导+系统 全量物理对齐版
-          body: |
-            ### 🛠️ 刷机说明
-            1. 进入旧版 U-Boot，通过 **U-BOOT UPDATE** 刷入 `SL3000-Uboot-FIP.bin` (2MB)。
-            2. 重启进入新版 U-Boot，通过 **FIRMWARE UPDATE** 刷入 `SL3000-Uboot-factory.bin`。
           files: |
             openwrt/bin/targets/mediatek/filogic/SL3000-Uboot-FIP.bin
             openwrt/bin/targets/mediatek/filogic/SL3000-Final-sysupgrade.bin
