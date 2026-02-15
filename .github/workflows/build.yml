@@ -60,78 +60,49 @@ jobs:
             openwrt/build_dir/host
           key: ${{ runner.os }}-openwrt-2512-${{ hashFiles('openwrt/include/toplevel.mk') }}
 
-      - name: "🎯 [25.12 适配] 物理硬修复环境注入"
-        working-directory: ./openwrt
-        run: |
-          ABS_REPO_ROOT=$(cd .. && pwd)
-          OPENWRT_ROOT=$(pwd)
-
-          make target/linux/prepare -j$(nproc)
-          
-          KERNEL_DTS_DIR=$(find build_dir -path "*/arch/arm64/boot/dts/mediatek" -type d | head -n 1)
-          
-          if [ -n "$KERNEL_DTS_DIR" ]; then
-              echo "🎯 物理锁定内核 DTS 目录: $KERNEL_DTS_DIR"
-              cd "$KERNEL_DTS_DIR"
-              
-              [ -f "mt7981b.dtsi" ] && ln -sf mt7981b.dtsi mt7981.dtsi
-              
-              cp -fv "$ABS_REPO_ROOT/mt7981b-3000-emmc.dts" ./mt7981b-3000-emmc.dts
-              cp -fv "$ABS_REPO_ROOT/mt7981b-3000-emmc.dts" ./mt7981-rfb.dts
-              
-              mkdir -p "dt-bindings"
-              for sub in gpio input interrupt-controller leds pinctrl; do
-                ln -sf "$OPENWRT_ROOT/include/dt-bindings/$sub" "./dt-bindings/$sub"
-              done
-              echo "✅ 环境注入完成"
-          else
-              echo "❌ 错误：无法定位内核物理路径" && exit 1
-          fi
-
       - name: "构建固件"
         working-directory: ./openwrt
         run: |
-          # 物理对齐 GPT 底包：强制锁定尺寸
-          sed -i 's/CONFIG_TARGET_KERNEL_PARTSIZE=.*/CONFIG_TARGET_KERNEL_PARTSIZE=128/' .config
-          sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=1024/' .config
-          
           make target/linux/compile -j$(nproc) FORCE=1
           make package/compile -j$(nproc) FORCE=1
           make package/install -j$(nproc) FORCE=1
           make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y IGNORE_ERRORS=1 FORCE=1
 
-      - name: "📦 固件物理归集 (136MB GPT 对齐版)"
+      - name: "📦 固件物理归集 (U-Boot 兼容版)"
         working-directory: ./openwrt/bin/targets/mediatek/filogic/
         run: |
-          echo "🎯 正在整理最终产出固件并进行物理身份锁定..."
-          ORIGINAL_FILE=$(ls *sl3000-emmc*sysupgrade.bin | head -n 1)
+          echo "🎯 正在执行最终物理身份锁定..."
           
-          # 🚀 [物理硬修复] 构造精准匹配旧系统 ID (sl,3000-emmc) 的单行 Metadata
-          printf '{"metadata_version":"1.1","compat_version":"1.0","supported_devices":["sl,3000-emmc","sl,sl3000-emmc","mediatek,mt7981"],"version":{"dist":"ImmortalWrt","version":"25.12","board":"sl,3000-emmc"}}' > metadata.json
+          # 1. 物理定位编译产出的 fwtool 工具
+          FWTOOL_PATH=$(find ../../../../staging_dir/host/bin/ -name fwtool -type f | head -n 1)
           
-          # 物理注入：穿透 U-Boot 和 23.05 校验
-          sudo apt-get update && sudo apt-get install -y fwtool
-          fwtool -I metadata.json "$ORIGINAL_FILE"
+          # 2. 定位固件
+          SYS_FILE=$(ls *sl3000-emmc*sysupgrade.bin | head -n 1)
+          FAC_FILE=$(ls *sl3000-emmc*factory.bin | head -n 1)
           
-          # 物理锁定产出名
-          cp -v "$ORIGINAL_FILE" SL3000-GPT-Fixed-136M-sysupgrade.bin
-          cp -v *sl3000-emmc*factory.bin SL3000-GPT-Fixed-136M-factory.bin || true
-          sha256sum SL3000-GPT-Fixed-136M-sysupgrade.bin > sha256sums.txt
+          # 3. [物理硬修复] 注入精准 ID (sl,3000-emmc) 到 sysupgrade
+          printf '{"metadata_version":"1.1","compat_version":"1.0","supported_devices":["sl,3000-emmc"],"version":{"dist":"ImmortalWrt","version":"25.12","board":"sl,3000-emmc"}}' > metadata.json
+          "$FWTOOL_PATH" -I metadata.json "$SYS_FILE"
+          
+          # 4. 物理命名归集
+          cp -v "$SYS_FILE" SL3000-Final-sysupgrade.bin
+          cp -v "$FAC_FILE" SL3000-Uboot-factory.bin
+          sha256sum SL3000-Final-sysupgrade.bin SL3000-Uboot-factory.bin > sha256sums.txt
 
       - name: "🚀 自动发布到 GitHub Releases"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-25.12-GPT-Fixed
-          name: SL3000 (eMMC) 25.12 固件 - GPT 物理对齐版
+          tag_name: SL3000-25.12-Uboot-Fixed
+          name: SL3000 (eMMC) 25.12 固件 - U-Boot 物理对齐版
           body: |
-            ### 📝 固件物理说明
-            - **物理布局**: 内核 128MB (pad-to 对齐) / 根文件系统 1024MB
-            - **ID 对齐**: 已强制锁定为 `sl,3000-emmc` 以穿透旧系统校验
-            - **U-Boot 适配**: 已物理填充至 136MB，对齐 GPT 分区表位移
+            ### 📝 固件说明
+            - **U-Boot 格式**: 已注入 uImage Header (factory.bin)
+            - **物理布局**: 128MB 内核偏移对齐 (136MB 总大小)
+            - **身份识别**: 物理锁定为 `sl,3000-emmc`
           files: |
-            openwrt/bin/targets/mediatek/filogic/SL3000-GPT-Fixed-136M-sysupgrade.bin
-            openwrt/bin/targets/mediatek/filogic/SL3000-GPT-Fixed-136M-factory.bin
+            openwrt/bin/targets/mediatek/filogic/SL3000-Final-sysupgrade.bin
+            openwrt/bin/targets/mediatek/filogic/SL3000-Uboot-factory.bin
             openwrt/bin/targets/mediatek/filogic/sha256sums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
