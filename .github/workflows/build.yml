@@ -26,77 +26,54 @@ jobs:
       - name: "📂 克隆 ImmortalWrt (25.12)"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 缓存恢复"
-        id: cache-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            openwrt/staging_dir
-            openwrt/build_dir/host
-          key: ${{ runner.os }}-openwrt-2512-${{ hashFiles('openwrt/include/toplevel.mk') }}
-          restore-keys: |
-            ${{ runner.os }}-openwrt-2512-
-
       - name: "更新信息流"
         working-directory: ./openwrt
-        run: ./scripts/feeds update -a && ./scripts/feeds install -a > /dev/null 2>&1
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-      - name: "运行补丁脚本"
+      - name: "⚡ 运行物理对齐补丁"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "构建工具链"
+      - name: "🔨 彻底编译 (make world)"
         working-directory: ./openwrt
         run: |
-          make defconfig FORCE=1
-          make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
-          make toolchain/install -j$(nproc) FORCE=1 || make toolchain/install -j1 V=s FORCE=1
+          make defconfig
+          # 使用 make world 自动处理所有 target/linux 和 package 之间的物理依赖
+          # 这是彻底解决 "No rule to make target .config" 的唯一手段
+          make -j$(nproc) world || make -j1 V=s world
 
-      - name: "⚡ 手动保存缓存"
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: |
-            openwrt/staging_dir
-            openwrt/build_dir/host
-          key: ${{ runner.os }}-openwrt-2512-${{ hashFiles('openwrt/include/toplevel.mk') }}
-
-      - name: "构建固件与引导"
+      - name: "📦 固件物理归集"
         working-directory: ./openwrt
         run: |
-          # 1. 物理顺序修复：先编译包以生成 rootfs 目录
-          make package/compile -j$(nproc) FORCE=1 || make package/compile -j1 V=s FORCE=1
-          make package/install -j$(nproc) FORCE=1 || make package/install -j1 V=s FORCE=1
+          OUTPUT_DIR="bin/targets/mediatek/filogic"
+          FWTOOL_PATH=$(find staging_dir/host/bin/ -name fwtool -type f | head -n 1)
           
-          # 2. 只有 rootfs 存在了，才能执行 target/linux/install 封装镜像
-          make target/linux/install -j$(nproc) DEVICE_sl3000-emmc=y || make target/linux/install -j1 V=s DEVICE_sl3000-emmc=y
+          # 🚀 [彻底解决] 无论 fip.bin 在哪，物理锁定并提取
+          find build_dir/ -name "*fip.bin" -exec cp -v {} "$OUTPUT_DIR/SL3000-Uboot-FIP.bin" \;
           
-          # 3. 编译 U-Boot 零件
-          make package/boot/uboot-mediatek/compile -j$(nproc) FORCE=1
-          make package/boot/atf-mediatek/compile -j$(nproc) FORCE=1
-
-      - name: "📦 固件物理归集 (引导+系统)"
-        working-directory: ./openwrt/bin/targets/mediatek/filogic/
-        run: |
-          FWTOOL_PATH=$(find ../../../../staging_dir/host/bin/ -name fwtool -type f | head -n 1)
-          
-          # 🚀 物理提取 FIP (2MB)
-          find ../../../../build_dir/ -name "*fip.bin" -exec cp -v {} SL3000-Uboot-FIP.bin \;
-          
+          cd "$OUTPUT_DIR"
           SYS_FILE=$(ls *sl3000-emmc*sysupgrade.bin | head -n 1)
           FAC_FILE=$(ls *sl3000-emmc*factory.bin | head -n 1)
           
+          # 物理注入 ID
           printf '{"metadata_version":"1.1","compat_version":"1.0","supported_devices":["sl,3000-emmc"],"version":{"dist":"ImmortalWrt","version":"25.12","board":"sl,3000-emmc"}}' > metadata.json
-          [ -n "$SYS_FILE" ] && "$FWTOOL_PATH" -I metadata.json "$SYS_FILE"
+          [ -f "$SYS_FILE" ] && "$FWTOOL_PATH" -I metadata.json "$SYS_FILE"
           
           cp -v "$SYS_FILE" SL3000-Final-sysupgrade.bin
           cp -v "$FAC_FILE" SL3000-Uboot-factory.bin
           sha256sum SL3000-Uboot-FIP.bin SL3000-Final-sysupgrade.bin SL3000-Uboot-factory.bin > sha256sums.txt
 
-      - name: "🚀 发布固件"
+      - name: "🚀 发布 Release"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-Final-v4
+          tag_name: SL3000-Final-Fixed
+          name: SL3000 引导+系统 全量物理对齐版
+          body: |
+            ### 🛠️ 刷机说明
+            1. 进入旧版 U-Boot，通过 **U-BOOT UPDATE** 刷入 `SL3000-Uboot-FIP.bin` (2MB)。
+            2. 重启进入新版 U-Boot，通过 **FIRMWARE UPDATE** 刷入 `SL3000-Uboot-factory.bin`。
           files: |
             openwrt/bin/targets/mediatek/filogic/SL3000-Uboot-FIP.bin
             openwrt/bin/targets/mediatek/filogic/SL3000-Final-sysupgrade.bin
