@@ -11,9 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🚀 环境物理自愈"
+      - name: "🚀 [物理空间优化] 彻底清理磁盘"
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
+          sudo apt clean
+          sudo rm -rf /var/lib/apt/lists/*
+
+      - name: "📦 环境安装"
+        run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison gawk gettext \
             gettext-base git libncurses5-dev libssl-dev python3 python3-distutils \
@@ -26,45 +31,61 @@ jobs:
       - name: "📂 克隆源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
+      - name: "⚡ [延续-缓存机制] 恢复缓存"
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            openwrt/staging_dir
+            openwrt/build_dir/host
+          key: ${{ runner.os }}-openwrt-2512-${{ hashFiles('openwrt/include/toplevel.mk') }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-2512-
+
       - name: "更新 feeds"
         working-directory: ./openwrt
         run: ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: "⚡ 执行补丁"
+      - name: "⚡ 执行物理补丁"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 彻底编译 (make world)"
+      - name: "🔨 [物理修复] 全量编译 (make world)"
         working-directory: ./openwrt
         run: |
           make defconfig
-          # 物理闭合：不拆分步骤，一次性跑完所有依赖
+          # 物理闭合：不拆分步骤，解决 root-mediatek 缺失和 .config 找不到的矛盾
           make -j$(nproc) world || make -j1 V=s world
+
+      - name: "⚡ [延续-缓存机制] 保存缓存"
+        uses: actions/cache/save@v4
+        if: success()
+        with:
+          path: |
+            openwrt/staging_dir
+            openwrt/build_dir/host
+          key: ${{ runner.os }}-openwrt-2512-${{ hashFiles('openwrt/include/toplevel.mk') }}
 
       - name: "📦 固件归集"
         working-directory: ./openwrt
         run: |
           OUTPUT_DIR="bin/targets/mediatek/filogic"
           FWTOOL_PATH=$(find staging_dir/host/bin/ -name fwtool -type f | head -n 1)
-          
-          # 暴力搜索提取 2MB 引导零件
+          # 暴力深挖提取 2MB FIP
           find build_dir/ -name "*fip.bin" -exec cp -v {} "$OUTPUT_DIR/SL3000-Uboot-FIP.bin" \;
-          
           cd "$OUTPUT_DIR"
           SYS_FILE=$(ls *sl3000-emmc*sysupgrade.bin | head -n 1)
           FAC_FILE=$(ls *sl3000-emmc*factory.bin | head -n 1)
-          
           printf '{"metadata_version":"1.1","compat_version":"1.0","supported_devices":["sl,3000-emmc"],"version":{"dist":"ImmortalWrt","version":"25.12","board":"sl,3000-emmc"}}' > metadata.json
           [ -f "$SYS_FILE" ] && "$FWTOOL_PATH" -I metadata.json "$SYS_FILE"
-          
           cp -v "$SYS_FILE" SL3000-Final-sysupgrade.bin
           cp -v "$FAC_FILE" SL3000-Uboot-factory.bin
           sha256sum SL3000-Uboot-FIP.bin SL3000-Final-sysupgrade.bin SL3000-Uboot-factory.bin > sha256sums.txt
 
-      - name: "🚀 发布 Release"
+      - name: "🚀 自动发布"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-Final-Fixed
+          tag_name: SL3000-V${{ github.run_number }}
           files: |
             openwrt/bin/targets/mediatek/filogic/SL3000-Uboot-FIP.bin
             openwrt/bin/targets/mediatek/filogic/SL3000-Final-sysupgrade.bin
