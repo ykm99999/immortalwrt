@@ -7,11 +7,18 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. 物理环境准备
+# 1. 🔥 [物理精简] 彻底解决：只安装基础环境和指定的路由器相关包
+# 这样系统就不会去扫描那些报错的 onionshare 或 advanced-reboot
+./scripts/feeds update -a
+./scripts/feeds install base-files libc libgcc libstdcpp
+./scripts/feeds install luci luci-theme-bootstrap
+./scripts/feeds install curl wget-ssl htop nano jq
+
+# 2. 物理环境补丁
 mkdir -p staging_dir/host
 touch staging_dir/host/.prereq-build
 
-# 2. 🔥 [.config] 深度物理锁死：显式开启所有导致报错的 host 依赖
+# 3. 🔥 [.config] 物理延续 + 依赖固化
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -21,15 +28,7 @@ rm -f .config
     echo "CONFIG_PACKAGE_atf-mt7981-sl3000-emmc=y"
     echo "CONFIG_TARGET_KERNEL_PARTSIZE=128"
     echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
-    
-    # 🔥 彻底解决 jq/host 缺失：强制开启底层构建工具
-    echo "CONFIG_PACKAGE_jq=y"
-    echo "CONFIG_PACKAGE_jq-host=y"
-    echo "CONFIG_PACKAGE_libncurses-host=y"
-    echo "CONFIG_PACKAGE_zlib-host=y"
-    echo "CONFIG_PACKAGE_m4-host=y"
-
-    # --- 物理延续原始插件清单 (严禁少改一个字符) ---
+    # --- 物理延续原始插件清单 (严禁偷工减料) ---
     echo "CONFIG_PACKAGE_kmod-mmc=y"
     echo "CONFIG_PACKAGE_kmod-sdhci-mtk=y"
     echo "CONFIG_PACKAGE_kmod-fs-f2fs=y"
@@ -47,9 +46,10 @@ rm -f .config
     echo "CONFIG_PACKAGE_wget-ssl=y"
     echo "CONFIG_PACKAGE_htop=y"
     echo "CONFIG_PACKAGE_nano=y"
+    echo "CONFIG_PACKAGE_jq=y"
 } > .config
 
-# 3. 🔥 [DTS 注入] 延续递归逻辑
+# 4. 🔥 [DTS 注入] 延续逻辑
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
@@ -59,7 +59,7 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     fi
 done
 
-# 4. 🔥 [MK 注入]
+# 5. 🔥 [MK 注入] 延续分区
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 cat <<EOF > "filogic.mk.final"
 define Device/sl3000-emmc
