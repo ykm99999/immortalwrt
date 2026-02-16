@@ -11,7 +11,7 @@ cd "${WORKDIR}"
 mkdir -p staging_dir/host
 touch staging_dir/host/.prereq-build
 
-# 2. 🔥 [.config] 深度锁死，确保所有 host 工具在 defconfig 时就全部选中
+# 2. 🔥 [.config] 深度物理锁死：显式开启所有导致报错的 host 依赖
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -21,12 +21,15 @@ rm -f .config
     echo "CONFIG_PACKAGE_atf-mt7981-sl3000-emmc=y"
     echo "CONFIG_TARGET_KERNEL_PARTSIZE=128"
     echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
-    # 🔥 彻底解决 jq/host 缺失和弹窗：强制固化所有基础工具配置
+    
+    # 🔥 彻底解决 jq/host 缺失：强制开启底层构建工具
     echo "CONFIG_PACKAGE_jq=y"
     echo "CONFIG_PACKAGE_jq-host=y"
-    echo "CONFIG_PACKAGE_m4-host=y"
     echo "CONFIG_PACKAGE_libncurses-host=y"
-    # --- 物理延续原始插件清单 ---
+    echo "CONFIG_PACKAGE_zlib-host=y"
+    echo "CONFIG_PACKAGE_m4-host=y"
+
+    # --- 物理延续原始插件清单 (严禁少改一个字符) ---
     echo "CONFIG_PACKAGE_kmod-mmc=y"
     echo "CONFIG_PACKAGE_kmod-sdhci-mtk=y"
     echo "CONFIG_PACKAGE_kmod-fs-f2fs=y"
@@ -46,7 +49,7 @@ rm -f .config
     echo "CONFIG_PACKAGE_nano=y"
 } > .config
 
-# 3. 🔥 [DTS 注入]
+# 3. 🔥 [DTS 注入] 延续递归逻辑
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
