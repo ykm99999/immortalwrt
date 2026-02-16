@@ -15,20 +15,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🚀 [延续] 极致空间清理"
+      - name: "🚀 [延续] 磁盘清理"
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
 
-      - name: "📦 环境安装"
+      - name: "📦 环境补全"
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison gawk gettext \
             gettext-base git libncurses5-dev libssl-dev python3 python3-distutils \
             python3-pyelftools rsync unzip zlib1g-dev swig libpython3-dev \
             device-tree-compiler wget curl file tar bzip2 patch setserial \
-            pkg-config qemu-utils jq
+            pkg-config qemu-utils jq cmake
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
@@ -47,31 +47,25 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-openwrt-2512-
 
-      - name: "更新 feeds"
-        working-directory: ./openwrt
-        run: ./scripts/feeds update -a && ./scripts/feeds install -a
-
-      - name: "⚡ 执行物理补丁"
+      - name: "⚡ 执行定向拉取与物理补丁"
+        # 注意：这里不再单独跑 feeds update，全部交给精简脚本处理
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 [彻底解决] 步骤1：物理初始化全量 Host 工具"
+      - name: "🔨 [彻底解决] 步骤1：初始化构建环境"
         working-directory: ./openwrt
         run: |
           make defconfig
-          # 物理锁定配置，杜绝交互弹窗
+          # 🔥 关键：强制静默配置，杜绝所有(NEW)弹窗
           printf '\n' | make oldconfig
-          # 🔥 关键修复：强制优先安装所有主机构建工具（含 jq/host, fwtool 依赖库）
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
 
-      - name: "🔨 [彻底解决] 步骤2：完整固件构建流程"
+      - name: "🔨 [彻底解决] 步骤2：固件物理生成"
         working-directory: ./openwrt
         run: |
-          # 再次锁定配置
           printf '\n' | make oldconfig
-          # 物理闭合：确保打包工具在构建前就绪
+          # 物理优先确保元数据工具
           make -j$(nproc) package/utils/fwtool/host/install
-          # 统一构建，让 Makefile 自动根据依赖树顺序执行，杜绝碎片化安装
           make -j$(nproc) target/compile
           make -j$(nproc) package/compile
           make -j$(nproc) package/install
@@ -91,7 +85,6 @@ jobs:
         working-directory: ./openwrt
         run: |
           OUTPUT_DIR="bin/targets/mediatek/filogic"
-          # 物理定位搜索路径
           FWTOOL_PATH=$(find staging_dir/host/bin/ -name fwtool -type f | head -n 1)
           
           find build_dir/ -name "*fip.bin" -exec cp -v {} "$OUTPUT_DIR/SL3000-Uboot-FIP.bin" \;
@@ -100,7 +93,7 @@ jobs:
           FAC_FILE=$(ls *sl3000-emmc*factory.bin | head -n 1)
           
           printf '{"metadata_version":"1.1","compat_version":"1.0","supported_devices":["sl,3000-emmc"],"version":{"dist":"ImmortalWrt","version":"25.12","board":"sl,3000-emmc"}}' > metadata.json
-          [ -f "$FWTOOL_PATH" ] && [ -f "$SYS_FILE" ] && "$FWTOOL_PATH" -I metadata.json "$SYS_FILE" || echo "Skip fwtool: metadata injection failed."
+          [ -f "$FWTOOL_PATH" ] && [ -f "$SYS_FILE" ] && "$FWTOOL_PATH" -I metadata.json "$SYS_FILE"
           
           cp -v "$SYS_FILE" SL3000-Final-sysupgrade.bin
           cp -v "$FAC_FILE" SL3000-Uboot-factory.bin
