@@ -5,6 +5,7 @@ on:
 
 env:
   FORCE_UNSAFE_CONFIGURE: 1
+  # 🔥 彻底解决卡死的关键：环境变量封锁交互
   NON_INTERACTIVE: 1
 
 jobs:
@@ -15,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🚀 [延续] 极致空间优化"
+      - name: "🚀 [延续] 极致清理"
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
           sudo apt clean
@@ -35,7 +36,7 @@ jobs:
       - name: "📂 克隆源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ [延续-缓存] 恢复全量成果"
+      - name: "⚡ [延续-缓存] 恢复"
         id: cache-restore
         uses: actions/cache/restore@v4
         with:
@@ -54,28 +55,29 @@ jobs:
       - name: "⚡ 执行物理补丁"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 [延续-拆分] 1. 构建工具链 (核心固化)"
+      - name: "🔨 [彻底解决] 1. 构建工具链 (含 Host 工具)"
         working-directory: ./openwrt
         run: |
           make defconfig
+          # 🔥 彻底解决 (NEW) 交互死锁：强制接受所有默认配置
           printf '\n' | make oldconfig
-          # 🔥 物理彻底防御：先强行安装 host 构建工具
+          # 物理补全：确保编译 fwtool 之前 host 环境是成熟的
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
 
-      - name: "🔨 [延续-拆分] 2. 构建固件 & 软件包 (物理闭合)"
+      - name: "🔨 [彻底解决] 2. 构建固件 & 软件包"
         working-directory: ./openwrt
         run: |
-          # 再次确认配置，防止二次污染
+          # 再次强制闭合配置
           printf '\n' | make oldconfig
           make -j$(nproc) target/compile
           make -j$(nproc) package/compile
           make -j$(nproc) package/install
-          # 🔥 彻底解决 fwtool 报错：在目标编译前物理补齐 host 工具
+          # 物理安装 fwtool
           make -j$(nproc) package/utils/fwtool/host/install
           make -j$(nproc) target/install
 
-      - name: "⚡ [延续-缓存] 保存成果"
+      - name: "⚡ [延续-缓存] 保存"
         uses: actions/cache/save@v4
         if: success()
         with:
@@ -89,7 +91,6 @@ jobs:
         working-directory: ./openwrt
         run: |
           OUTPUT_DIR="bin/targets/mediatek/filogic"
-          # 物理定位：fwtool 必须位于 host 目录下
           FWTOOL_PATH=$(find staging_dir/host/bin/ -name fwtool -type f | head -n 1)
           
           find build_dir/ -name "*fip.bin" -exec cp -v {} "$OUTPUT_DIR/SL3000-Uboot-FIP.bin" \;
@@ -98,8 +99,7 @@ jobs:
           FAC_FILE=$(ls *sl3000-emmc*factory.bin | head -n 1)
           
           printf '{"metadata_version":"1.1","compat_version":"1.0","supported_devices":["sl,3000-emmc"],"version":{"dist":"ImmortalWrt","version":"25.12","board":"sl,3000-emmc"}}' > metadata.json
-          # 如果 fwtool 依然丢失（理论上不可能），则跳过元数据注入但继续流程
-          [ -f "$FWTOOL_PATH" ] && "$FWTOOL_PATH" -I metadata.json "$SYS_FILE" || echo "Warning: fwtool not found, skipping metadata injection."
+          [ -f "$FWTOOL_PATH" ] && "$FWTOOL_PATH" -I metadata.json "$SYS_FILE"
           
           cp -v "$SYS_FILE" SL3000-Final-sysupgrade.bin
           cp -v "$FAC_FILE" SL3000-Uboot-factory.bin
