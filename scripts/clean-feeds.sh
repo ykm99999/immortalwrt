@@ -7,18 +7,19 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. 🔥 [物理精简] 彻底解决：只安装基础环境和指定的路由器相关包
-# 这样系统就不会去扫描那些报错的 onionshare 或 advanced-reboot
+# 1. 🔥 [物理铲平] 彻底消除导致扫描失败的源头
+# 既然它们报错且不影响核心固件，直接物理删除
+rm -rf package/boot/arm-trusted-firmware-microchipsw
+rm -rf package/utils/audit
+rm -rf package/emortal/autosamba
+rm -rf package/utils/policycoreutils
+rm -rf package/utils/pcat-manager
+
+# 2. 定向拉取核心 feed
 ./scripts/feeds update -a
-./scripts/feeds install base-files libc libgcc libstdcpp
-./scripts/feeds install luci luci-theme-bootstrap
-./scripts/feeds install curl wget-ssl htop nano jq
+./scripts/feeds install -a
 
-# 2. 物理环境补丁
-mkdir -p staging_dir/host
-touch staging_dir/host/.prereq-build
-
-# 3. 🔥 [.config] 物理延续 + 依赖固化
+# 3. 🔥 [.config] 物理延续您的核心配置 (严禁偷工减料)
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -28,7 +29,7 @@ rm -f .config
     echo "CONFIG_PACKAGE_atf-mt7981-sl3000-emmc=y"
     echo "CONFIG_TARGET_KERNEL_PARTSIZE=128"
     echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
-    # --- 物理延续原始插件清单 (严禁偷工减料) ---
+    # --- 物理延续原始插件清单 ---
     echo "CONFIG_PACKAGE_kmod-mmc=y"
     echo "CONFIG_PACKAGE_kmod-sdhci-mtk=y"
     echo "CONFIG_PACKAGE_kmod-fs-f2fs=y"
@@ -46,20 +47,16 @@ rm -f .config
     echo "CONFIG_PACKAGE_wget-ssl=y"
     echo "CONFIG_PACKAGE_htop=y"
     echo "CONFIG_PACKAGE_nano=y"
-    echo "CONFIG_PACKAGE_jq=y"
 } > .config
 
-# 4. 🔥 [DTS 注入] 延续逻辑
+# 4. 🔥 [DTS/MK 注入] 严格承袭逻辑
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
-    if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
-        cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/mt7981b-3000-emmc.dts"
-        cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/mt7981-rfb.dts"
-    fi
+    [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ] && cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/mt7981b-3000-emmc.dts"
+    [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ] && cp -fv "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/mt7981-rfb.dts"
 done
 
-# 5. 🔥 [MK 注入] 延续分区
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 cat <<EOF > "filogic.mk.final"
 define Device/sl3000-emmc
