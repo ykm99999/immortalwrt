@@ -3,7 +3,6 @@ set -eo pipefail
 
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
-# 物理修复 1：修正 DTS 来源路径（假设 DTS 在根目录或同级目录）
 SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
@@ -46,18 +45,18 @@ rm -f .config
     echo "CONFIG_PACKAGE_nano=y"
 } > .config
 
-# 注入 DTS 到内核 (物理修复 2：支持所有 6.x 版本，提高确定性)
+# 注入 DTS 到内核
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
     if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
         cp -v "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/"
-        # 兼容性同步：某些版本可能寻找 mt7981-rfb.dts
         cp -v "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/mt7981-rfb.dts"
     fi
 done
 
-# 生成并覆盖 filogic.mk (物理修复 3：修正内核压缩链)
+# 生成并覆盖 filogic.mk
+# 物理计算：128M = 134217728 字节 | 1152M = 1207959552 字节
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 cat <<EOF > "filogic.mk.final"
 define Device/3000-emmc
@@ -68,14 +67,14 @@ define Device/3000-emmc
   SUPPORTED_DEVICES := sl,3000-emmc
   DEVICE_DTS := mt7981b-3000-emmc
   DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek
-  KERNEL_SIZE := 128M
-  IMAGE_SIZE := 1152M
-  # 物理修正压缩逻辑，确保 U-Boot 可读
+  # 彻底解决：改为 Python 脚本识别的纯数字字节
+  KERNEL_SIZE := 134217728
+  IMAGE_SIZE := 1207959552
   KERNEL := kernel-bin | lzma | uImage lzma
   DEVICE_PACKAGES := kmod-mmc kmod-mtk-sd kmod-fs-f2fs f2fs-tools f2fsck \\
 	parted lsblk blkid block-mount kmod-zram zram-swap
   IMAGES := sysupgrade.bin
-  IMAGE/sysupgrade.bin := append-kernel | pad-to 128M | append-rootfs | append-metadata | check-size
+  IMAGE/sysupgrade.bin := append-kernel | pad-to 134217728 | append-rootfs | append-metadata | check-size
 endef
 TARGET_DEVICES += 3000-emmc
 EOF
