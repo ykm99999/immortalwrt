@@ -17,7 +17,8 @@ jobs:
 
       - name: "🚀 环境清理"
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hosttoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
+          # 物理修复路径：hostedtoolcache
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
 
@@ -42,21 +43,35 @@ jobs:
         working-directory: ./openwrt
         run: |
           make defconfig
+          # 物理锁死配置
+          printf '\n' | make oldconfig
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
 
       - name: "🔨 构建固件"
         working-directory: ./openwrt
         run: |
+          # 再次物理锁死配置，杜绝交互弹窗
+          printf '\n' | make oldconfig
           make -j$(nproc) || make -j1 V=s
-          cp .config bin/targets/mediatek/filogic/3000-emmc.config || true
 
       - name: "📦 固件归集"
-        working-directory: ./openwrt/bin/targets/mediatek/filogic
+        # 物理修正：在根目录运行，防止目录不存在导致崩溃
         run: |
-          SYS_FILE=$(ls *3000-emmc*sysupgrade.bin 2>/dev/null | head -n 1)
-          [ -n "$SYS_FILE" ] && cp -v "$SYS_FILE" SL3000-Final-sysupgrade.bin
-          sha256sum *.bin 2>/dev/null > sha256sums.txt
+          OUTPUT_DIR="openwrt/bin/targets/mediatek/filogic"
+          mkdir -p "collect_firmware"
+          
+          # 物理搜索并拷贝，防止路径写死
+          if [ -d "$OUTPUT_DIR" ]; then
+              cp -v "$OUTPUT_DIR"/*3000-emmc*sysupgrade.bin collect_firmware/SL3000-Final-sysupgrade.bin || true
+              cp -v "$OUTPUT_DIR"/*3000-emmc*factory.bin collect_firmware/SL3000-Uboot-factory.bin || true
+              # 搜索可能存在的 FIP 文件
+              find openwrt/build_dir/ -name "*fip.bin" -exec cp -v {} collect_firmware/SL3000-Uboot-FIP.bin \;
+              cp -v openwrt/.config collect_firmware/3000-emmc.config || true
+              cd collect_firmware && sha256sum *.bin *.config > sha256sums.txt
+          else
+              echo "Error: Output directory not found!" && exit 1
+          fi
 
       - name: "🚀 自动发布"
         uses: softprops/action-gh-release@v2
@@ -64,6 +79,6 @@ jobs:
         with:
           tag_name: SL3000-V${{ github.run_number }}
           files: |
-            openwrt/bin/targets/mediatek/filogic/*
+            collect_firmware/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
