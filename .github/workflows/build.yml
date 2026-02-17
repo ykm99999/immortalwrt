@@ -46,21 +46,15 @@ jobs:
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
 
-      - name: "🔨 [物理强制] 构建 U-Boot 组件"
+      - name: "🔨 构建系统固件 (彻底解决: 顺应全局编译)"
         working-directory: ./openwrt
         run: |
-          printf '\n' | make oldconfig
-          # 物理触发 Bootloader 编译
-          make -j$(nproc) package/boot/atf-mt7981/compile
-          make -j$(nproc) package/boot/uboot-mt7981/compile
-
-      - name: "🔨 构建系统固件"
-        working-directory: ./openwrt
-        run: |
+          # 🔥 剔除了所有 package/boot 的孤立命令，让 make 自动处理 .config 中的 U-Boot 需求
+          make defconfig
           printf '\n' | make oldconfig
           make -j$(nproc) || make -j1 V=s
 
-      - name: "📦 固件归集 (彻底解决)"
+      - name: "📦 固件归集"
         run: |
           OUTPUT_DIR="openwrt/bin/targets/mediatek/filogic"
           mkdir -p "collect_firmware"
@@ -71,8 +65,7 @@ jobs:
               cp -v "$OUTPUT_DIR"/*3000-emmc*factory.bin collect_firmware/SL3000-Uboot-factory.bin || true
           fi
           
-          # 2. 🔥 物理全路径搜索 FIP (针对 MT7981 特化)
-          # 检查 bin 目录和 build_dir 两个可能的物理产出点
+          # 2. 全路径搜索 FIP (针对 MT7981 特化)
           find openwrt/bin/ -name "*fip.bin" -exec cp -v {} collect_firmware/SL3000-Uboot-FIP.bin \;
           find openwrt/build_dir/ -name "*fip.bin" -exec cp -v {} collect_firmware/SL3000-Uboot-FIP.bin \;
           
