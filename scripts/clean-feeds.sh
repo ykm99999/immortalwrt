@@ -7,8 +7,7 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. 🔥 [物理铲平] 彻底消除导致扫描失败的源头
-# 既然它们报错且不影响核心固件，直接物理删除
+# 1. 物理铲平导致扫描失败的源头
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
@@ -19,7 +18,7 @@ rm -rf package/utils/pcat-manager
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# 3. 🔥 [.config] 物理延续您的核心配置 (严禁偷工减料)
+# 3. 🔥 [.config] 物理延续您的核心配置
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
