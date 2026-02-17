@@ -7,23 +7,28 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 清理冲突包
+# 1. 物理铲平冲突源
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
 rm -rf package/utils/policycoreutils
 rm -rf package/utils/pcat-manager
 
-# 更新 feeds
+# 2. 定向拉取 feeds
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# 写入.config
+# 3. 🔥 [.config] 物理锁定逻辑（严禁偷工减料）
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
     echo "CONFIG_TARGET_mediatek_filogic=y"
     echo "CONFIG_TARGET_mediatek_filogic_DEVICE_3000-emmc=y"
+    
+    # --- 物理锁定 U-Boot 与 ATF 编译项 ---
+    echo "CONFIG_PACKAGE_atf-mt7981-sl3000-emmc=y"
+    echo "CONFIG_PACKAGE_u-boot-sl3000-emmc=y"
+    
     echo "CONFIG_TARGET_KERNEL_PARTSIZE=128"
     echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
     echo "CONFIG_PACKAGE_kmod-mmc=y"
@@ -45,7 +50,7 @@ rm -f .config
     echo "CONFIG_PACKAGE_nano=y"
 } > .config
 
-# 注入 DTS 到内核
+# 4. DTS 注入逻辑承袭
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
@@ -55,8 +60,7 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     fi
 done
 
-# 生成并覆盖 filogic.mk
-# 物理计算：128M = 134217728 字节 | 1152M = 1207959552 字节
+# 5. filogic.mk 生成（物理修复数值报错点）
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 cat <<EOF > "filogic.mk.final"
 define Device/3000-emmc
@@ -67,7 +71,6 @@ define Device/3000-emmc
   SUPPORTED_DEVICES := sl,3000-emmc
   DEVICE_DTS := mt7981b-3000-emmc
   DEVICE_DTS_DIR := \$(DTS_DIR)/mediatek
-  # 彻底解决：改为 Python 脚本识别的纯数字字节
   KERNEL_SIZE := 134217728
   IMAGE_SIZE := 1207959552
   KERNEL := kernel-bin | lzma | uImage lzma
