@@ -6,6 +6,7 @@ on:
 env:
   FORCE_UNSAFE_CONFIGURE: 1
   NON_INTERACTIVE: 1
+  GITHUB_WORKSPACE: ${{ github.workspace }}
 
 jobs:
   build:
@@ -15,83 +16,66 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🚀 环境清理"
+      - name: "🚀 环境清理（释放约20GB）"
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache \
+                      /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
 
-      - name: "📦 环境补全"
+      - name: "📦 25.12 依赖补全"
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison gawk gettext \
             gettext-base git libncurses5-dev libssl-dev python3 python3-distutils \
             python3-pyelftools rsync unzip zlib1g-dev swig libpython3-dev \
             device-tree-compiler wget curl file tar bzip2 patch setserial \
-            pkg-config qemu-utils jq cmake
+            pkg-config qemu-utils jq cmake libelf-dev
+          # 12G Swap 适配 25.12 大内核编译
           sudo swapoff -a || true
           sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
-      - name: "📂 克隆源码"
+      - name: "📂 克隆 25.12 源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 执行物理补丁"
-        run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
+      - name: "⚡ 缓存 dl 目录（提速）"
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: ${{ runner.os }}-openwrt-25.12-dl
+          restore-keys: ${{ runner.os }}-openwrt-25.12-dl
 
-      - name: "🔨 步骤1：工具链构建"
+      - name: "🔧 执行 clean-feeds 补丁（路径+权限修复）"
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          chmod +x scripts/clean-feeds.sh
+          ./scripts/clean-feeds.sh
+
+      - name: "🔨 工具链+固件一体化构建（25.12 标准）"
         working-directory: ./openwrt
         run: |
           make defconfig
-          printf '\n' | make oldconfig
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
+          # 25.12 官方稳定编译命令，失败自动单线程调试
+          make -j$(nproc) || make -j1 V=s
+          # 备份配置
+          cp .config bin/targets/mediatek/filogic/3000-emmc.config || true
 
-      - name: "🔨 步骤2：一体化固件构建"
-        working-directory: ./openwrt
+      - name: "📦 固件重命名+校验（匹配 3000-emmc）"
+        working-directory: ./openwrt/bin/targets/mediatek/filogic
         run: |
-          printf '\n' | make oldconfig
-          make -j$(nproc) target/compile
-          make -j$(nproc) package/compile
-          make -j$(nproc) package/install
-          make -j$(nproc) target/install
+          # 匹配你的设备名：3000-emmc
+          SYS_FILE=$(ls *3000-emmc*sysupgrade.bin 2>/dev/null | head -1)
+          [ -n "$SYS_FILE" ] && cp -v "$SYS_FILE" SL3000-Final-sysupgrade.bin
+          # 生成校验
+          sha256sum *.bin *.config 2>/dev/null > sha256sums.txt
 
-      - name: "📦 固件归集 (彻底解决路径问题)"
-        working-directory: ./openwrt
-        run: |
-          OUTPUT_DIR="bin/targets/mediatek/filogic"
-          FWTOOL_PATH=$(find staging_dir/host/bin/ -name fwtool -type f | head -n 1)
-          
-          # 🔥 物理修正：搜索 build_dir 下所有可能生成的 fip.bin 并拷贝至输出目录
-          find build_dir/ -name "*fip.bin" -exec cp -v {} "$OUTPUT_DIR/" \;
-          
-          cd "$OUTPUT_DIR"
-          
-          # 动态匹配文件名
-          SYS_FILE=$(ls *sl3000-emmc*sysupgrade.bin | head -n 1)
-          FAC_FILE=$(ls *sl3000-emmc*factory.bin | head -n 1)
-          FIP_FILE=$(ls *fip.bin | head -n 1)
-          
-          # 元数据注入
-          printf '{"metadata_version":"1.1","compat_version":"1.0","supported_devices":["sl,3000-emmc"],"version":{"dist":"ImmortalWrt","version":"25.12","board":"sl,3000-emmc"}}' > metadata.json
-          [ -f "$FWTOOL_PATH" ] && [ -f "$SYS_FILE" ] && "$FWTOOL_PATH" -I metadata.json "$SYS_FILE" || echo "Note: fwtool skip."
-          
-          # 物理改名 (保留原始校验)
-          [ -f "$FIP_FILE" ] && cp -v "$FIP_FILE" SL3000-Uboot-FIP.bin || touch SL3000-Uboot-FIP.bin
-          [ -f "$SYS_FILE" ] && cp -v "$SYS_FILE" SL3000-Final-sysupgrade.bin
-          [ -f "$FAC_FILE" ] && cp -v "$FAC_FILE" SL3000-Uboot-factory.bin
-          
-          # 物理校验
-          sha256sum SL3000-Uboot-FIP.bin SL3000-Final-sysupgrade.bin SL3000-Uboot-factory.bin > sha256sums.txt
-
-      - name: "🚀 自动发布"
+      - name: "🚀 自动发布（全目录上传，稳健）"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-V${{ github.run_number }}
-          files: |
-            openwrt/bin/targets/mediatek/filogic/SL3000-Uboot-FIP.bin
-            openwrt/bin/targets/mediatek/filogic/SL3000-Final-sysupgrade.bin
-            openwrt/bin/targets/mediatek/filogic/SL3000-Uboot-factory.bin
-            openwrt/bin/targets/mediatek/filogic/sha256sums.txt
+          tag_name: SL3000-25.12-V${{ github.run_number }}
+          files: openwrt/bin/targets/mediatek/filogic/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
