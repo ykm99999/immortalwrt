@@ -7,18 +7,23 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. 物理铲平冲突源
+# 1. 物理铲平已知的冲突源 (保留所有验证过的补丁)
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
 rm -rf package/utils/policycoreutils
 rm -rf package/utils/pcat-manager
+rm -rf package/libs/libsemanage
+rm -rf package/feeds/luci/luci-app-advanced-reboot
+rm -rf package/feeds/packages/onionshare-cli
+rm -rf package/system/refpolicy
+rm -rf package/system/selinux-policy
 
 # 2. 定向拉取 feeds
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# 3. 🔥 [.config] 物理锁定逻辑（严禁偷工减料）
+# 3. 🔥 [.config] 物理锁定逻辑（写入 U-Boot 需求，交由系统原生生成）
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
@@ -60,7 +65,7 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     fi
 done
 
-# 5. filogic.mk 生成（物理修复数值报错点）
+# 5. filogic.mk 生成（严格保留字节级物理修复）
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 cat <<EOF > "filogic.mk.final"
 define Device/3000-emmc
