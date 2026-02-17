@@ -7,7 +7,7 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. 物理铲平已知的冲突源 (保留所有验证过的补丁)
+# 1. 物理铲平已知的冲突源
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
@@ -23,16 +23,16 @@ rm -rf package/system/selinux-policy
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# 3. 🔥 [.config] 物理锁定逻辑（写入 U-Boot 需求，交由系统原生生成）
+# 3. [.config] 物理锁定逻辑（彻底解决：修正为源码物理包名）
 rm -f .config
 {
     echo "CONFIG_TARGET_mediatek=y"
     echo "CONFIG_TARGET_mediatek_filogic=y"
     echo "CONFIG_TARGET_mediatek_filogic_DEVICE_3000-emmc=y"
     
-    # --- 物理锁定 U-Boot 与 ATF 编译项 ---
-    echo "CONFIG_PACKAGE_atf-mt7981-sl3000-emmc=y"
-    echo "CONFIG_PACKAGE_u-boot-sl3000-emmc=y"
+    # 🔥 物理修正：使用 ImmortalWrt 的标准包名定义
+    echo "CONFIG_PACKAGE_atf-mediatek-mt7981-sl3000-emmc=y"
+    echo "CONFIG_PACKAGE_uboot-mediatek-mt7981-sl3000-emmc=y"
     
     echo "CONFIG_TARGET_KERNEL_PARTSIZE=128"
     echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024"
