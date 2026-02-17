@@ -46,25 +46,39 @@ jobs:
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
 
-      - name: "🔨 构建固件"
+      - name: "🔨 [物理强制] 构建 U-Boot 组件"
+        working-directory: ./openwrt
+        run: |
+          printf '\n' | make oldconfig
+          # 物理触发 Bootloader 编译
+          make -j$(nproc) package/boot/atf-mt7981/compile
+          make -j$(nproc) package/boot/uboot-mt7981/compile
+
+      - name: "🔨 构建系统固件"
         working-directory: ./openwrt
         run: |
           printf '\n' | make oldconfig
           make -j$(nproc) || make -j1 V=s
 
-      - name: "📦 固件归集"
+      - name: "📦 固件归集 (彻底解决)"
         run: |
           OUTPUT_DIR="openwrt/bin/targets/mediatek/filogic"
           mkdir -p "collect_firmware"
+          
+          # 1. 归集系统固件
           if [ -d "$OUTPUT_DIR" ]; then
               cp -v "$OUTPUT_DIR"/*3000-emmc*sysupgrade.bin collect_firmware/SL3000-Final-sysupgrade.bin || true
               cp -v "$OUTPUT_DIR"/*3000-emmc*factory.bin collect_firmware/SL3000-Uboot-factory.bin || true
-              find openwrt/build_dir/ -name "*fip.bin" -exec cp -v {} collect_firmware/SL3000-Uboot-FIP.bin \;
-              cp -v openwrt/.config collect_firmware/3000-emmc.config || true
-              cd collect_firmware && sha256sum *.bin *.config > sha256sums.txt
-          else
-              echo "Error: Build failed, no output directory!" && exit 1
           fi
+          
+          # 2. 🔥 物理全路径搜索 FIP (针对 MT7981 特化)
+          # 检查 bin 目录和 build_dir 两个可能的物理产出点
+          find openwrt/bin/ -name "*fip.bin" -exec cp -v {} collect_firmware/SL3000-Uboot-FIP.bin \;
+          find openwrt/build_dir/ -name "*fip.bin" -exec cp -v {} collect_firmware/SL3000-Uboot-FIP.bin \;
+          
+          # 3. 配置文件备档
+          cp -v openwrt/.config collect_firmware/3000-emmc.config || true
+          cd collect_firmware && sha256sum *.bin *.config > sha256sums.txt
 
       - name: "🚀 自动发布"
         uses: softprops/action-gh-release@v2
