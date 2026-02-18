@@ -7,33 +7,33 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. [源头封锁] 物理覆盖源配置
+# 1. 🔥 [物理回退] 移除导致报错的 base 源，只保留最稳健的 2 个核心源
+# 彻底解决 'package/system/apk/host/compile' 规则缺失问题
 rm -rf feeds.conf
 printf 'src-git packages https://github.com/immortalwrt/packages.git\n' > feeds.conf.default
 printf 'src-git luci https://github.com/immortalwrt/luci.git\n' >> feeds.conf.default
-printf 'src-git base https://github.com/immortalwrt/openwrt.git;openwrt-25.12\n' >> feeds.conf.default
 
-# 2. [物理清场] 彻底删除旧索引和 feeds 目录
+# 2. 🔥 [物理清场] 彻底删除旧索引
 rm -rf feeds/
 
-# 3. 物理执行更新
+# 3. 物理执行更新 (此时会使用源码内置的 base，确保 Makefile 规则对齐)
 ./scripts/feeds update -a
 
-# 4. [物理精准手术] 物理移除 LuCI 目录下冗余协议
+# 4. 🔥 [物理精准手术] 物理移除 LuCI 目录下导致冲突的组件
 find feeds/luci/protocols/ -mindepth 1 ! -name "*static*" ! -name "*dhcp*" ! -name "*ppp*" -exec rm -rf {} +
 rm -rf feeds/luci/applications/luci-app-*
 rm -rf feeds/luci/modules/luci-mod-dsl
 
-# 5. [物理授权] 执行强制覆盖安装 (消除 Overriding 警告)
+# 5. 🔥 [物理授权] 强制执行安装
 ./scripts/feeds install -a -f
 
-# 6. [物理修复] 冲突铲平
+# 6. [物理修复] 冲突铲平 (严格承袭原文)
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
 rm -rf package/utils/policycoreutils
 
-# 7. [结构死锁] .config 物理配置
+# 7. 🔥 [结构死锁] .config 物理配置
 rm -f .config
 printf 'CONFIG_TARGET_mediatek=y\n' > .config
 printf 'CONFIG_TARGET_mediatek_filogic=y\n' >> .config
@@ -44,7 +44,7 @@ printf 'CONFIG_PACKAGE_luci=y\n' >> .config
 printf 'CONFIG_PACKAGE_luci-theme-bootstrap=y\n' >> .config
 printf 'CONFIG_PACKAGE_luci-i18n-base-zh-cn=y\n' >> .config
 
-# 8. [路径物理对齐] DTS 注入 (适配 6.12)
+# 8. [路径物理对齐] DTS 注入
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
