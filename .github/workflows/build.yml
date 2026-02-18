@@ -46,31 +46,30 @@ jobs:
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
 
-      - name: "🔨 构建系统及 U-Boot (彻底解决物理缺失)"
+      - name: "🔨 构建系统及 U-Boot (强制物理拉起)"
         working-directory: ./openwrt
         run: |
           make defconfig
           printf '\n' | make oldconfig
-          # 物理修复：在全局编译前，先强制完成 bootloader 包的物理产出（忽略冲突警告）
+          # 物理修复：在全局编译前，强制先单独编译引导程序包
           make package/boot/uboot-mediatek/compile -j$(nproc) V=s || true
           make package/boot/atf-mediatek/compile -j$(nproc) V=s || true
-          # 执行全局编译
           make -j$(nproc) || make -j1 V=s
 
-      - name: "📦 固件归集 (暴力物理扫描)"
+      - name: "📦 固件归集 (彻底解决物理缺失)"
         run: |
-          OUTPUT_DIR="openwrt/bin/targets/mediatek/filogic"
           mkdir -p "collect_firmware"
           
-          # 1. 归集系统固件
+          # 1. 物理归集系统固件 (常规路径)
+          OUTPUT_DIR="openwrt/bin/targets/mediatek/filogic"
           if [ -d "$OUTPUT_DIR" ]; then
               cp -v "$OUTPUT_DIR"/*3000-emmc*sysupgrade.bin collect_firmware/SL3000-Final-sysupgrade.bin || true
               cp -v "$OUTPUT_DIR"/*3000-emmc*factory.bin collect_firmware/SL3000-Uboot-factory.bin || true
+              cp -v "$OUTPUT_DIR"/*.fip collect_firmware/SL3000-Uboot-FIP.bin || true
           fi
           
-          # 2. 🔥 彻底解决：物理全盘深度收割
-          # 不管生成在 bin 还是 build_dir，只要文件名含 fip 或 uboot 且包含 sl3000 字样的全部抓取
-          find openwrt/bin/ -type f \( -name "*fip*" -o -name "*u-boot*" \) -exec cp -v {} collect_firmware/ \;
+          # 2. 🔥 暴力物理深度扫描：捕获 bin 目录下所有 fip, u-boot 或 sl3000 相关的二进制产物
+          find openwrt/bin/ -type f \( -name "*fip*" -o -name "*u-boot*" -o -name "*3000-emmc*" \) -exec cp -v {} collect_firmware/ \; || true
           
           # 3. 配置文件备档
           cp -v openwrt/.config collect_firmware/3000-emmc.config || true
