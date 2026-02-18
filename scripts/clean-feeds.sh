@@ -7,30 +7,30 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. 🔥 [物理修复] 恢复默认源配置，解决 "find: feeds/base: No such file" 报错
-git checkout feeds.conf.default || true
+# 1. 🔥 [物理封锁] 彻底爆破旧的配置文件和索引文件夹
+# 这是防止“还是一样”的关键：必须删掉生成的 feeds.conf 和 feeds/ 目录
+rm -rf feeds.conf
+rm -rf feeds/
 
-# 2. 执行物理更新，拉取全量索引
+# 2. 🔥 [源头净空] 物理重写 feeds.conf.default
+# 强制覆盖，仅保留核心 base 和 luci，物理剔除 video/telephony/routing/management
+printf 'src-git packages https://github.com/immortalwrt/packages.git\n' > feeds.conf.default
+printf 'src-git luci https://github.com/immortalwrt/luci.git\n' >> feeds.conf.default
+
+# 3. 物理执行更新 (此时系统只会看到上面 2 个纯净源)
 ./scripts/feeds update -a
 
-# 3. 🔥 [旗舰级物理粉碎] 彻底解决日志中 video/telephony 等全量安装问题
-# 只要物理删除这些文件夹，install -a 扫描时就会彻底跳过它们
-echo "Executing physical destruction of redundant feed directories..."
-rm -rf feeds/video/
-rm -rf feeds/telephony/
-rm -rf feeds/routing/
-rm -rf feeds/management/
-
-# 4. 🔥 [专属化致盲] 物理清空所有冗余的 LuCI 插件与协议
-# 确保日志中不再出现 luci-mod-dsl, luci-proto-3g, luci-app-tor 等
-rm -rf feeds/luci/applications/luci-app-*
+# 4. 🔥 [二次隔离] 在安装前物理粉碎 LuCI 内部的冗余协议和模块
+# 确保日志中彻底消失 luci-mod-dsl, luci-proto-3g 等干扰项
 rm -rf feeds/luci/modules/luci-mod-dsl
-rm -rf feeds/luci/protocols/luci-proto-*
+rm -rf feeds/luci/protocols/luci-proto-3g
+rm -rf feeds/luci/protocols/luci-proto-yggdrasil
+rm -rf feeds/luci/applications/luci-app-*
 
-# 5. 执行专属物理安装（此时只会安装核心基础包）
+# 5. 执行专属物理安装
 ./scripts/feeds install -a
 
-# 6. [物理修复] 冲突铲平 (严格承袭原文)
+# 6. [物理修复] 冲突铲平 (严格承袭原文逻辑)
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
@@ -57,7 +57,7 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     fi
 done
 
-# 9. [旗舰打包补丁] 重构 filogic.mk 并注入强制 ARTIFACTS
+# 9. [旗舰打包补丁] 重构 filogic.mk
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 printf 'define Device/3000-emmc\n' > filogic.mk.final
 printf '  DEVICE_VENDOR := SL\n' >> filogic.mk.final
