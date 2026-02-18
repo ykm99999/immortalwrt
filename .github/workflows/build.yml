@@ -36,7 +36,18 @@ jobs:
       - name: "📂 克隆专属源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 执行物理隔离补丁 (修正血崩，保留核心)"
+      - name: "⚡ 物理缓存配置 (根据指令添加)"
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/staging_dir
+            openwrt/build_dir/host
+            openwrt/dl
+          key: ${{ runner.os }}-openwrt-sl3000-${{ hashFiles('openwrt/feeds.conf.default') }}
+          restore-keys: |
+            ${{ runner.os }}-openwrt-sl3000-
+
+      - name: "⚡ 执行终极隔离补丁"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 分阶段物理构建"
