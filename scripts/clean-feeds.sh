@@ -7,8 +7,8 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. 🔥 [旗舰级物理断链] 彻底根除 luci-mod-dsl 等垃圾包的源头
-# 物理移除 feeds.conf.default 中的视频、电话、路由协议及管理仓库
+# 1. 🔥 [物理断链] 彻底根除垃圾包源头
+# 直接从源头删除导致日志中 luci-app-* 泛滥的仓库
 if [ -f "feeds.conf.default" ]; then
     sed -i '/video/d' feeds.conf.default
     sed -i '/telephony/d' feeds.conf.default
@@ -16,26 +16,27 @@ if [ -f "feeds.conf.default" ]; then
     sed -i '/management/d' feeds.conf.default
 fi
 
-# 2. 物理更新 Feed（此时只会拉取路由器核心包）
-./scripts/feeds update -a
-
-# 3. 🔥 [白名单手术] 物理爆破本地残留的干扰包文件夹
-# 确保 install -a 即使想装也找不到这些文件
-rm -rf feeds/luci/protocols/luci-proto-3g
-rm -rf feeds/luci/protocols/luci-proto-yggdrasil
-rm -rf feeds/luci/protocols/luci-proto-batman-adv
-rm -rf feeds/luci/modules/luci-mod-dsl
-
-# 4. 执行专属物理安装
-./scripts/feeds install -a
-
-# 5. [物理修复] 铲平已知冲突源（承袭原文逻辑）
+# 2. 物理铲平已知冲突与干扰包
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
 rm -rf package/utils/policycoreutils
 
-# 6. 🔥 [结构死锁] 企业旗舰级 .config 锁定 (printf 强制)
+# 3. 🔥 [专属化手术] 执行物理更新后，立即爆破本地 LuCI 插件目录
+./scripts/feeds update -a
+
+# 彻底解决日志中 luci-mod-dsl, luci-proto-3g 等垃圾包的物理残留
+# 在安装前物理排空插件，让 install -a 变成“专属安装”
+rm -rf feeds/luci/applications/luci-app-*
+rm -rf feeds/luci/modules/luci-mod-dsl
+rm -rf feeds/luci/protocols/luci-proto-3g
+rm -rf feeds/luci/protocols/luci-proto-yggdrasil
+rm -rf feeds/luci/protocols/luci-proto-batman-adv
+
+# 4. 专属安装：此时只会安装核心基础包
+./scripts/feeds install -a
+
+# 5. 🔥 [结构死锁] 企业旗舰级 .config 物理配置 (printf 强制)
 rm -f .config
 printf 'CONFIG_TARGET_mediatek=y\n' > .config
 printf 'CONFIG_TARGET_mediatek_filogic=y\n' >> .config
@@ -46,7 +47,7 @@ printf 'CONFIG_PACKAGE_luci=y\n' >> .config
 printf 'CONFIG_PACKAGE_luci-theme-bootstrap=y\n' >> .config
 printf 'CONFIG_PACKAGE_luci-i18n-base-zh-cn=y\n' >> .config
 
-# 7. [路径物理对齐] DTS 注入 (适配 files-6.12 工业路径)
+# 6. [路径物理对齐] DTS 注入 (适配 files-6.12 工业路径)
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
@@ -56,7 +57,7 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     fi
 done
 
-# 8. [旗舰打包补丁] 重构 filogic.mk 并注入强制 ARTIFACTS
+# 7. [旗舰打包补丁] 重构 filogic.mk 并注入强制 ARTIFACTS
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 printf 'define Device/3000-emmc\n' > filogic.mk.final
 printf '  DEVICE_VENDOR := SL\n' >> filogic.mk.final
