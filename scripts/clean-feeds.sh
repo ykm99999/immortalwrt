@@ -19,11 +19,16 @@ rm -rf package/feeds/packages/onionshare-cli
 rm -rf package/system/refpolicy
 rm -rf package/system/selinux-policy
 
-# 2. 定向拉取 feeds
+# 2. 🔥 物理修复：剔除不必要的 video feed（解决日志中 gzdoom/qt5 噪音）
+if [ -f "feeds.conf.default" ]; then
+    sed -i '/video/d' feeds.conf.default
+fi
+
+# 3. 更新并安装 feeds
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# 3. [.config] 物理锁定逻辑（改用 echo 规避 EOF）
+# 4. [.config] 物理锁定逻辑（改用 echo 规避 EOF）
 rm -f .config
 echo "CONFIG_TARGET_mediatek=y" >> .config
 echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
@@ -50,7 +55,7 @@ echo "CONFIG_PACKAGE_wget-ssl=y" >> .config
 echo "CONFIG_PACKAGE_htop=y" >> .config
 echo "CONFIG_PACKAGE_nano=y" >> .config
 
-# 4. DTS 注入逻辑
+# 5. DTS 注入逻辑（物理对齐 files-6.12 路径）
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
@@ -60,7 +65,7 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     fi
 done
 
-# 5. filogic.mk 生成（🔥 物理加固：改用 printf 规避 EOF，注入 ARTIFACTS 强制触发产出）
+# 6. filogic.mk 生成（🔥 物理修复：注入 ARTIFACTS 强制触发 FIP/U-Boot 物理打包）
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 printf 'define Device/3000-emmc\n' > filogic.mk.final
 printf '  DEVICE_VENDOR := SL\n' >> filogic.mk.final
