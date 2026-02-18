@@ -29,13 +29,12 @@ jobs:
             python3-pyelftools rsync unzip zlib1g-dev swig libpython3-dev \
             device-tree-compiler wget curl file tar bzip2 patch setserial \
             pkg-config qemu-utils jq cmake
-          sudo swapoff -a || true
           sudo fallocate -l 16G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
       - name: "📂 克隆专属源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 执行物理隔离补丁 (彻底粉碎全量污染)"
+      - name: "⚡ 执行物理隔离补丁 (彻底粉碎污染)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 分阶段物理构建"
@@ -55,7 +54,7 @@ jobs:
           cp -v openwrt/bin/targets/mediatek/filogic/*3000-emmc*sysupgrade.bin dist/SL3000-Exclusive.bin || true
           cp -v openwrt/bin/targets/mediatek/filogic/*.fip dist/SL3000-FIP.bin || true
           sudo find openwrt/bin/ -type f \( -name "*fip*" -o -name "*u-boot*" -o -name "*bl31*" \) -exec cp -v {} dist/ \; || true
-          cp -v openwrt/.config dist/enterprise_config.txt
+          cp -v openwrt/.config dist/enterprise_exclusive.config
 
       - name: "🚀 发布旗舰镜像"
         uses: softprops/action-gh-release@v2
