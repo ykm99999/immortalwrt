@@ -7,7 +7,7 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. 物理铲平冲突源
+# 1. 物理铲平已知冲突源
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
@@ -19,43 +19,46 @@ rm -rf package/feeds/packages/onionshare-cli
 rm -rf package/system/refpolicy
 rm -rf package/system/selinux-policy
 
-# 2. 🔥 物理修复：剔除不必要的 video feed（解决日志中 gzdoom/qt5 噪音）
+# 2. 🔥 物理大扫除：剔除所有非路由器相关的源（物理移除 telephony/video/routing/management/games）
 if [ -f "feeds.conf.default" ]; then
     sed -i '/video/d' feeds.conf.default
+    sed -i '/telephony/d' feeds.conf.default
+    sed -i '/routing/d' feeds.conf.default
+    sed -i '/management/d' feeds.conf.default
 fi
 
 # 3. 更新并安装 feeds
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# 4. [.config] 物理锁定逻辑（改用 echo 规避 EOF）
+# 4. [.config] 物理锁定逻辑（改用 printf 规避 EOF）
 rm -f .config
-echo "CONFIG_TARGET_mediatek=y" >> .config
-echo "CONFIG_TARGET_mediatek_filogic=y" >> .config
-echo "CONFIG_TARGET_mediatek_filogic_DEVICE_3000-emmc=y" >> .config
-echo "CONFIG_PACKAGE_uboot-mediatek-mt7981-sl3000-emmc=y" >> .config
-echo "CONFIG_PACKAGE_atf-mediatek-mt7981-sl3000-emmc=y" >> .config
-echo "CONFIG_TARGET_KERNEL_PARTSIZE=128" >> .config
-echo "CONFIG_TARGET_ROOTFS_PARTSIZE=1024" >> .config
-echo "CONFIG_PACKAGE_kmod-mmc=y" >> .config
-echo "CONFIG_PACKAGE_kmod-mtk-sd=y" >> .config
-echo "CONFIG_PACKAGE_kmod-fs-f2fs=y" >> .config
-echo "CONFIG_PACKAGE_f2fs-tools=y" >> .config
-echo "CONFIG_PACKAGE_f2fsck=y" >> .config
-echo "CONFIG_PACKAGE_parted=y" >> .config
-echo "CONFIG_PACKAGE_lsblk=y" >> .config
-echo "CONFIG_PACKAGE_blkid=y" >> .config
-echo "CONFIG_PACKAGE_block-mount=y" >> .config
-echo "CONFIG_PACKAGE_kmod-zram=y" >> .config
-echo "CONFIG_PACKAGE_zram-swap=y" >> .config
-echo "CONFIG_PACKAGE_luci=y" >> .config
-echo "CONFIG_PACKAGE_luci-theme-bootstrap=y" >> .config
-echo "CONFIG_PACKAGE_curl=y" >> .config
-echo "CONFIG_PACKAGE_wget-ssl=y" >> .config
-echo "CONFIG_PACKAGE_htop=y" >> .config
-echo "CONFIG_PACKAGE_nano=y" >> .config
+printf 'CONFIG_TARGET_mediatek=y\n' > .config
+printf 'CONFIG_TARGET_mediatek_filogic=y\n' >> .config
+printf 'CONFIG_TARGET_mediatek_filogic_DEVICE_3000-emmc=y\n' >> .config
+printf 'CONFIG_PACKAGE_uboot-mediatek-mt7981-sl3000-emmc=y\n' >> .config
+printf 'CONFIG_PACKAGE_atf-mediatek-mt7981-sl3000-emmc=y\n' >> .config
+printf 'CONFIG_TARGET_KERNEL_PARTSIZE=128\n' >> .config
+printf 'CONFIG_TARGET_ROOTFS_PARTSIZE=1024\n' >> .config
+printf 'CONFIG_PACKAGE_kmod-mmc=y\n' >> .config
+printf 'CONFIG_PACKAGE_kmod-mtk-sd=y\n' >> .config
+printf 'CONFIG_PACKAGE_kmod-fs-f2fs=y\n' >> .config
+printf 'CONFIG_PACKAGE_f2fs-tools=y\n' >> .config
+printf 'CONFIG_PACKAGE_f2fsck=y\n' >> .config
+printf 'CONFIG_PACKAGE_parted=y\n' >> .config
+printf 'CONFIG_PACKAGE_lsblk=y\n' >> .config
+printf 'CONFIG_PACKAGE_blkid=y\n' >> .config
+printf 'CONFIG_PACKAGE_block-mount=y\n' >> .config
+printf 'CONFIG_PACKAGE_kmod-zram=y\n' >> .config
+printf 'CONFIG_PACKAGE_zram-swap=y\n' >> .config
+printf 'CONFIG_PACKAGE_luci=y\n' >> .config
+printf 'CONFIG_PACKAGE_luci-theme-bootstrap=y\n' >> .config
+printf 'CONFIG_PACKAGE_curl=y\n' >> .config
+printf 'CONFIG_PACKAGE_wget-ssl=y\n' >> .config
+printf 'CONFIG_PACKAGE_htop=y\n' >> .config
+printf 'CONFIG_PACKAGE_nano=y\n' >> .config
 
-# 5. DTS 注入逻辑（物理对齐 files-6.12 路径）
+# 5. DTS 注入逻辑（物理对齐日志确认的 files-6.12 路径）
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
@@ -65,7 +68,7 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     fi
 done
 
-# 6. filogic.mk 生成（🔥 物理修复：注入 ARTIFACTS 强制触发 FIP/U-Boot 物理打包）
+# 6. filogic.mk 生成（🔥 路由器专属补丁：注入 ARTIFACTS 强制开启 FIP 打包物理通道）
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 printf 'define Device/3000-emmc\n' > filogic.mk.final
 printf '  DEVICE_VENDOR := SL\n' >> filogic.mk.final
