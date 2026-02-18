@@ -36,7 +36,7 @@ jobs:
       - name: "📂 克隆专属源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 物理缓存配置 (根据指令添加)"
+      - name: "⚡ 物理缓存配置"
         uses: actions/cache@v4
         with:
           path: |
@@ -47,7 +47,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-openwrt-sl3000-
 
-      - name: "⚡ 执行终极隔离补丁"
+      - name: "⚡ 执行物理修复补丁 (解决 apk 逻辑冲突)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 分阶段物理构建"
@@ -57,6 +57,7 @@ jobs:
           printf '\n' | make oldconfig
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
+          # 🔥 物理跳过缺失规则的 apk 编译 (直接编译目标)
           make package/boot/uboot-mediatek/compile -j$(nproc) V=s || true
           make package/boot/atf-mediatek/compile -j$(nproc) V=s || true
           make -j$(nproc) || make -j1 V=s
