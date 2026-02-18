@@ -1,4 +1,4 @@
-name: Enterprise_Flagship_SL3000
+name: Enterprise_Flagship_SL3000_Final
 
 on:
   workflow_dispatch:
@@ -38,7 +38,7 @@ jobs:
       - name: "⚡ 执行物理隔离补丁 (彻底解决专属源码)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 分步稳定构建 [工具链]"
+      - name: "🔨 [核心] 构建工具链"
         working-directory: ./openwrt
         run: |
           make defconfig
@@ -46,7 +46,7 @@ jobs:
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
 
-      - name: "🔨 分步稳定构建 [核心与镜像]"
+      - name: "🔨 [核心] 构建引导与固件"
         working-directory: ./openwrt
         run: |
           make package/boot/uboot-mediatek/compile -j$(nproc) V=s || true
@@ -56,7 +56,7 @@ jobs:
       - name: "📦 产物定向收割"
         run: |
           mkdir -p "dist"
-          cp -v openwrt/bin/targets/mediatek/filogic/*3000-emmc*sysupgrade.bin dist/SL3000-Enterprise.bin || true
+          cp -v openwrt/bin/targets/mediatek/filogic/*3000-emmc*sysupgrade.bin dist/SL3000-Exclusive.bin || true
           cp -v openwrt/bin/targets/mediatek/filogic/*.fip dist/SL3000-FIP.bin || true
           sudo find openwrt/bin/ -type f \( -name "*fip*" -o -name "*u-boot*" -o -name "*bl31*" \) -exec cp -v {} dist/ \; || true
           cp -v openwrt/.config dist/enterprise_config.txt
