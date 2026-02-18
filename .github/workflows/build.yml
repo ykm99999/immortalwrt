@@ -29,7 +29,13 @@ jobs:
             python3-pyelftools rsync unzip zlib1g-dev swig libpython3-dev \
             device-tree-compiler wget curl file tar bzip2 patch setserial \
             pkg-config qemu-utils jq cmake
-          sudo fallocate -l 16G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          # 🔥 [物理修复] 解决 Text file busy：先尝试物理关闭并删除旧 Swap
+          sudo swapoff /swapfile || true
+          sudo rm -f /swapfile || true
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
 
       - name: "📂 克隆专属源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
