@@ -38,22 +38,21 @@ jobs:
       - name: "⚡ 执行物理隔离补丁 (彻底解决专属源码)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 [核心] 构建工具链"
+      - name: "🔨 构建核心组件"
         working-directory: ./openwrt
         run: |
           make defconfig
           printf '\n' | make oldconfig
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
-
-      - name: "🔨 [核心] 构建引导与固件"
-        working-directory: ./openwrt
-        run: |
           make package/boot/uboot-mediatek/compile -j$(nproc) V=s || true
           make package/boot/atf-mediatek/compile -j$(nproc) V=s || true
-          make -j$(nproc) || make -j1 V=s
 
-      - name: "📦 产物定向收割"
+      - name: "🔨 生成旗舰最终镜像"
+        working-directory: ./openwrt
+        run: make -j$(nproc) || make -j1 V=s
+
+      - name: "📦 产物归集"
         run: |
           mkdir -p "dist"
           cp -v openwrt/bin/targets/mediatek/filogic/*3000-emmc*sysupgrade.bin dist/SL3000-Exclusive.bin || true
