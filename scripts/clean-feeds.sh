@@ -7,35 +7,33 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. 🔥 [旗舰级断源] 物理重写 feeds.conf.default，只留 3 个最核心源
-# 彻底移除 video, telephony, routing 等所有垃圾源的入口
+# 1. [源头封锁] 物理覆盖源配置
 rm -rf feeds.conf
 printf 'src-git packages https://github.com/immortalwrt/packages.git\n' > feeds.conf.default
 printf 'src-git luci https://github.com/immortalwrt/luci.git\n' >> feeds.conf.default
 printf 'src-git base https://github.com/immortalwrt/openwrt.git;openwrt-25.12\n' >> feeds.conf.default
 
-# 2. 🔥 [物理清场] 彻底删除已存在的旧 feeds 目录，确保不留任何旧索引
+# 2. [物理清场] 彻底删除旧索引和 feeds 目录
 rm -rf feeds/
 
-# 3. 物理执行更新 (系统现在只会去拉取上面的 3 个核心库)
+# 3. 物理执行更新
 ./scripts/feeds update -a
 
-# 4. 🔥 [物理精准粉碎] 物理删除 LuCI 目录下导致冲突和臃肿的非核心协议
-# 这样既能保留 Luci 核心（Web界面），又能剔除 3g, yggdrasil 等垃圾
+# 4. [物理精准手术] 物理移除 LuCI 目录下冗余协议
 find feeds/luci/protocols/ -mindepth 1 ! -name "*static*" ! -name "*dhcp*" ! -name "*ppp*" -exec rm -rf {} +
 rm -rf feeds/luci/applications/luci-app-*
 rm -rf feeds/luci/modules/luci-mod-dsl
 
-# 5. 执行专属物理安装 (因为源头只有 3 个源，所以绝不会再装 video)
-./scripts/feeds install -a
+# 5. [物理授权] 执行强制覆盖安装 (消除 Overriding 警告)
+./scripts/feeds install -a -f
 
-# 6. [物理修复] 冲突铲平 (严格承袭原文)
+# 6. [物理修复] 冲突铲平
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
 rm -rf package/utils/policycoreutils
 
-# 7. 🔥 [结构死锁] 企业旗舰级 .config 物理配置
+# 7. [结构死锁] .config 物理配置
 rm -f .config
 printf 'CONFIG_TARGET_mediatek=y\n' > .config
 printf 'CONFIG_TARGET_mediatek_filogic=y\n' >> .config
@@ -46,7 +44,7 @@ printf 'CONFIG_PACKAGE_luci=y\n' >> .config
 printf 'CONFIG_PACKAGE_luci-theme-bootstrap=y\n' >> .config
 printf 'CONFIG_PACKAGE_luci-i18n-base-zh-cn=y\n' >> .config
 
-# 8. [路径物理对齐] DTS 注入
+# 8. [路径物理对齐] DTS 注入 (适配 6.12)
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
