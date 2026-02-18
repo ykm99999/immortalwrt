@@ -21,7 +21,7 @@ jobs:
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
 
-      - name: "📦 依赖补全"
+      - name: "📦 依赖补全与物理 Swap 修复"
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison gawk gettext \
@@ -29,8 +29,8 @@ jobs:
             python3-pyelftools rsync unzip zlib1g-dev swig libpython3-dev \
             device-tree-compiler wget curl file tar bzip2 patch setserial \
             pkg-config qemu-utils jq cmake
-          # 🔥 [物理修复] 解决 Text file busy：先尝试物理关闭并删除旧 Swap
-          sudo swapoff /swapfile || true
+          # 🔥 [物理修复] 彻底解决 Text file busy：先物理卸载并删除旧文件
+          sudo swapoff -a || true
           sudo rm -f /swapfile || true
           sudo fallocate -l 16G /swapfile
           sudo chmod 600 /swapfile
@@ -40,7 +40,7 @@ jobs:
       - name: "📂 克隆专属源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 执行物理隔离补丁 (彻底粉碎污染)"
+      - name: "⚡ 执行物理隔离补丁 (彻底粉碎全量污染)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 分阶段物理构建"
