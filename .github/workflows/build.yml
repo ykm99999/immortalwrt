@@ -1,4 +1,4 @@
-name: Build_SL3000
+name: Enterprise_Flagship_SL3000
 
 on:
   workflow_dispatch:
@@ -15,13 +15,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🚀 环境清理"
+      - name: "🚀 [审计] 生产环境物理净空"
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
 
-      - name: "📦 环境补全"
+      - name: "📦 [审计] 旗舰级依赖补全"
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison gawk gettext \
@@ -30,15 +30,15 @@ jobs:
             device-tree-compiler wget curl file tar bzip2 patch setserial \
             pkg-config qemu-utils jq cmake
           sudo swapoff -a || true
-          sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          sudo fallocate -l 16G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 
-      - name: "📂 克隆专属路由器源码"
+      - name: "📂 [审计] 拉取旗舰专属源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 执行物理补丁"
+      - name: "⚡ [审计] 注入专属截断补丁"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 构建工具链"
+      - name: "🔨 [阶段一] 构建企业级工具链"
         working-directory: ./openwrt
         run: |
           make defconfig
@@ -46,41 +46,32 @@ jobs:
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
 
-      - name: "🔨 构建核心固件 (物理优先策略)"
+      - name: "🔨 [阶段二] 锁定引导程序 (FIP/U-Boot)"
         working-directory: ./openwrt
         run: |
-          make defconfig
-          printf '\n' | make oldconfig
-          # 物理修复：在杂包开始前，强制先行编译引导程序，确保 FIP 依赖链条完整
+          # 物理强制编译引导核心，确保旗舰镜像的心脏产出
           make package/boot/uboot-mediatek/compile -j$(nproc) V=s || true
           make package/boot/atf-mediatek/compile -j$(nproc) V=s || true
-          make -j$(nproc) || make -j1 V=s
 
-      - name: "📦 固件归集 (全盘物理收割)"
+      - name: "🔨 [阶段三] 生成旗舰最终镜像"
+        working-directory: ./openwrt
+        run: make -j$(nproc) || make -j1 V=s
+
+      - name: "📦 [收割] 企业级产物物理审计"
         run: |
-          mkdir -p "collect_firmware"
-          
-          # 1. 物理归集镜像
-          OUTPUT_DIR="openwrt/bin/targets/mediatek/filogic"
-          if [ -d "$OUTPUT_DIR" ]; then
-              cp -v "$OUTPUT_DIR"/*3000-emmc*sysupgrade.bin collect_firmware/SL3000-Final-sysupgrade.bin || true
-              cp -v "$OUTPUT_DIR"/*3000-emmc*factory.bin collect_firmware/SL3000-Uboot-factory.bin || true
-              cp -v "$OUTPUT_DIR"/*.fip collect_firmware/SL3000-Uboot-FIP.bin || true
-          fi
-          
-          # 2. 🔥 暴力收割：全路径扫描 bin 目录，物理捕获所有 fip/u-boot/bl31 产物
-          sudo find openwrt/bin/ -type f \( -name "*fip*" -o -name "*u-boot*" -o -name "*bl31*" -o -name "*atf*" \) -exec cp -v {} collect_firmware/ \; || true
-          
-          # 3. 配置文件备份
-          cp -v openwrt/.config collect_firmware/3000-emmc.config || true
-          cd collect_firmware && sha256sum *.bin *.config > sha256sums.txt || true
+          mkdir -p "flagship_dist"
+          # 定向物理收集
+          cp -v openwrt/bin/targets/mediatek/filogic/*3000-emmc*sysupgrade.bin flagship_dist/SL3000-Enterprise.bin || true
+          cp -v openwrt/bin/targets/mediatek/filogic/*.fip flagship_dist/SL3000-FIP-Flash.bin || true
+          # 物理扫描备份所有引导链路二进制件
+          sudo find openwrt/bin/ -type f \( -name "*fip*" -o -name "*u-boot*" -o -name "*bl31*" \) -exec cp -v {} flagship_dist/ \; || true
+          cp -v openwrt/.config flagship_dist/flagship_config.txt
 
-      - name: "🚀 自动发布"
+      - name: "🚀 [发布] 旗舰镜像上线"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-V${{ github.run_number }}
-          files: |
-            collect_firmware/*
+          tag_name: SL3000-Flagship-V${{ github.run_number }}
+          files: flagship_dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
