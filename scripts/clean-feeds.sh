@@ -7,21 +7,18 @@ SRC_DIR="${REPO_ROOT}"
 
 cd "${WORKDIR}"
 
-# 1. 🔥 [物理封锁] 彻底爆破旧的配置文件和索引文件夹
-# 这是防止“还是一样”的关键：必须删掉生成的 feeds.conf 和 feeds/ 目录
+# 1. 🔥 [物理致盲] 彻底爆破旧的配置文件和索引
 rm -rf feeds.conf
 rm -rf feeds/
 
-# 2. 🔥 [源头净空] 物理重写 feeds.conf.default
-# 强制覆盖，仅保留核心 base 和 luci，物理剔除 video/telephony/routing/management
+# 2. 🔥 [源头封锁] 物理重载白名单配置
 printf 'src-git packages https://github.com/immortalwrt/packages.git\n' > feeds.conf.default
 printf 'src-git luci https://github.com/immortalwrt/luci.git\n' >> feeds.conf.default
 
-# 3. 物理执行更新 (此时系统只会看到上面 2 个纯净源)
+# 3. 物理执行更新
 ./scripts/feeds update -a
 
-# 4. 🔥 [二次隔离] 在安装前物理粉碎 LuCI 内部的冗余协议和模块
-# 确保日志中彻底消失 luci-mod-dsl, luci-proto-3g 等干扰项
+# 4. 🔥 [专属净化] 物理粉碎冗余组件
 rm -rf feeds/luci/modules/luci-mod-dsl
 rm -rf feeds/luci/protocols/luci-proto-3g
 rm -rf feeds/luci/protocols/luci-proto-yggdrasil
@@ -30,13 +27,13 @@ rm -rf feeds/luci/applications/luci-app-*
 # 5. 执行专属物理安装
 ./scripts/feeds install -a
 
-# 6. [物理修复] 冲突铲平 (严格承袭原文逻辑)
+# 6. [物理修复] 冲突铲平 (承袭原文)
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
 rm -rf package/utils/policycoreutils
 
-# 7. 🔥 [结构死锁] 企业旗舰级 .config 物理配置 (printf 强制锁定)
+# 7. 🔥 [结构死锁] 企业旗舰级 .config 物理配置
 rm -f .config
 printf 'CONFIG_TARGET_mediatek=y\n' > .config
 printf 'CONFIG_TARGET_mediatek_filogic=y\n' >> .config
@@ -47,7 +44,7 @@ printf 'CONFIG_PACKAGE_luci=y\n' >> .config
 printf 'CONFIG_PACKAGE_luci-theme-bootstrap=y\n' >> .config
 printf 'CONFIG_PACKAGE_luci-i18n-base-zh-cn=y\n' >> .config
 
-# 8. [路径物理对齐] DTS 注入 (适配 files-6.12 工业路径)
+# 8. [路径物理对齐] DTS 注入 (针对 files-6.12)
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
