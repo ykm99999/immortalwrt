@@ -17,10 +17,10 @@ rm -rf feeds/
 ./scripts/feeds update -a
 ./scripts/feeds install -a -f
 
-# 3. 🔥 [物理外科重写 - 增加补丁清理]
-mkdir -p package/boot/uboot-mediatek
-# 彻底解决 Patch failed 报错：物理移除所有失效补丁
+# 3. 🔥 [物理外科重写 - 强制物理删除补丁目录]
+# 必须在 feeds install 之后再次执行，确保彻底物理消失
 rm -rf package/boot/uboot-mediatek/patches
+mkdir -p package/boot/uboot-mediatek
 
 cat <<EOF > package/boot/uboot-mediatek/Makefile
 include \$(TOPDIR)/rules.mk
@@ -29,6 +29,9 @@ include \$(INCLUDE_DIR)/kernel.mk
 PKG_NAME:=uboot-mediatek
 PKG_RELEASE:=1
 
+# 物理跳过 OpenWrt 默认的补丁应用逻辑
+PATCH_DIR:=
+
 include \$(INCLUDE_DIR)/package.mk
 
 define Package/uboot-mediatek-mt7981-sl3000-emmc
@@ -36,6 +39,12 @@ define Package/uboot-mediatek-mt7981-sl3000-emmc
   CATEGORY:=Boot Loaders
   TITLE:=U-Boot for SL3000 (MT7981) eMMC
   DEPENDS:=@TARGET_mediatek
+endef
+
+define Build/Prepare
+	# 物理重定义准备过程，禁止应用任何补丁
+	\$(Build/Prepare/Default)
+	rm -rf \$(PKG_BUILD_DIR)/patches
 endef
 
 define Build/Compile
@@ -51,14 +60,16 @@ endef
 \$(eval \$(call BuildPackage,uboot-mediatek-mt7981-sl3000-emmc))
 EOF
 
-# 4. 🔥 [物理外科重写]
-mkdir -p package/boot/atf-mediatek
+# 4. 🔥 [物理外科重写 - ATF 部分同步清理]
 rm -rf package/boot/atf-mediatek/patches
+mkdir -p package/boot/atf-mediatek
 cat <<EOF > package/boot/atf-mediatek/Makefile
 include \$(TOPDIR)/rules.mk
 
 PKG_NAME:=atf-mediatek
 PKG_RELEASE:=1
+
+PATCH_DIR:=
 
 include \$(INCLUDE_DIR)/package.mk
 
@@ -69,6 +80,11 @@ define Package/atf-mediatek-mt7981-sl3000-emmc
   DEPENDS:=@TARGET_mediatek
 endef
 
+define Build/Prepare
+	\$(Build/Prepare/Default)
+	rm -rf \$(PKG_BUILD_DIR)/patches
+endef
+
 define Build/Compile
 	\$(MAKE) -C \$(PKG_BUILD_DIR) PLAT=mt7981 all
 endef
@@ -76,7 +92,7 @@ endef
 \$(eval \$(call BuildPackage,atf-mediatek-mt7981-sl3000-emmc))
 EOF
 
-# 5. [物理修复] 冲突铲平
+# 5. [物理修复] 冲突铲平 (承袭原文)
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
