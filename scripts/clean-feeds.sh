@@ -17,8 +17,7 @@ rm -rf feeds/
 ./scripts/feeds update -a
 ./scripts/feeds install -a -f
 
-# 3. 🔥 [物理外科重写 - 强制物理删除补丁目录]
-# 必须在 feeds install 之后再次执行，确保彻底物理消失
+# 3. 🔥 [物理外科重写 - 注入源码物理路径]
 rm -rf package/boot/uboot-mediatek/patches
 mkdir -p package/boot/uboot-mediatek
 
@@ -27,9 +26,17 @@ include \$(TOPDIR)/rules.mk
 include \$(INCLUDE_DIR)/kernel.mk
 
 PKG_NAME:=uboot-mediatek
+PKG_VERSION:=2023.07
 PKG_RELEASE:=1
 
-# 物理跳过 OpenWrt 默认的补丁应用逻辑
+# 物理锁定源码：直接从 GitHub 下载标准 U-Boot 源码
+PKG_SOURCE:=u-boot-\$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL:=https://github.com/u-boot/u-boot/archive/v\$(PKG_VERSION).tar.gz
+PKG_HASH:=skip
+
+# 物理指定解压后的目录名，防止找不到 defconfig
+PKG_BUILD_DIR:=\$(BUILD_DIR)/u-boot-\$(PKG_VERSION)
+
 PATCH_DIR:=
 
 include \$(INCLUDE_DIR)/package.mk
@@ -42,14 +49,15 @@ define Package/uboot-mediatek-mt7981-sl3000-emmc
 endef
 
 define Build/Prepare
-	# 物理重定义准备过程，禁止应用任何补丁
 	\$(Build/Prepare/Default)
+	# 物理粉碎补丁系统对源码的干扰
 	rm -rf \$(PKG_BUILD_DIR)/patches
 endef
 
 define Build/Compile
+	# 物理强制指定交叉编译链
 	\$(MAKE) -C \$(PKG_BUILD_DIR) mt7981_sl3000_emmc_defconfig
-	\$(MAKE) -C \$(PKG_BUILD_DIR) DEVICE_DTS=mt7981-sl3000-emmc
+	\$(MAKE) -C \$(PKG_BUILD_DIR) CROSS_COMPILE=\$(TARGET_CROSS) DEVICE_DTS=mt7981-sl3000-emmc
 endef
 
 define Package/uboot-mediatek-mt7981-sl3000-emmc/install
@@ -60,14 +68,21 @@ endef
 \$(eval \$(call BuildPackage,uboot-mediatek-mt7981-sl3000-emmc))
 EOF
 
-# 4. 🔥 [物理外科重写 - ATF 部分同步清理]
+# 4. 🔥 [物理外科重写 - ATF 同步物理注入]
 rm -rf package/boot/atf-mediatek/patches
 mkdir -p package/boot/atf-mediatek
 cat <<EOF > package/boot/atf-mediatek/Makefile
 include \$(TOPDIR)/rules.mk
 
 PKG_NAME:=atf-mediatek
+PKG_VERSION:=2.9
 PKG_RELEASE:=1
+
+PKG_SOURCE:=atf-\$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL:=https://github.com/ARM-software/arm-trusted-firmware/archive/v\$(PKG_VERSION).tar.gz
+PKG_HASH:=skip
+
+PKG_BUILD_DIR:=\$(BUILD_DIR)/arm-trusted-firmware-\$(PKG_VERSION)
 
 PATCH_DIR:=
 
@@ -86,7 +101,7 @@ define Build/Prepare
 endef
 
 define Build/Compile
-	\$(MAKE) -C \$(PKG_BUILD_DIR) PLAT=mt7981 all
+	\$(MAKE) -C \$(PKG_BUILD_DIR) CROSS_COMPILE=\$(TARGET_CROSS) PLAT=mt7981 all
 endef
 
 \$(eval \$(call BuildPackage,atf-mediatek-mt7981-sl3000-emmc))
