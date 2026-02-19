@@ -17,7 +17,9 @@ rm -rf feeds/
 ./scripts/feeds update -a
 ./scripts/feeds install -a -f
 
-# 3. 🔥 [硬核物理重写] 彻底解决 U-Boot 逻辑冲突
+# 3. 🔥 [物理外科重写 - 增加目录预检]
+# 确保目标文件夹物理存在，彻底解决 "No such file or directory" 报错
+mkdir -p package/boot/uboot-mediatek
 cat <<EOF > package/boot/uboot-mediatek/Makefile
 include \$(TOPDIR)/rules.mk
 include \$(INCLUDE_DIR)/kernel.mk
@@ -35,7 +37,6 @@ define Package/uboot-mediatek-mt7981-sl3000-emmc
 endef
 
 define Build/Compile
-	# 物理强制指定构建命令，避开原版循环
 	\$(MAKE) -C \$(PKG_BUILD_DIR) mt7981_sl3000_emmc_defconfig
 	\$(MAKE) -C \$(PKG_BUILD_DIR) DEVICE_DTS=mt7981-sl3000-emmc
 endef
@@ -48,7 +49,9 @@ endef
 \$(eval \$(call BuildPackage,uboot-mediatek-mt7981-sl3000-emmc))
 EOF
 
-# 4. 🔥 [硬核物理重写] 彻底解决 ATF (ARM Trusted Firmware) 逻辑冲突
+# 4. 🔥 [物理外科重写 - 增加目录预检]
+# 彻底解决 atf-mediatek 写入失败问题
+mkdir -p package/boot/atf-mediatek
 cat <<EOF > package/boot/atf-mediatek/Makefile
 include \$(TOPDIR)/rules.mk
 
@@ -65,7 +68,6 @@ define Package/atf-mediatek-mt7981-sl3000-emmc
 endef
 
 define Build/Compile
-	# 物理锁定编译参数
 	\$(MAKE) -C \$(PKG_BUILD_DIR) PLAT=mt7981 all
 endef
 
@@ -96,7 +98,7 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ] && cp -v "${SRC_DIR}/mt7981b-3000-emmc.dts" "\$DTS_PATH/"
 done
 
-# 8. [旗舰打包补丁] 重构 filogic.mk (物理死锁)
+# 8. [旗舰打包补丁] 重构 filogic.mk
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 printf 'define Device/3000-emmc\n' > filogic.mk.final
 printf '  DEVICE_VENDOR := SL\n' >> filogic.mk.final
