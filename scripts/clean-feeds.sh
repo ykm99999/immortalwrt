@@ -17,9 +17,11 @@ rm -rf feeds/
 ./scripts/feeds update -a
 ./scripts/feeds install -a -f
 
-# 3. 🔥 [物理外科重写 - 增加目录预检]
-# 确保目标文件夹物理存在，彻底解决 "No such file or directory" 报错
+# 3. 🔥 [物理外科重写 - 增加补丁清理]
 mkdir -p package/boot/uboot-mediatek
+# 彻底解决 Patch failed 报错：物理移除所有失效补丁
+rm -rf package/boot/uboot-mediatek/patches
+
 cat <<EOF > package/boot/uboot-mediatek/Makefile
 include \$(TOPDIR)/rules.mk
 include \$(INCLUDE_DIR)/kernel.mk
@@ -49,9 +51,9 @@ endef
 \$(eval \$(call BuildPackage,uboot-mediatek-mt7981-sl3000-emmc))
 EOF
 
-# 4. 🔥 [物理外科重写 - 增加目录预检]
-# 彻底解决 atf-mediatek 写入失败问题
+# 4. 🔥 [物理外科重写]
 mkdir -p package/boot/atf-mediatek
+rm -rf package/boot/atf-mediatek/patches
 cat <<EOF > package/boot/atf-mediatek/Makefile
 include \$(TOPDIR)/rules.mk
 
@@ -74,7 +76,7 @@ endef
 \$(eval \$(call BuildPackage,atf-mediatek-mt7981-sl3000-emmc))
 EOF
 
-# 5. [物理修复] 冲突铲平 (承袭原文)
+# 5. [物理修复] 冲突铲平
 rm -rf package/boot/arm-trusted-firmware-microchipsw
 rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
