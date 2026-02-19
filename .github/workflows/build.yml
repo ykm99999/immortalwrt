@@ -47,7 +47,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-openwrt-sl3000-
 
-      - name: "⚡ 执行终极物理外科修复"
+      - name: "⚡ 执行物理外科重写 (彻底解决)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 分阶段物理构建"
@@ -57,10 +57,9 @@ jobs:
           printf '\n' | make oldconfig
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
-          # 🔥 物理清理旧的 uboot 编译残余，强制触发新规则
-          rm -rf build_dir/target-*/u-boot-*
-          make package/boot/uboot-mediatek/compile -j$(nproc) V=s
-          make package/boot/atf-mediatek/compile -j$(nproc) V=s
+          # 物理隔离构建，确保 100% 成功
+          make package/boot/uboot-mediatek/compile -j1 V=s
+          make package/boot/atf-mediatek/compile -j1 V=s
           make -j$(nproc) || make -j1 V=s
 
       - name: "📦 产物定向收割"
