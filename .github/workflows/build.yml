@@ -47,22 +47,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-openwrt-sl3000-
 
-      - name: "⚡ 执行物理外科修复 (物理锁定补丁隔离)"
+      - name: "⚡ 执行物理外科修复 (物理修正 PKG_BUILD_DIR)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 分阶段物理构建"
         working-directory: ./openwrt
         run: |
-          # 物理粉碎脏缓存
-          rm -rf build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/uboot-mediatek*
-          rm -rf build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/atf-mediatek*
+          # 物理粉碎脏包，强制下载新注入的源码
+          rm -rf dl/u-boot-* dl/atf-*
+          rm -rf build_dir/target-*/linux-mediatek_filogic/u-boot-*
+          rm -rf build_dir/target-*/linux-mediatek_filogic/arm-trusted-firmware-*
           
           make defconfig
           printf '\n' | make oldconfig
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
           
-          # 物理独立编译核心引导
+          # 物理锁定独立编译核心组件
           make package/boot/uboot-mediatek/compile -j1 V=s
           make package/boot/atf-mediatek/compile -j1 V=s
           make -j$(nproc) || make -j1 V=s
