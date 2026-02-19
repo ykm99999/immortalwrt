@@ -47,14 +47,18 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-openwrt-sl3000-
 
-      - name: "⚡ 执行物理外科修复 (物理 Printf 注入)"
+      - name: "⚡ 执行物理外科修复 (物理预下载审计)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 分阶段物理构建"
         working-directory: ./openwrt
         run: |
-          # 物理隔离，确保新版 2024.10 纯净构建
-          rm -rf dl/u-boot-* dl/atf-*
+          # [最高级别审计]：物理打印源码包状态，确保不是空文件
+          echo "==== Pre-generation Audit (dl/) ===="
+          ls -lh dl/u-boot-2024.10.tar.gz
+          ls -lh dl/atf-2.12.tar.gz
+          echo "===================================="
+          
           rm -rf build_dir/target-*/linux-mediatek_filogic/u-boot-*
           rm -rf build_dir/target-*/linux-mediatek_filogic/arm-trusted-firmware-*
           
@@ -63,7 +67,6 @@ jobs:
           make -j$(nproc) tools/install
           make -j$(nproc) toolchain/install
           
-          # 物理锁定编译
           make package/boot/uboot-mediatek/compile -j1 V=s
           make package/boot/atf-mediatek/compile -j1 V=s
           make -j$(nproc) || make -j1 V=s
