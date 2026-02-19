@@ -1,77 +1,74 @@
-name: SL3000_Full_Optimize_Build
+name: SL3000_Ultimate_Fix_Build
 
 on:
   workflow_dispatch:
 
-env:
-  FORCE_UNSAFE_CONFIGURE: 1
-  NON_INTERACTIVE: 1
-
 jobs:
   build:
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
+    timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: "🚀 步骤1：磁盘空间极致优化"
+      - name: 环境物理初始化 (12G Swap)
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
-          sudo apt clean
-          sudo rm -rf /var/lib/apt/lists/*
-          docker rmi $(docker images -q) || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker || true
+          sudo apt update && sudo apt install -y build-essential clang flex bison gawk gettext \
+            git libncurses5-dev libssl-dev python3 python3-pyelftools rsync unzip \
+            zlib1g-dev swig device-tree-compiler wget file tar bzip2 patch bc dos2unix
+          if ! swapon --show | grep -q '/swapfile'; then
+            sudo fallocate -l 12G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          fi
 
-      - name: "📦 步骤2：物理环境补全"
+      - name: 克隆源码与 Feeds (24.10)
         run: |
-          sudo apt update
-          sudo apt install -y build-essential clang flex bison gawk gettext \
-            git libncurses5-dev libssl-dev python3-pyelftools rsync unzip swig \
-            device-tree-compiler wget curl tar pkg-config cmake
-          sudo fallocate -l 16G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git openwrt
+          cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: "📂 步骤3：源码落地"
-        run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
+      - name: 执行物理修复补丁 (死锁路径)
+        run: |
+          dos2unix scripts/sl3000-patch.sh && chmod +x scripts/sl3000-patch.sh
+          bash -x ./scripts/sl3000-patch.sh
 
-      - name: "⚡ 步骤4：物理外科修复"
-        run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
-
-      - name: "🔨 步骤5：构建工具链"
+      - name: 步骤 1：构建工具链与 U-Boot 基础
         working-directory: ./openwrt
         run: |
-          make defconfig
+          export DEBIAN_FRONTEND=noninteractive
+          yes "" | make defconfig
           make tools/install -j$(nproc)
           make toolchain/install -j$(nproc)
+          # 物理优先构建引导程序，防止后续流程覆盖
+          make package/boot/uboot-mediatek/compile -j$(nproc) V=s
 
-      - name: "🔨 步骤6：构建固件与 U-Boot (物理收割)"
+      - name: 步骤 2：全量构建
         working-directory: ./openwrt
         run: |
-          # 物理锁定引导程序编译
-          make package/boot/uboot-mediatek/compile V=s -j1
-          make package/boot/atf-mediatek/compile V=s -j1
-          # 总攻固件
+          (while true; do sleep 300; echo "--- [HEARTBEAT] Still Building ---"; done) &
           make -j$(nproc) || make -j1 V=s
 
-      - name: "📦 步骤7：产物物理收集"
+      - name: 产物物理收割 (硬核全盘抓取)
         run: |
-          mkdir -p "dist"
-          # 1. 收集系统固件
-          find openwrt/bin/targets/mediatek/filogic/ -type f -name "*3000-emmc*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
-          # 2. 收集 u-boot 固件 (确保生成)
-          find openwrt/bin/targets/mediatek/filogic/ -type f -name "*u-boot*" -exec cp -v {} dist/ \; || true
-          find openwrt/build_dir/target-aarch64_cortex-a53_musl/u-boot-2024.10/ -type f -name "u-boot.bin" -exec cp -v {} dist/u-boot-sl3000-raw.bin \; || true
-          cp -v openwrt/.config dist/config.txt
+          mkdir -p OUTPUT
+          # 1. 抓取系统固件
+          find openwrt/bin/targets/mediatek/filogic/ -name "*sl3000*" -exec cp -v {} OUTPUT/ \;
+          
+          # 2. 物理抓取 FIP/U-Boot 引导程序
+          # 先搜 bin 目录
+          find openwrt/bin/targets/mediatek/filogic/ -name "*.bin" | grep -iE "fip|u-boot|bl2" -exec cp -v {} OUTPUT/ \; || true
+          
+          # 🔥 物理兜底：如果 bin 里没有，去编译缓冲区硬挖，彻底解决“成功但不生成”的问题
+          if ! ls OUTPUT/ | grep -qiE "fip|u-boot"; then
+            echo "Warning: FIP not found in bin, diving into build_dir..."
+            find openwrt/build_dir/ -name "*fip.bin" -exec cp -v {} OUTPUT/ \; || true
+            find openwrt/build_dir/ -name "*u-boot.bin" -exec cp -v {} OUTPUT/ \; || true
+          fi
+          
+          cp -v openwrt/.config OUTPUT/sl3000.config
 
-      - name: "🚀 步骤8：自动发布固件"
+      - name: 自动发布
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-Flagship-${{ github.run_number }}
-          files: dist/*
-          body: |
-            SL3000 (MT7981) 自动化构建固件包
-            - 优化磁盘空间：已清理系统冗余
-            - 物理修复：已注入 u-boot 2024.10 defconfig
-            - 产物包含：系统固件、u-boot 固件、构建配置
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: SL3000-Final-UBOOT-FIX-${{ github.run_id }}
+          files: OUTPUT/*
