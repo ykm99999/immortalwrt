@@ -17,12 +17,24 @@ rm -rf feeds/
 ./scripts/feeds update -a
 ./scripts/feeds install -a -f
 
-# 3. 🔥 [物理预下载新版源码] 彻底解决 404
+# 3. 🔥 [物理双重保险下载 - 彻底解决 No such file]
+# 强制创建并进入 dl 目录，使用 curl 的 --create-dirs 物理锁定路径
 mkdir -p dl
-wget -t 10 -T 15 https://github.com/u-boot/u-boot/archive/refs/tags/v2024.10.tar.gz -O dl/u-boot-2024.10.tar.gz
-wget -t 10 -T 15 https://github.com/ARM-software/arm-trusted-firmware/archive/refs/tags/v2.12.tar.gz -O dl/atf-2.12.tar.gz
+curl -L --connect-timeout 20 --retry 5 --retry-delay 5 \
+    "https://github.com/u-boot/u-boot/archive/refs/tags/v2024.10.tar.gz" \
+    -o "dl/u-boot-2024.10.tar.gz"
 
-# 4. 🔥 [物理外科重写 - U-Boot] 抛弃 EOF 改用 printf
+curl -L --connect-timeout 20 --retry 5 --retry-delay 5 \
+    "https://github.com/ARM-software/arm-trusted-firmware/archive/refs/tags/v2.12.tar.gz" \
+    -o "dl/atf-2.12.tar.gz"
+
+# 🔥 [最高级别物理审计]：文件不存在或大小为0则立即熔断报错
+if [ ! -s "dl/u-boot-2024.10.tar.gz" ]; then
+    echo "CRITICAL ERROR: u-boot-2024.10.tar.gz 物理下载失败，熔断程序！"
+    exit 1
+fi
+
+# 4. 🔥 [物理外科重写 - U-Boot]
 UB_MK="package/boot/uboot-mediatek/Makefile"
 rm -rf package/boot/uboot-mediatek/patches
 mkdir -p package/boot/uboot-mediatek
@@ -56,7 +68,7 @@ printf '\t$(CP) $(PKG_BUILD_DIR)/u-boot.bin $(1)/\n' >> "$UB_MK"
 printf 'endef\n' >> "$UB_MK"
 printf '$(eval $(call BuildPackage,uboot-mediatek-mt7981-sl3000-emmc))\n' >> "$UB_MK"
 
-# 5. 🔥 [物理外科重写 - ATF] 抛弃 EOF 改用 printf
+# 5. 🔥 [物理外科重写 - ATF]
 ATF_MK="package/boot/atf-mediatek/Makefile"
 rm -rf package/boot/atf-mediatek/patches
 mkdir -p package/boot/atf-mediatek
@@ -90,7 +102,7 @@ rm -rf package/utils/audit
 rm -rf package/emortal/autosamba
 rm -rf package/utils/policycoreutils
 
-# 7. [结构死锁] .config 物理配置 (改用 printf)
+# 7. [结构死锁] .config 物理配置
 rm -f .config
 printf 'CONFIG_TARGET_mediatek=y\n' > .config
 printf 'CONFIG_TARGET_mediatek_filogic=y\n' >> .config
@@ -108,7 +120,7 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ] && cp -v "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/"
 done
 
-# 9. [旗舰打包补丁] 重构 filogic.mk (改用 printf)
+# 9. [旗舰打包补丁] 重构 filogic.mk
 MK_TARGET="target/linux/mediatek/image/filogic.mk"
 printf 'define Device/3000-emmc\n' > filogic.mk.final
 printf '  DEVICE_VENDOR := SL\n' >> filogic.mk.final
