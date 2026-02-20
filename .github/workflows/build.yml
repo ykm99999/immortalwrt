@@ -15,21 +15,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🚀 步骤1：物理磁盘空间极致清理"
+      - name: "🚀 步骤1：物理腾空空间"
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
-          docker rmi $(docker images -q) || true
 
-      - name: "📦 步骤2：安装物理构建依赖与 Swap (物理补丁版)"
+      - name: "📦 步骤2：全量物理环境安装 (绝杀依赖)"
         run: |
           sudo apt update
-          # 🔥 物理修复：追加 libgnutls28-dev 和 uuid-dev 解决 mkeficapsule 编译失败
+          # 物理锁定所有 U-Boot 和 OpenWrt 必需依赖
           sudo apt install -y build-essential clang flex bison gawk gettext \
             git libncurses5-dev libssl-dev python3-pyelftools rsync unzip swig \
             device-tree-compiler wget curl tar pkg-config cmake \
-            libgnutls28-dev uuid-dev
+            libgnutls28-dev uuid-dev libelf-dev
           
           sudo swapoff /swapfile || true
           if [ ! -f /swapfile ]; then
@@ -39,27 +38,26 @@ jobs:
           fi
           sudo swapon /swapfile
 
-      - name: "📂 步骤3：克隆源码"
+      - name: "📂 步骤3：源码克隆"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 步骤4：物理外科修复 (注入补全配置)"
+      - name: "⚡ 步骤4：物理外科修复 (执行注入)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 步骤5：构建工具链 (分步限流模式)"
+      - name: "🔨 步骤5：工具链限流构建 (防掉线)"
         working-directory: ./openwrt
         run: |
           make defconfig
           make tools/install -j2 V=s || make tools/install -j1 V=s
           make toolchain/install -j2 V=s || make toolchain/install -j1 V=s
 
-      - name: "🔨 步骤6：构建固件与 U-Boot (物理锁定非交互)"
+      - name: "🔨 步骤6：构建固件与引导程序 (全物理锁定)"
         working-directory: ./openwrt
         run: |
-          echo "Building Bootloaders (U-Boot/ATF)..."
-          # 物理执行构建，Makefile 已配置 olddefconfig 自动闭合配置
+          # 针对 U-Boot/ATF 的强力编译
           make package/boot/uboot-mediatek/compile V=s -j1
           make package/boot/atf-mediatek/compile V=s -j1
-          echo "Building Final Images..."
+          # 总攻
           make -j$(nproc) V=s || make -j1 V=s
 
       - name: "📦 步骤7：产物物理定向收割"
@@ -70,16 +68,15 @@ jobs:
           find openwrt/build_dir/target-aarch64_cortex-a53_musl/u-boot-2024.10/ -type f -name "u-boot.bin" -exec cp -v {} dist/u-boot-sl3000-raw.bin \; || true
           cp -v openwrt/.config dist/config.txt
 
-      - name: "🚀 步骤8：自动发布旗舰固件"
+      - name: "🚀 步骤8：全自动旗舰发布"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
           tag_name: SL3000-Flagship-${{ github.run_number }}
           files: dist/*
           body: |
-            SL3000 (MT7981) 构建成功
-            - 物理修复：安装 libgnutls28-dev 解决 U-Boot 工具链编译中断
-            - 物理修复：强制填充 TEXT_BASE 并封锁交互提问
-            - 状态：全流程通过静核审计
+            SL3000 (MT7981) 企业级一次性构建成功
+            - 物理绝杀：完整补齐了 RAM_ADDR, INIT_SP, MALLOC_LEN 等架构级宏
+            - 环境绝杀：补齐 libgnutls, uuid, libelf
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
