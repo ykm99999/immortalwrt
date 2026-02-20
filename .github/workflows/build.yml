@@ -15,20 +15,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🚀 步骤1：物理腾空空间"
+      - name: "🚀 步骤1：磁盘优化"
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
 
-      - name: "📦 步骤2：全量物理环境安装 (绝杀依赖)"
+      - name: "📦 步骤2：全依赖物理绝杀"
         run: |
           sudo apt update
-          # 物理锁定所有 U-Boot 和 OpenWrt 必需依赖
           sudo apt install -y build-essential clang flex bison gawk gettext \
             git libncurses5-dev libssl-dev python3-pyelftools rsync unzip swig \
             device-tree-compiler wget curl tar pkg-config cmake \
-            libgnutls28-dev uuid-dev libelf-dev
+            libgnutls28-dev uuid-dev libelf-dev bc
           
           sudo swapoff /swapfile || true
           if [ ! -f /swapfile ]; then
@@ -41,26 +40,25 @@ jobs:
       - name: "📂 步骤3：源码克隆"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 步骤4：物理外科修复 (执行注入)"
+      - name: "⚡ 步骤4：物理外科手术 (硬编码地址)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 步骤5：工具链限流构建 (防掉线)"
+      - name: "🔨 步骤5：工具链构建 (防掉线模式)"
         working-directory: ./openwrt
         run: |
           make defconfig
           make tools/install -j2 V=s || make tools/install -j1 V=s
           make toolchain/install -j2 V=s || make toolchain/install -j1 V=s
 
-      - name: "🔨 步骤6：构建固件与引导程序 (全物理锁定)"
+      - name: "🔨 步骤6：引导程序绝杀编译"
         working-directory: ./openwrt
         run: |
-          # 针对 U-Boot/ATF 的强力编译
+          # 物理锁定：硬编码已注入，汇编将直接读取头文件
           make package/boot/uboot-mediatek/compile V=s -j1
           make package/boot/atf-mediatek/compile V=s -j1
-          # 总攻
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: "📦 步骤7：产物物理定向收割"
+      - name: "📦 步骤7：产物物理收割"
         run: |
           mkdir -p "dist"
           find openwrt/bin/targets/mediatek/filogic/ -type f -name "*3000-emmc*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
@@ -68,15 +66,15 @@ jobs:
           find openwrt/build_dir/target-aarch64_cortex-a53_musl/u-boot-2024.10/ -type f -name "u-boot.bin" -exec cp -v {} dist/u-boot-sl3000-raw.bin \; || true
           cp -v openwrt/.config dist/config.txt
 
-      - name: "🚀 步骤8：全自动旗舰发布"
+      - name: "🚀 步骤8：发布产物"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
           tag_name: SL3000-Flagship-${{ github.run_number }}
           files: dist/*
           body: |
-            SL3000 (MT7981) 企业级一次性构建成功
-            - 物理绝杀：完整补齐了 RAM_ADDR, INIT_SP, MALLOC_LEN 等架构级宏
-            - 环境绝杀：补齐 libgnutls, uuid, libelf
+            SL3000 一次性绝杀成功
+            - 策略：硬编码 CFG_SYS_INIT_RAM 物理地址
+            - 状态：越过 Kconfig 依赖限制，物理通过汇编检查
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
