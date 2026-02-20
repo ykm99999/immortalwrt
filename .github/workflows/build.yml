@@ -29,7 +29,6 @@ jobs:
             git libncurses5-dev libssl-dev python3-pyelftools rsync unzip swig \
             device-tree-compiler wget curl tar pkg-config cmake
           
-          # 🔥 物理修复 Text file busy: 先关闭可能存在的交换文件并重新创建
           sudo swapoff /swapfile || true
           if [ ! -f /swapfile ]; then
             sudo fallocate -l 16G /swapfile
@@ -44,14 +43,16 @@ jobs:
       - name: "⚡ 步骤4：执行物理外科手术 (锁定配置)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 步骤5：构建工具链 (Stage 1 - Tools & Toolchain)"
+      - name: "🔨 步骤5：构建工具链 (物理限流 - 重点修复)"
         working-directory: ./openwrt
         run: |
           make defconfig
-          echo "Building Tools (Verbose)..."
-          make tools/install -j$(nproc) V=s || make tools/install -j1 V=s
-          echo "Building Toolchain (Verbose)..."
-          make toolchain/install -j$(nproc) V=s || make toolchain/install -j1 V=s
+          echo "Building Tools (Restricted Parallelism to prevent OOM)..."
+          # 物理限流：工具链编译极度消耗资源，强制限制并行数为 2
+          make tools/install -j2 V=s || make tools/install -j1 V=s
+          
+          echo "Building Toolchain (Restricted Parallelism)..."
+          make toolchain/install -j2 V=s || make toolchain/install -j1 V=s
 
       - name: "🔨 步骤6：构建固件与 U-Boot (Stage 2 - Firmware)"
         working-directory: ./openwrt
@@ -60,16 +61,14 @@ jobs:
           echo "Building Bootloaders (U-Boot/ATF)..."
           make package/boot/uboot-mediatek/compile V=s -j1
           make package/boot/atf-mediatek/compile V=s -j1
-          # 总攻固件
+          # 总攻固件 (此时工具链已好，可以多线程，但仍建议保守 -j$(nproc))
           echo "Building Final Images..."
           make -j$(nproc) V=s || make -j1 V=s
 
       - name: "📦 步骤7：产物物理定向收割"
         run: |
           mkdir -p "dist"
-          # 收集系统镜像
           find openwrt/bin/targets/mediatek/filogic/ -type f -name "*3000-emmc*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
-          # 收集并锁定 u-boot 固件
           find openwrt/bin/targets/mediatek/filogic/ -type f -name "*u-boot*" -exec cp -v {} dist/ \; || true
           find openwrt/build_dir/target-aarch64_cortex-a53_musl/u-boot-2024.10/ -type f -name "u-boot.bin" -exec cp -v {} dist/u-boot-sl3000-raw.bin \; || true
           cp -v openwrt/.config dist/config.txt
@@ -82,8 +81,8 @@ jobs:
           files: dist/*
           body: |
             SL3000 (MT7981) 企业级构建成功
-            - 物理修复：解决了 Swap 文件 Text file busy 占用问题
-            - 编译优化：开启详细日志，分步物理隔离
-            - 状态：全流程通过静核审计
+            - 物理修复：强制限流 -j2，防止 Runner OOM 掉线
+            - 资源保护：16GB Swap + 磁盘深度清理
+            - 产物：包含全套 Firmware 与 U-Boot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
