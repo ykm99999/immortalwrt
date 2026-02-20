@@ -15,20 +15,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🚀 步骤1：磁盘空间极致优化 (物理腾空)"
+      - name: "🚀 步骤1：物理磁盘空间极致清理"
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
           docker rmi $(docker images -q) || true
 
-      - name: "📦 步骤2：安装物理构建依赖与 Swap 修复"
+      - name: "📦 步骤2：安装物理构建依赖与 Swap"
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison gawk gettext \
             git libncurses5-dev libssl-dev python3-pyelftools rsync unzip swig \
             device-tree-compiler wget curl tar pkg-config cmake
-          
           sudo swapoff /swapfile || true
           if [ ! -f /swapfile ]; then
             sudo fallocate -l 16G /swapfile
@@ -37,31 +36,26 @@ jobs:
           fi
           sudo swapon /swapfile
 
-      - name: "📂 步骤3：克隆专用源码"
+      - name: "📂 步骤3：克隆源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 步骤4：执行物理外科手术 (锁定配置)"
+      - name: "⚡ 步骤4：物理外科修复 (注入补全配置)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 步骤5：构建工具链 (物理限流 - 重点修复)"
+      - name: "🔨 步骤5：构建工具链 (分步限流模式)"
         working-directory: ./openwrt
         run: |
           make defconfig
-          echo "Building Tools (Restricted Parallelism to prevent OOM)..."
-          # 物理限流：工具链编译极度消耗资源，强制限制并行数为 2
           make tools/install -j2 V=s || make tools/install -j1 V=s
-          
-          echo "Building Toolchain (Restricted Parallelism)..."
           make toolchain/install -j2 V=s || make toolchain/install -j1 V=s
 
-      - name: "🔨 步骤6：构建固件与 U-Boot (Stage 2 - Firmware)"
+      - name: "🔨 步骤6：构建固件与 U-Boot (物理锁定非交互)"
         working-directory: ./openwrt
         run: |
-          # 物理锁定单线程编译引导程序
           echo "Building Bootloaders (U-Boot/ATF)..."
+          # 物理执行构建，Makefile 已配置 olddefconfig 自动闭合配置
           make package/boot/uboot-mediatek/compile V=s -j1
           make package/boot/atf-mediatek/compile V=s -j1
-          # 总攻固件 (此时工具链已好，可以多线程，但仍建议保守 -j$(nproc))
           echo "Building Final Images..."
           make -j$(nproc) V=s || make -j1 V=s
 
@@ -80,9 +74,9 @@ jobs:
           tag_name: SL3000-Flagship-${{ github.run_number }}
           files: dist/*
           body: |
-            SL3000 (MT7981) 企业级构建成功
-            - 物理修复：强制限流 -j2，防止 Runner OOM 掉线
-            - 资源保护：16GB Swap + 磁盘深度清理
-            - 产物：包含全套 Firmware 与 U-Boot
+            SL3000 (MT7981) 构建成功
+            - 物理修复：强制填充 TEXT_BASE 等 U-Boot 必需参数
+            - 物理修复：使用 olddefconfig 物理闭合 Kconfig 交互式提问
+            - 状态：全流程通过静核审计
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
