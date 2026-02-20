@@ -22,12 +22,15 @@ jobs:
           sudo rm -rf /var/lib/apt/lists/*
           docker rmi $(docker images -q) || true
 
-      - name: "📦 步骤2：安装物理构建依赖与 Swap"
+      - name: "📦 步骤2：安装物理构建依赖与 Swap (物理补丁版)"
         run: |
           sudo apt update
+          # 🔥 物理修复：追加 libgnutls28-dev 和 uuid-dev 解决 mkeficapsule 编译失败
           sudo apt install -y build-essential clang flex bison gawk gettext \
             git libncurses5-dev libssl-dev python3-pyelftools rsync unzip swig \
-            device-tree-compiler wget curl tar pkg-config cmake
+            device-tree-compiler wget curl tar pkg-config cmake \
+            libgnutls28-dev uuid-dev
+          
           sudo swapoff /swapfile || true
           if [ ! -f /swapfile ]; then
             sudo fallocate -l 16G /swapfile
@@ -75,8 +78,8 @@ jobs:
           files: dist/*
           body: |
             SL3000 (MT7981) 构建成功
-            - 物理修复：强制填充 TEXT_BASE 等 U-Boot 必需参数
-            - 物理修复：使用 olddefconfig 物理闭合 Kconfig 交互式提问
+            - 物理修复：安装 libgnutls28-dev 解决 U-Boot 工具链编译中断
+            - 物理修复：强制填充 TEXT_BASE 并封锁交互提问
             - 状态：全流程通过静核审计
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
