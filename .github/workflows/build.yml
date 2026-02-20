@@ -22,13 +22,21 @@ jobs:
           sudo rm -rf /var/lib/apt/lists/*
           docker rmi $(docker images -q) || true
 
-      - name: "📦 步骤2：安装物理构建依赖"
+      - name: "📦 步骤2：安装物理构建依赖与 Swap 修复"
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison gawk gettext \
             git libncurses5-dev libssl-dev python3-pyelftools rsync unzip swig \
             device-tree-compiler wget curl tar pkg-config cmake
-          sudo fallocate -l 16G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          
+          # 🔥 物理修复 Text file busy: 先关闭可能存在的交换文件并重新创建
+          sudo swapoff /swapfile || true
+          if [ ! -f /swapfile ]; then
+            sudo fallocate -l 16G /swapfile
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+          fi
+          sudo swapon /swapfile
 
       - name: "📂 步骤3：克隆专用源码"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
@@ -74,9 +82,8 @@ jobs:
           files: dist/*
           body: |
             SL3000 (MT7981) 企业级构建成功
-            - 分步构建：工具链与固件物理隔离
-            - 磁盘优化：极致清理系统占用
-            - U-Boot 2024.10：物理注入修复
+            - 物理修复：解决了 Swap 文件 Text file busy 占用问题
+            - 编译优化：开启详细日志，分步物理隔离
             - 状态：全流程通过静核审计
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
