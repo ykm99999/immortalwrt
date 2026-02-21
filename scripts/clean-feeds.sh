@@ -13,19 +13,27 @@ printf 'src-git packages https://github.com/immortalwrt/packages.git\n' > feeds.
 printf 'src-git luci https://github.com/immortalwrt/luci.git\n' >> feeds.conf.default
 printf 'src-git routing https://github.com/openwrt/routing.git\n' >> feeds.conf.default
 
-# 2. [物理对齐]
+# 2. [物理源码补齐 - 目标：u-boot-2024.10.tar.bz2]
+mkdir -p dl
+if [ ! -f "dl/u-boot-2024.10.tar.bz2" ]; then
+    echo "物理获取 U-Boot 2024.10 源码包..."
+    wget -t 3 -T 30 -O dl/u-boot-2024.10.tar.bz2 https://ftp.denx.de/pub/u-boot/u-boot-2024.10.tar.bz2
+fi
+
+# 3. [环境刷新]
 rm -rf feeds/
 ./scripts/feeds update -a
 ./scripts/feeds install -a -f
 
-# 3. 🔥 [U-Boot 2024.10 物理手术 - 逐行 printf 模式]
+# 4. 🔥 [U-Boot 2024.10 物理外科手术 - 结构死锁版]
 UB_MK="package/boot/uboot-mediatek/Makefile"
 rm -rf package/boot/uboot-mediatek/patches
 mkdir -p package/boot/uboot-mediatek
 
 printf 'include $(TOPDIR)/rules.mk\ninclude $(INCLUDE_DIR)/kernel.mk\n' > "$UB_MK"
 printf 'PKG_NAME:=uboot-mediatek\nPKG_VERSION:=2024.10\nPKG_RELEASE:=1\n' >> "$UB_MK"
-printf 'PKG_SOURCE:=u-boot-$(PKG_VERSION).tar.gz\n' >> "$UB_MK"
+printf 'PKG_SOURCE:=u-boot-$(PKG_VERSION).tar.bz2\n' >> "$UB_MK"
+printf 'PKG_HASH:=f7869ef42674681617260f8f1723467f9345095e26915152865d18d4076e03f0\n' >> "$UB_MK"
 printf 'PKG_BUILD_DIR:=$(BUILD_DIR)/u-boot-$(PKG_VERSION)\n' >> "$UB_MK"
 printf 'include $(INCLUDE_DIR)/package.mk\n' >> "$UB_MK"
 printf 'define Package/uboot-mediatek-mt7981-sl3000-emmc\n  SECTION:=boot\n  CATEGORY:=Boot Loaders\n  TITLE:=U-Boot for SL3000\n  DEPENDS:=@TARGET_mediatek\nendef\n' >> "$UB_MK"
@@ -44,14 +52,14 @@ printf 'define Build/Compile\n\t$(MAKE) -C $(PKG_BUILD_DIR) mt7981_sl3000_emmc_d
 printf 'define Package/uboot-mediatek-mt7981-sl3000-emmc/install\n\t$(INSTALL_DIR) $(1)\n\t$(CP) $(PKG_BUILD_DIR)/u-boot.bin $(1)/u-boot-sl3000.bin\nendef\n' >> "$UB_MK"
 printf '$(eval $(call BuildPackage,uboot-mediatek-mt7981-sl3000-emmc))\n' >> "$UB_MK"
 
-# 4. [内核 DTS 物理注入]
+# 5. [内核 DTS 物理覆盖]
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
     [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ] && cp -v "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/"
 done
 
-# 5. [全局配置锁定 - 禁用 EOF 改用 printf 追加]
+# 6. [配置物理死锁]
 printf 'CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y\n' >> .config
 printf 'CONFIG_ARM_TRUSTED_FIRMWARE_MEDIATEK_mt7981-emmc-ddr3=y\n' >> .config
 printf 'CONFIG_PACKAGE_uboot-mediatek-mt7981-sl3000-emmc=y\n' >> .config
