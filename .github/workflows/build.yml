@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🚀 步骤1：磁盘优化"
+      - name: "🚀 步骤1：磁盘物理优化"
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /var/lib/docker /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm || true
           sudo apt clean
@@ -40,25 +40,25 @@ jobs:
       - name: "📂 步骤3：源码克隆"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 步骤4：物理外科手术 (硬编码地址)"
+      - name: "⚡ 步骤4：物理外科修复 (DTS 内部同步)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 步骤5：工具链构建 (防掉线模式)"
+      - name: "🔨 步骤5：工具链限流构建"
         working-directory: ./openwrt
         run: |
           make defconfig
           make tools/install -j2 V=s || make tools/install -j1 V=s
           make toolchain/install -j2 V=s || make toolchain/install -j1 V=s
 
-      - name: "🔨 步骤6：引导程序绝杀编译"
+      - name: "🔨 步骤6：引导程序与固件总攻"
         working-directory: ./openwrt
         run: |
-          # 物理锁定：硬编码已注入，汇编将直接读取头文件
+          # 物理锁定单线程
           make package/boot/uboot-mediatek/compile V=s -j1
           make package/boot/atf-mediatek/compile V=s -j1
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: "📦 步骤7：产物物理收割"
+      - name: "📦 步骤7：产物物理定向收割"
         run: |
           mkdir -p "dist"
           find openwrt/bin/targets/mediatek/filogic/ -type f -name "*3000-emmc*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
@@ -66,15 +66,15 @@ jobs:
           find openwrt/build_dir/target-aarch64_cortex-a53_musl/u-boot-2024.10/ -type f -name "u-boot.bin" -exec cp -v {} dist/u-boot-sl3000-raw.bin \; || true
           cp -v openwrt/.config dist/config.txt
 
-      - name: "🚀 步骤8：发布产物"
+      - name: "🚀 步骤8：旗舰版自动发布"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
           tag_name: SL3000-Flagship-${{ github.run_number }}
           files: dist/*
           body: |
-            SL3000 一次性绝杀成功
-            - 策略：硬编码 CFG_SYS_INIT_RAM 物理地址
-            - 状态：越过 Kconfig 依赖限制，物理通过汇编检查
+            SL3000 (MT7981) 物理闭环构建成功
+            - 物理修复：硬编码 CFG_SYS_INIT_RAM 地址
+            - 物理修复：DTS 已同步至 U-Boot 源码树并注册 Makefile 规则
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
