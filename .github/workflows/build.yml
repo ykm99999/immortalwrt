@@ -21,7 +21,7 @@ jobs:
           sudo apt clean
           sudo rm -rf /var/lib/apt/lists/*
 
-      - name: "📦 步骤2：物理环境绝杀"
+      - name: "📦 步骤2：物理依赖安装"
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison gawk gettext \
@@ -37,44 +37,44 @@ jobs:
           fi
           sudo swapon /swapfile
 
-      - name: "📂 步骤3：克隆源码"
+      - name: "📂 步骤3：源码克隆"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 步骤4：物理外科修复 (硬编码注入)"
+      - name: "⚡ 步骤4：物理外科修复 (双轨 DTS 同步)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 步骤5：工具链限流构建"
+      - name: "🔨 步骤5：工具链构建"
         working-directory: ./openwrt
         run: |
           make defconfig
           make tools/install -j2 V=s || make tools/install -j1 V=s
           make toolchain/install -j2 V=s || make toolchain/install -j1 V=s
 
-      - name: "🔨 步骤6：引导程序编译"
+      - name: "🔨 步骤6：固件全量构建"
         working-directory: ./openwrt
         run: |
-          # 物理锁定单线程，确保 Makefile 修改生效
+          # 物理锁定单线程构建关键组件
           make package/boot/uboot-mediatek/compile V=s -j1
           make package/boot/atf-mediatek/compile V=s -j1
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: "📦 步骤7：产物收割"
+      - name: "📦 步骤7：产物物理定向收割"
         run: |
           mkdir -p "dist"
           find openwrt/bin/targets/mediatek/filogic/ -type f -name "*3000-emmc*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
           find openwrt/bin/targets/mediatek/filogic/ -type f -name "*u-boot*" -exec cp -v {} dist/ \; || true
           find openwrt/build_dir/target-aarch64_cortex-a53_musl/u-boot-2024.10/ -type f -name "u-boot.bin" -exec cp -v {} dist/u-boot-sl3000-raw.bin \; || true
 
-      - name: "🚀 步骤8：旗舰发布"
+      - name: "🚀 步骤8：旗舰版自动发布"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-Final-${{ github.run_number }}
+          tag_name: SL3000-Final-Release-${{ github.run_number }}
           files: dist/*
           body: |
-            SL3000 (MT7981) 构建绝杀成功
-            - 硬核修复：物理修改 U-Boot 源码头文件
-            - 硬核修复：强制注册 DTS 编译规则
-            - 路径锁定：使用 abspath 彻底解决 cp 失败
+            SL3000 (MT7981) 物理闭环构建成功
+            - 物理对齐：U-Boot 阶段使用原生 eMMC 模板避开 Label 冲突。
+            - 物理对齐：内核阶段注入 2.5G 修正版 DTS (GPIO 39 复位)。
+            - 物理绝杀：硬编码内存起始地址与堆栈地址。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
