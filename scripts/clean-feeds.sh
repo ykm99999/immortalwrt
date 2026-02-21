@@ -21,7 +21,7 @@ rm -rf feeds/
 mkdir -p dl
 curl -L --connect-timeout 20 --retry 5 "https://github.com/u-boot/u-boot/archive/refs/tags/v2024.10.tar.gz" -o "dl/u-boot-2024.10.tar.gz"
 
-# 4. 🔥 [物理绝杀：U-Boot 内部环境补完]
+# 4. 🔥 [物理绝杀：Makefile 内部硬核注入]
 UB_MK="package/boot/uboot-mediatek/Makefile"
 rm -rf package/boot/uboot-mediatek/patches
 mkdir -p package/boot/uboot-mediatek
@@ -34,15 +34,15 @@ printf 'include $(INCLUDE_DIR)/package.mk\n' >> "$UB_MK"
 printf 'define Package/uboot-mediatek-mt7981-sl3000-emmc\n  SECTION:=boot\n  CATEGORY:=Boot Loaders\n  TITLE:=U-Boot for SL3000\n  DEPENDS:=@TARGET_mediatek\nendef\n' >> "$UB_MK"
 
 printf 'define Build/Prepare\n\t$(Build/Prepare/Default)\n' >> "$UB_MK"
-# A. 物理硬编码物理地址 (已验证通过汇编检查)
+# A. 物理硬编码物理地址 (硬切预处理层)
 printf '\techo "#define CFG_SYS_INIT_RAM_ADDR 0x40000000" >> $(PKG_BUILD_DIR)/include/configs/mt7981.h\n' >> "$UB_MK"
 printf '\techo "#define CFG_SYS_INIT_RAM_SIZE 0x00040000" >> $(PKG_BUILD_DIR)/include/configs/mt7981.h\n' >> "$UB_MK"
 printf '\techo "#define CFG_SYS_INIT_SP_ADDR (CFG_SYS_INIT_RAM_ADDR + CFG_SYS_INIT_RAM_SIZE - 0x10)" >> $(PKG_BUILD_DIR)/include/configs/mt7981.h\n' >> "$UB_MK"
-# B. 🔥 物理同步 DTS 到 U-Boot 源码树
-printf '\tcp $(SRC_DIR)/mt7981b-3000-emmc.dts $(PKG_BUILD_DIR)/arch/arm/dts/mt7981-sl3000-emmc.dts\n' >> "$UB_MK"
-# C. 🔥 物理修改 U-Boot DTS Makefile，注册 SL3000 编译目标
-printf '\tsed -i "/dtb-$$(CONFIG_ARCH_MEDIATEK) +=/ s/$$/ mt7981-sl3000-emmc.dtb/" $(PKG_BUILD_DIR)/arch/arm/dts/Makefile\n' >> "$UB_MK"
-# D. 物理同步配置模板
+# B. 🔥 物理定位补丁：使用绝对路径确保 DTS 抓取
+printf '\tcp $(abspath $(TOPDIR)/../mt7981b-3000-emmc.dts) $(PKG_BUILD_DIR)/arch/arm/dts/mt7981-sl3000-emmc.dts\n' >> "$UB_MK"
+# C. 物理注册编译目标 (强制修改源码 Makefile)
+printf '\tsed -i "s/mt7981-rfb.dtb/mt7981-rfb.dtb mt7981-sl3000-emmc.dtb/" $(PKG_BUILD_DIR)/arch/arm/dts/Makefile\n' >> "$UB_MK"
+# D. 物理同步配置模板并封锁交互
 printf '\tcp $(PKG_BUILD_DIR)/configs/mt7981_emmc_rfb_defconfig $(PKG_BUILD_DIR)/configs/mt7981_sl3000_emmc_defconfig\n' >> "$UB_MK"
 printf '\tsed -i "s/DEFAULT_DEVICE_TREE=.*/DEFAULT_DEVICE_TREE=\\"mt7981-sl3000-emmc\\"/" $(PKG_BUILD_DIR)/configs/mt7981_sl3000_emmc_defconfig\n' >> "$UB_MK"
 printf '\techo "CONFIG_TEXT_BASE=0x41e00000" >> $(PKG_BUILD_DIR)/configs/mt7981_sl3000_emmc_defconfig\n' >> "$UB_MK"
@@ -63,10 +63,3 @@ CONFIG_PACKAGE_luci=y
 CONFIG_PACKAGE_luci-theme-bootstrap=y
 CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 EOF
-
-# 6. [内核 DTS 同步保持]
-find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
-    DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
-    mkdir -p "$DTS_PATH"
-    [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ] && cp -v "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/"
-done
