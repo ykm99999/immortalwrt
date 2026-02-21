@@ -1,4 +1,4 @@
-name: SL3000_Final_BZ2_Fixed
+name: SL3000_Ultimate_Final_Fix
 
 on:
   workflow_dispatch:
@@ -14,15 +14,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🔧 步骤1：物理依赖补全 (含 dtc & bzip2)"
+      - name: "🔧 步骤1：物理依赖补全 (彻底修复 dtc 与解压报错)"
         run: |
           sudo apt-get update
           sudo apt-get install -y device-tree-compiler build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip bzip2
 
-      - name: "📂 步骤2：源码物理克隆"
+      - name: "📂 步骤2：源码克隆"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 步骤3：物理外科修复 (后缀对齐版)"
+      - name: "⚡ 步骤3：外科手术 (注入 .config 与 U-Boot 逻辑)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 步骤4：工具链物理构建"
@@ -32,34 +32,38 @@ jobs:
           make tools/install -j$(nproc) V=s || make tools/install -j1 V=s
           make toolchain/install -j$(nproc) V=s || make toolchain/install -j1 V=s
 
-      - name: "🔨 步骤5：引导程序物理绝杀"
+      - name: "🔨 步骤5：引导程序与固件物理绝杀"
         working-directory: ./openwrt
         run: |
+          # 物理环境变量注入
           export PATH=$PATH:$(pwd)/staging_dir/host/bin
-          # 物理编译 ATF
+          
+          # 1. 物理编译 ATF
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-          # 物理编译 U-Boot 2024.10
+          
+          # 2. 物理编译 U-Boot 2024.10
           make package/boot/uboot-mediatek/compile V=s -j1
-          # 全面总攻
+          
+          # 3. 物理执行全量编译
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: "📦 步骤6：产物物理收割"
+      - name: "📦 步骤6：产物收割"
         run: |
           mkdir -p "dist"
-          find openwrt/bin/targets/mediatek/filogic/ -type f -name "*3000-emmc*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
-          find openwrt/bin/targets/mediatek/filogic/ -type f -name "*.img" -exec cp -v {} dist/ \; || true
-          find openwrt/bin/targets/mediatek/filogic/ -type f -name "*u-boot-sl3000.bin" -exec cp -v {} dist/ \; || true
+          find openwrt/bin/targets/ -type f -name "*sl3000*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
+          find openwrt/bin/targets/ -type f -name "*u-boot-sl3000.bin" -exec cp -v {} dist/ \;
 
-      - name: "🚀 步骤7：物理发布"
+      - name: "🚀 步骤7：发布产物"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-Final-BZ2-${{ github.run_number }}
+          tag_name: SL3000-Final-${{ github.run_number }}
           files: dist/*
           body: |
-            SL3000 终极修复：
-            - 物理对齐 U-Boot 2024.10 .tar.bz2 源码及 Hash
-            - 物理补齐 dtc 设备树工具
-            - 已应用 1GB DDR3 / GPIO 39 硬件定义
+            SL3000 终极闭环固件：
+            - 内核分区: 131072 (128MB)
+            - Rootfs分区: 1048576 (1GB)
+            - 物理标签: "rootfs"
+            - 物理补丁: U-Boot 2024.10 / ATF 1GB DDR3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
