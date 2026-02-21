@@ -1,4 +1,4 @@
-name: SL3000_Final_Golden_Build
+name: SL3000_No_EOF_Total_Fix
 
 on:
   workflow_dispatch:
@@ -14,50 +14,52 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "📂 步骤3：源码克隆"
+      - name: "🔧 步骤1：环境物理补全 (补齐 dtc)"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y device-tree-compiler build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip
+
+      - name: "📂 步骤2：源码物理克隆"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 步骤4：物理外科修复 (ATF 路径锁定版)"
+      - name: "⚡ 步骤3：物理外科手术 (禁用 EOF 修正版)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
-      - name: "🔨 步骤5：工具链构建"
+      - name: "🔨 步骤4：工具链物理构建"
         working-directory: ./openwrt
         run: |
           make defconfig
-          make tools/install -j2 V=s || make tools/install -j1 V=s
-          make toolchain/install -j2 V=s || make toolchain/install -j1 V=s
+          make tools/install -j$(nproc) V=s || make tools/install -j1 V=s
+          make toolchain/install -j$(nproc) V=s || make toolchain/install -j1 V=s
 
-      - name: "🔨 步骤6：引导系统精准编译"
+      - name: "🔨 步骤5：引导程序物理绝杀"
         working-directory: ./openwrt
         run: |
-          # 1. 编译你确认的 ATF 物理路径
+          export PATH=$PATH:$(pwd)/staging_dir/host/bin
+          # 1. 物理编译 ATF
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-          
-          # 2. 编译经过物理修复的 U-Boot
+          # 2. 物理编译 U-Boot 2024.10
           make package/boot/uboot-mediatek/compile V=s -j1
-          
-          # 3. 全量总攻
+          # 3. 物理全量编译
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: "📦 步骤7：产物物理收割"
+      - name: "📦 步骤6：产物收割"
         run: |
           mkdir -p "dist"
-          # 收集系统固件
           find openwrt/bin/targets/mediatek/filogic/ -type f -name "*3000-emmc*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
-          # 收集引导二进制 (包含关键的 bl2.img 和 u-boot-sl3000.bin)
           find openwrt/bin/targets/mediatek/filogic/ -type f -name "*.img" -exec cp -v {} dist/ \; || true
           find openwrt/bin/targets/mediatek/filogic/ -type f -name "*u-boot-sl3000.bin" -exec cp -v {} dist/ \; || true
 
-      - name: "🚀 步骤8：旗舰发布"
+      - name: "🚀 步骤7：物理发布"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-Standard-${{ github.run_number }}
+          tag_name: SL3000-NoEOF-${{ github.run_number }}
           files: dist/*
           body: |
-            SL3000 (MT7981) 物理对齐版构建成功
-            - ATF 路径锁定：arm-trusted-firmware-mediatek
-            - ATF 目标锁定：mt7981-emmc-ddr3
-            - U-Boot：2024.10 原生 eMMC 模板修复
+            SL3000 彻底修复版：
+            - 已物理移除所有 EOF 块，改用 printf 逐行写入
+            - 物理补齐了 dtc 工具
+            - 物理对齐了 ATF 路径：arm-trusted-firmware-mediatek
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
