@@ -18,7 +18,7 @@ rm -rf feeds/
 ./scripts/feeds update -a
 ./scripts/feeds install -a -f
 
-# 3. 🔥 [U-Boot 物理手术：原文照抄]
+# 3. 🔥 [U-Boot 2024.10 物理手术 - 逐行 printf 模式]
 UB_MK="package/boot/uboot-mediatek/Makefile"
 rm -rf package/boot/uboot-mediatek/patches
 mkdir -p package/boot/uboot-mediatek
@@ -31,11 +31,9 @@ printf 'include $(INCLUDE_DIR)/package.mk\n' >> "$UB_MK"
 printf 'define Package/uboot-mediatek-mt7981-sl3000-emmc\n  SECTION:=boot\n  CATEGORY:=Boot Loaders\n  TITLE:=U-Boot for SL3000\n  DEPENDS:=@TARGET_mediatek\nendef\n' >> "$UB_MK"
 
 printf 'define Build/Prepare\n\t$(Build/Prepare/Default)\n' >> "$UB_MK"
-# 物理修正 U-Boot 源码
 printf '\techo "#define CFG_SYS_INIT_RAM_ADDR 0x40000000" >> $(PKG_BUILD_DIR)/include/configs/mt7981.h\n' >> "$UB_MK"
 printf '\techo "#define CFG_SYS_INIT_RAM_SIZE 0x00040000" >> $(PKG_BUILD_DIR)/include/configs/mt7981.h\n' >> "$UB_MK"
 printf '\techo "#define CFG_SYS_INIT_SP_ADDR (CFG_SYS_INIT_RAM_ADDR + CFG_SYS_INIT_RAM_SIZE - 0x10)" >> $(PKG_BUILD_DIR)/include/configs/mt7981.h\n' >> "$UB_MK"
-# 物理克隆原生 eMMC 模板避开 Label 报错
 printf '\tcp $(PKG_BUILD_DIR)/arch/arm/dts/mt7981-emmc-rfb.dts $(PKG_BUILD_DIR)/arch/arm/dts/mt7981-sl3000-emmc.dts\n' >> "$UB_MK"
 printf '\tsed -i "s/mt7981-rfb.dtb/mt7981-rfb.dtb mt7981-sl3000-emmc.dtb/" $(PKG_BUILD_DIR)/arch/arm/dts/Makefile\n' >> "$UB_MK"
 printf '\tcp $(PKG_BUILD_DIR)/configs/mt7981_emmc_rfb_defconfig $(PKG_BUILD_DIR)/configs/mt7981_sl3000_emmc_defconfig\n' >> "$UB_MK"
@@ -46,16 +44,14 @@ printf 'define Build/Compile\n\t$(MAKE) -C $(PKG_BUILD_DIR) mt7981_sl3000_emmc_d
 printf 'define Package/uboot-mediatek-mt7981-sl3000-emmc/install\n\t$(INSTALL_DIR) $(1)\n\t$(CP) $(PKG_BUILD_DIR)/u-boot.bin $(1)/u-boot-sl3000.bin\nendef\n' >> "$UB_MK"
 printf '$(eval $(call BuildPackage,uboot-mediatek-mt7981-sl3000-emmc))\n' >> "$UB_MK"
 
-# 4. [内核 DTS 注入]
+# 4. [内核 DTS 物理注入]
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
     [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ] && cp -v "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/"
 done
 
-# 5. [全局 .config 注入 ATF 配置]
-cat <<EOF >> .config
-CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y
-CONFIG_ARM_TRUSTED_FIRMWARE_MEDIATEK_mt7981-emmc-ddr3=y
-CONFIG_PACKAGE_uboot-mediatek-mt7981-sl3000-emmc=y
-EOF
+# 5. [全局配置锁定 - 禁用 EOF 改用 printf 追加]
+printf 'CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y\n' >> .config
+printf 'CONFIG_ARM_TRUSTED_FIRMWARE_MEDIATEK_mt7981-emmc-ddr3=y\n' >> .config
+printf 'CONFIG_PACKAGE_uboot-mediatek-mt7981-sl3000-emmc=y\n' >> .config
