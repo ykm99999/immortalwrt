@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eo pipefail
 
-# 物理定位：REPO_ROOT 为 GitHub Workspace 根目录，WORKDIR 为 openwrt 目录
+# 物理路径锁定
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 SRC_DIR="${REPO_ROOT}"
@@ -29,11 +29,11 @@ MK_FILE="${MK_DIR}/filogic.mk"
 mkdir -p "$MK_DIR"
 
 if [ -f "${SRC_DIR}/filogic.mk" ]; then
-    printf "正在从根目录物理提取 filogic.mk...\n"
+    printf "正在物理提取 filogic.mk...\n"
     cp -f "${SRC_DIR}/filogic.mk" "$MK_FILE"
     chmod 644 "$MK_FILE"
 else
-    printf "错误：根目录未找到 filogic.mk，物理自愈生成...\n"
+    printf "物理生成备用定义...\n"
     cat > "$MK_FILE" <<EOF
 define Device/mt7981-sl3000-emmc
   DEVICE_VENDOR := SL3000
@@ -45,7 +45,7 @@ endef
 EOF
 fi
 
-# 5. 🔥 [U-Boot 2024.10 物理注入 - 保持原文逻辑]
+# 5. 🔥 [U-Boot 2024.10 物理注入 - 结构死锁版]
 UB_MK="package/boot/uboot-mediatek/Makefile"
 rm -rf package/boot/uboot-mediatek/patches
 mkdir -p package/boot/uboot-mediatek
@@ -96,24 +96,20 @@ endef
 \$(eval \$(call BuildPackage,uboot-mediatek-mt7981-sl3000-emmc))
 EOF
 
-# 6. [内核 DTS 物理注入 - 目标根目录文件]
+# 6. [内核 DTS 物理注入]
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
-    if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
-        cp -v "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/"
-    fi
+    [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ] && cp -v "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/"
 done
 
-# 7. [物理配置应用 - 从根目录 sl3000.config 提取]
+# 7. [物理配置锁定]
 if [ -f "${SRC_DIR}/sl3000.config" ]; then
-    printf "正在应用根目录物理配置文件...\n"
     cp -f "${SRC_DIR}/sl3000.config" .config
-    # 物理锁定关键分区数值
     sed -i 's/CONFIG_TARGET_KERNEL_PARTSIZE=.*/CONFIG_TARGET_KERNEL_PARTSIZE=131072/' .config
     sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=1048576/' .config
 else
-    printf "警告：未找到 sl3000.config，执行物理保底配置...\n"
     printf 'CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_TARGET_mediatek_filogic_DEVICE_mt7981-sl3000-emmc=y\n' > .config
     printf 'CONFIG_TARGET_KERNEL_PARTSIZE=131072\nCONFIG_TARGET_ROOTFS_PARTSIZE=1048576\n' >> .config
 fi
+printf 'CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y\nCONFIG_ARM_TRUSTED_FIRMWARE_MEDIATEK_mt7981-emmc-ddr3=y\nCONFIG_PACKAGE_uboot-mediatek-mt7981-sl3000-emmc=y\n' >> .config
