@@ -1,4 +1,4 @@
-name: SL3000_Final_Robust_Build
+name: SL3000_Full_Artifact_Build
 
 on:
   workflow_dispatch:
@@ -20,12 +20,8 @@ jobs:
       - name: "📂 步骤2：源码克隆"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 步骤3：物理锁定 SL3000 (文件强制覆盖)"
-        run: |
-          # 物理检查 custom-config 目录是否存在
-          ls -R custom-config/ || echo "警告：custom-config 目录未找到"
-          chmod +x scripts/clean-feeds.sh
-          ./scripts/clean-feeds.sh
+      - name: "⚡ 步骤3：物理注入与路径对齐"
+        run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 步骤4：工具链物理构建"
         working-directory: ./openwrt
@@ -34,7 +30,7 @@ jobs:
           make tools/install -j$(nproc) V=s
           make toolchain/install -j$(nproc) V=s
 
-      - name: "🔨 步骤5：编译固件"
+      - name: "🔨 步骤5：固件全量总攻"
         working-directory: ./openwrt
         run: |
           export PATH=$PATH:$(pwd)/staging_dir/host/bin
@@ -42,18 +38,30 @@ jobs:
           make package/boot/uboot-mediatek/compile V=s -j1
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: "📦 步骤6：产物收割"
+      - name: "📦 步骤6：全产物物理直取 (修复单固件问题)"
         run: |
           mkdir -p "dist"
+          # 1. 提取系统固件
           find openwrt/bin/targets/ -type f -name "*sl3000*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
-          find openwrt/bin/targets/ -type f -name "*u-boot-sl3000.bin" -exec cp -v {} dist/ \;
+          
+          # 2. 物理直取 U-Boot 2024.10 (从编译深度路径提取)
+          UBOOT_BIN="openwrt/build_dir/target-aarch64_cortex-a53_musl/u-boot-2024.10/u-boot.bin"
+          if [ -f "$UBOOT_BIN" ]; then
+              cp -v "$UBOOT_BIN" dist/u-boot-sl3000-2024.10.bin
+          else
+              find openwrt/build_dir/ -name "u-boot.bin" -exec cp -v {} dist/u-boot-sl3000-2024.10.bin \;
+          fi
+
+          # 3. 提取 Preloader/FIP (物理补全)
+          find openwrt/bin/targets/ -name "*fip*" -exec cp -v {} dist/ \; || true
+          find openwrt/bin/targets/ -name "*bl2*" -exec cp -v {} dist/ \; || true
 
       - name: "🚀 步骤7：物理发布"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-Robust-${{ github.run_number }}
+          tag_name: SL3000-Complete-${{ github.run_number }}
           files: dist/*
-          body: "通过物理权限修正与路径校验，彻底解决了构建过程中的 Exit 1 错误。"
+          body: "全量产物发布：包含系统固件(SL3000-Firmware.bin)与引导程序(u-boot-sl3000-2024.10.bin)。"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
