@@ -22,15 +22,13 @@ rm -rf feeds/
 ./scripts/feeds update -a
 ./scripts/feeds install -a -f
 
-# 4. 🔥 [物理外科手术：清理 filogic.mk 干扰项]
-# 逻辑：备份后清空，只注入 SL3000 的物理定义，防止打包工具扫描到其他设备
+# 4. 🔥 [物理外科手术：SL3000 唯一化处理]
+# 逻辑：不删除文件内容，但物理强制 Target 只包含我们的设备
 MK_FILE="target/linux/mediatek/image/filogic.mk"
 if [ -f "$MK_FILE" ]; then
-    printf "正在物理清理 filogic.mk 干扰项...\n"
-    # 提取全局定义（前几行），然后只保留我们需要的设备块
-    sed -i '/define Device\/mt7981-sl3000-emmc/,/endef/!d' "$MK_FILE"
-    # 重新补回必要的 Target 定义（如果被误删）
-    printf '\n$(eval $(call BuildImage,mt7981-sl3000-emmc))\n' >> "$MK_FILE"
+    printf "正在物理锁定 SL3000 编译目标...\n"
+    # 物理注入 SL3000 设备块到文件末尾，确保它存在
+    [ -f "${SRC_DIR}/custom-config/filogic.mk" ] && cat "${SRC_DIR}/custom-config/filogic.mk" >> "$MK_FILE"
 fi
 
 # 5. 🔥 [U-Boot 2024.10 物理注入 - 结构死锁]
@@ -64,15 +62,13 @@ find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ] && cp -v "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/"
 done
 
-# 7. [物理配置死锁]
+# 7. [物理配置锁定 - 强制启用 SL3000]
 printf 'CONFIG_TARGET_mediatek=y\n' > .config
 printf 'CONFIG_TARGET_mediatek_filogic=y\n' >> .config
 printf 'CONFIG_TARGET_mediatek_filogic_DEVICE_mt7981-sl3000-emmc=y\n' >> .config
 printf 'CONFIG_TARGET_KERNEL_PARTSIZE=131072\n' >> .config
 printf 'CONFIG_TARGET_ROOTFS_PARTSIZE=1048576\n' >> .config
 printf 'CONFIG_TARGET_ROOTFS_PARTNAME="rootfs"\n' >> .config
-printf 'CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y\n' >> .config
-printf 'CONFIG_ARM_TRUSTED_FIRMWARE_MEDIATEK_mt7981-emmc-ddr3=y\n' >> .config
-printf 'CONFIG_PACKAGE_uboot-mediatek-mt7981-sl3000-emmc=y\n' >> .config
-# ... 其他驱动保持不变 ...
+# 驱动与应用层
+printf 'CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y\nCONFIG_ARM_TRUSTED_FIRMWARE_MEDIATEK_mt7981-emmc-ddr3=y\nCONFIG_PACKAGE_uboot-mediatek-mt7981-sl3000-emmc=y\n' >> .config
 printf 'CONFIG_PACKAGE_kmod-mmc=y\nCONFIG_PACKAGE_kmod-sdhci-mtk=y\nCONFIG_PACKAGE_kmod-fs-f2fs=y\nCONFIG_PACKAGE_f2fs-tools=y\nCONFIG_PACKAGE_f2fsck=y\nCONFIG_PACKAGE_parted=y\nCONFIG_PACKAGE_lsblk=y\nCONFIG_PACKAGE_blkid=y\nCONFIG_PACKAGE_block-mount=y\nCONFIG_PACKAGE_kmod-zram=y\nCONFIG_PACKAGE_zram-swap=y\nCONFIG_PACKAGE_luci=y\nCONFIG_PACKAGE_luci-theme-bootstrap=y\nCONFIG_PACKAGE_curl=y\nCONFIG_PACKAGE_wget-ssl=y\nCONFIG_PACKAGE_htop=y\nCONFIG_PACKAGE_nano=y\n' >> .config
