@@ -22,15 +22,15 @@ rm -rf feeds/
 ./scripts/feeds update -a
 ./scripts/feeds install -a -f
 
-# 4. 🔥 [物理外科手术：彻底物理覆盖 filogic.mk]
-# 逻辑：删除原文件，直接将 custom-config/filogic.mk 物理注入为唯一的 Makefile 定义
+# 4. 🔥 [物理外科手术：带权限修复的 filogic.mk 替换]
 MK_FILE="target/linux/mediatek/image/filogic.mk"
 printf "正在物理替换 filogic.mk 以抹除 OpenWrt One 干扰...\n"
-rm -f "$MK_FILE"
 if [ -f "${SRC_DIR}/custom-config/filogic.mk" ]; then
-    cp -v "${SRC_DIR}/custom-config/filogic.mk" "$MK_FILE"
+    chmod +w "$MK_FILE" || true
+    cp -f "${SRC_DIR}/custom-config/filogic.mk" "$MK_FILE"
+    printf "物理替换成功。\n"
 else
-    # 如果文件不在指定路径，物理生成一个仅含 SL3000 的最小定义
+    printf "警告：未找到 custom-config/filogic.mk，正在物理生成备用定义...\n"
     printf 'define Device/mt7981-sl3000-emmc\n  DEVICE_VENDOR := SL3000\n  DEVICE_MODEL := eMMC-Router\n  DEVICE_DTS := mt7981b-3000-emmc\n  SUPPORTED_DEVICES := mt7981-sl3000-emmc\nendef\n$(eval $(call BuildImage,mt7981-sl3000-emmc))\n' > "$MK_FILE"
 fi
 
@@ -70,7 +70,4 @@ done
 printf 'CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_TARGET_mediatek_filogic_DEVICE_mt7981-sl3000-emmc=y\n' > .config
 printf 'CONFIG_TARGET_KERNEL_PARTSIZE=131072\nCONFIG_TARGET_ROOTFS_PARTSIZE=1048576\nCONFIG_TARGET_ROOTFS_PARTNAME="rootfs"\n' >> .config
 printf 'CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y\nCONFIG_ARM_TRUSTED_FIRMWARE_MEDIATEK_mt7981-emmc-ddr3=y\nCONFIG_PACKAGE_uboot-mediatek-mt7981-sl3000-emmc=y\n' >> .config
-# 补齐必要驱动包
-printf 'CONFIG_PACKAGE_kmod-mmc=y\nCONFIG_PACKAGE_kmod-sdhci-mtk=y\nCONFIG_PACKAGE_kmod-fs-f2fs=y\nCONFIG_PACKAGE_f2fs-tools=y\nCONFIG_PACKAGE_f2fsck=y\nCONFIG_PACKAGE_parted=y\nCONFIG_PACKAGE_lsblk=y\nCONFIG_PACKAGE_blkid=y\nCONFIG_PACKAGE_block-mount=y\nCONFIG_PACKAGE_kmod-zram=y\nCONFIG_PACKAGE_zram-swap=y\n' >> .config
-# 应用层
-printf 'CONFIG_PACKAGE_luci=y\nCONFIG_PACKAGE_luci-theme-bootstrap=y\nCONFIG_PACKAGE_curl=y\nCONFIG_PACKAGE_wget-ssl=y\nCONFIG_PACKAGE_htop=y\nCONFIG_PACKAGE_nano=y\n' >> .config
+printf 'CONFIG_PACKAGE_kmod-mmc=y\nCONFIG_PACKAGE_kmod-sdhci-mtk=y\nCONFIG_PACKAGE_kmod-fs-f2fs=y\nCONFIG_PACKAGE_f2fs-tools=y\nCONFIG_PACKAGE_f2fsck=y\nCONFIG_PACKAGE_parted=y\nCONFIG_PACKAGE_lsblk=y\nCONFIG_PACKAGE_blkid=y\nCONFIG_PACKAGE_block-mount=y\nCONFIG_PACKAGE_kmod-zram=y\nCONFIG_PACKAGE_zram-swap=y\nCONFIG_PACKAGE_luci=y\nCONFIG_PACKAGE_luci-theme-bootstrap=y\nCONFIG_PACKAGE_curl=y\nCONFIG_PACKAGE_wget-ssl=y\nCONFIG_PACKAGE_htop=y\nCONFIG_PACKAGE_nano=y\n' >> .config
