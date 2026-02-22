@@ -1,4 +1,4 @@
-name: SL3000_Ultimate_Final_Fix
+name: SL3000_Physical_Exclusion_Fix
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🔧 步骤1：物理依赖补全 (彻底修复 dtc 与解压报错)"
+      - name: "🔧 步骤1：物理补全"
         run: |
           sudo apt-get update
           sudo apt-get install -y device-tree-compiler build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip bzip2
@@ -22,29 +22,23 @@ jobs:
       - name: "📂 步骤2：源码克隆"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 步骤3：外科手术 (注入 .config 与 U-Boot 逻辑)"
+      - name: "⚡ 步骤3：物理绝杀 (清理干扰设备定义)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 步骤4：工具链物理构建"
         working-directory: ./openwrt
         run: |
           make defconfig
-          make tools/install -j$(nproc) V=s || make tools/install -j1 V=s
-          make toolchain/install -j$(nproc) V=s || make toolchain/install -j1 V=s
+          make tools/install -j$(nproc) V=s
+          make toolchain/install -j$(nproc) V=s
 
-      - name: "🔨 步骤5：引导程序与固件物理绝杀"
+      - name: "🔨 步骤5：编译核心 (物理忽略无关报错)"
         working-directory: ./openwrt
         run: |
-          # 物理环境变量注入
           export PATH=$PATH:$(pwd)/staging_dir/host/bin
-          
-          # 1. 物理编译 ATF
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
-          
-          # 2. 物理编译 U-Boot 2024.10
           make package/boot/uboot-mediatek/compile V=s -j1
-          
-          # 3. 物理执行全量编译
+          # 物理执行编译，即使打包其他设备失败也继续（因为我们已经物理删除了其他设备）
           make -j$(nproc) V=s || make -j1 V=s
 
       - name: "📦 步骤6：产物收割"
@@ -53,17 +47,12 @@ jobs:
           find openwrt/bin/targets/ -type f -name "*sl3000*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
           find openwrt/bin/targets/ -type f -name "*u-boot-sl3000.bin" -exec cp -v {} dist/ \;
 
-      - name: "🚀 步骤7：发布产物"
+      - name: "🚀 步骤7：物理发布"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-Final-${{ github.run_number }}
+          tag_name: SL3000-Exclusion-${{ github.run_number }}
           files: dist/*
-          body: |
-            SL3000 终极闭环固件：
-            - 内核分区: 131072 (128MB)
-            - Rootfs分区: 1048576 (1GB)
-            - 物理标签: "rootfs"
-            - 物理补丁: U-Boot 2024.10 / ATF 1GB DDR3
+          body: "通过物理剔除 filogic.mk 干扰项，彻底修复了打包阶段的 Error 1。"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
