@@ -1,4 +1,4 @@
-name: SL3000_Firmware_Capture_Fix
+name: SL3000_Total_Exclusion_Build
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
       - name: "📂 步骤2：源码克隆"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 步骤3：物理注入与配置"
+      - name: "⚡ 步骤3：外科手术 (物理覆盖 filogic.mk)"
         run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
 
       - name: "🔨 步骤4：工具链物理构建"
@@ -30,35 +30,27 @@ jobs:
           make tools/install -j$(nproc) V=s
           make toolchain/install -j$(nproc) V=s
 
-      - name: "🔨 步骤5：完整构建"
+      - name: "🔨 步骤5：编译固件 (绝杀 OpenWrt One)"
         working-directory: ./openwrt
         run: |
           export PATH=$PATH:$(pwd)/staging_dir/host/bin
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
-          # 物理执行总编译
+          # 物理执行全量构建
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: "📦 步骤6：产物物理收割 (增加路径搜索深度)"
+      - name: "📦 步骤6：产物物理收割"
         run: |
           mkdir -p "dist"
-          echo "正在物理搜寻固件产物..."
-          # 搜寻所有 bin/targets 下的 sysupgrade 镜像
-          find openwrt/bin/targets/ -type f -name "*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
-          # 搜寻 U-Boot 产物
+          find openwrt/bin/targets/ -type f -name "*sl3000*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
           find openwrt/bin/targets/ -type f -name "*u-boot-sl3000.bin" -exec cp -v {} dist/ \;
-          # 物理检查收割结果
-          ls -R dist/
 
-      - name: "🚀 步骤7：发布产物"
+      - name: "🚀 步骤7：物理发布"
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-Release-${{ github.run_number }}
+          tag_name: SL3000-Final-${{ github.run_number }}
           files: dist/*
-          body: |
-            SL3000 产物收割版：
-            - 分区：128MB/1GB 对齐
-            - U-Boot：2024.10 物理注入
+          body: "通过物理覆盖 target/linux/mediatek/image/filogic.mk 彻底清除了官方干扰设备。"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
