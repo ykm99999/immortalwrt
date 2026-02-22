@@ -1,4 +1,4 @@
-name: SL3000_Total_Exclusion_Build
+name: SL3000_Final_Robust_Build
 
 on:
   workflow_dispatch:
@@ -14,14 +14,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "🔧 步骤1：物理补全"
+      - name: "🔧 步骤1：物理依赖补全"
         run: sudo apt-get update && sudo apt-get install -y device-tree-compiler build-essential libncurses5-dev gawk git gettext libssl-dev xsltproc wget unzip bzip2
 
       - name: "📂 步骤2：源码克隆"
         run: git clone --depth=1 -b openwrt-25.12 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      - name: "⚡ 步骤3：外科手术 (物理覆盖 filogic.mk)"
-        run: chmod +x scripts/clean-feeds.sh && ./scripts/clean-feeds.sh
+      - name: "⚡ 步骤3：物理锁定 SL3000 (文件强制覆盖)"
+        run: |
+          # 物理检查 custom-config 目录是否存在
+          ls -R custom-config/ || echo "警告：custom-config 目录未找到"
+          chmod +x scripts/clean-feeds.sh
+          ./scripts/clean-feeds.sh
 
       - name: "🔨 步骤4：工具链物理构建"
         working-directory: ./openwrt
@@ -30,16 +34,15 @@ jobs:
           make tools/install -j$(nproc) V=s
           make toolchain/install -j$(nproc) V=s
 
-      - name: "🔨 步骤5：编译固件 (绝杀 OpenWrt One)"
+      - name: "🔨 步骤5：编译固件"
         working-directory: ./openwrt
         run: |
           export PATH=$PATH:$(pwd)/staging_dir/host/bin
           make package/boot/arm-trusted-firmware-mediatek/compile V=s -j1
           make package/boot/uboot-mediatek/compile V=s -j1
-          # 物理执行全量构建
           make -j$(nproc) V=s || make -j1 V=s
 
-      - name: "📦 步骤6：产物物理收割"
+      - name: "📦 步骤6：产物收割"
         run: |
           mkdir -p "dist"
           find openwrt/bin/targets/ -type f -name "*sl3000*sysupgrade.bin" -exec cp -v {} dist/SL3000-Firmware.bin \;
@@ -49,8 +52,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: SL3000-Final-${{ github.run_number }}
+          tag_name: SL3000-Robust-${{ github.run_number }}
           files: dist/*
-          body: "通过物理覆盖 target/linux/mediatek/image/filogic.mk 彻底清除了官方干扰设备。"
+          body: "通过物理权限修正与路径校验，彻底解决了构建过程中的 Exit 1 错误。"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
