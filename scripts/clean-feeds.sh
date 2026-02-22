@@ -1,6 +1,7 @@
 #!/bin/bash
 set -eo pipefail
 
+# 物理定位：REPO_ROOT 为 GitHub Workspace 根目录，WORKDIR 为 openwrt 目录
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORKDIR="${REPO_ROOT}/openwrt"
 SRC_DIR="${REPO_ROOT}"
@@ -22,52 +23,97 @@ rm -rf feeds/
 ./scripts/feeds update -a
 ./scripts/feeds install -a -f
 
-# 4. 🔥 [物理外科手术：带权限修复的 filogic.mk 替换]
-MK_FILE="target/linux/mediatek/image/filogic.mk"
-printf "正在物理替换 filogic.mk 以抹除 OpenWrt One 干扰...\n"
-if [ -f "${SRC_DIR}/custom-config/filogic.mk" ]; then
-    chmod +w "$MK_FILE" || true
-    cp -f "${SRC_DIR}/custom-config/filogic.mk" "$MK_FILE"
-    printf "物理替换成功。\n"
+# 4. 🔥 [物理外科手术：从根目录物理覆盖 filogic.mk]
+MK_DIR="target/linux/mediatek/image"
+MK_FILE="${MK_DIR}/filogic.mk"
+mkdir -p "$MK_DIR"
+
+if [ -f "${SRC_DIR}/filogic.mk" ]; then
+    printf "正在从根目录物理提取 filogic.mk...\n"
+    cp -f "${SRC_DIR}/filogic.mk" "$MK_FILE"
+    chmod 644 "$MK_FILE"
 else
-    printf "警告：未找到 custom-config/filogic.mk，正在物理生成备用定义...\n"
-    printf 'define Device/mt7981-sl3000-emmc\n  DEVICE_VENDOR := SL3000\n  DEVICE_MODEL := eMMC-Router\n  DEVICE_DTS := mt7981b-3000-emmc\n  SUPPORTED_DEVICES := mt7981-sl3000-emmc\nendef\n$(eval $(call BuildImage,mt7981-sl3000-emmc))\n' > "$MK_FILE"
+    printf "错误：根目录未找到 filogic.mk，物理自愈生成...\n"
+    cat > "$MK_FILE" <<EOF
+define Device/mt7981-sl3000-emmc
+  DEVICE_VENDOR := SL3000
+  DEVICE_MODEL := eMMC-Router
+  DEVICE_DTS := mt7981b-3000-emmc
+  SUPPORTED_DEVICES := mt7981-sl3000-emmc
+endef
+\$(eval \$(call BuildImage,mt7981-sl3000-emmc))
+EOF
 fi
 
-# 5. 🔥 [U-Boot 2024.10 物理注入 - 结构死锁版]
+# 5. 🔥 [U-Boot 2024.10 物理注入 - 保持原文逻辑]
 UB_MK="package/boot/uboot-mediatek/Makefile"
 rm -rf package/boot/uboot-mediatek/patches
 mkdir -p package/boot/uboot-mediatek
 
-printf 'include $(TOPDIR)/rules.mk\ninclude $(INCLUDE_DIR)/kernel.mk\n' > "$UB_MK"
-printf 'PKG_NAME:=uboot-mediatek\nPKG_VERSION:=2024.10\nPKG_RELEASE:=1\n' >> "$UB_MK"
-printf 'PKG_SOURCE:=u-boot-$(PKG_VERSION).tar.bz2\n' >> "$UB_MK"
-printf 'PKG_HASH:=f7869ef42674681617260f8f1723467f9345095e26915152865d18d4076e03f0\n' >> "$UB_MK"
-printf 'PKG_BUILD_DIR:=$(BUILD_DIR)/u-boot-$(PKG_VERSION)\n' >> "$UB_MK"
-printf 'include $(INCLUDE_DIR)/package.mk\n' >> "$UB_MK"
-printf 'define Package/uboot-mediatek-mt7981-sl3000-emmc\n  SECTION:=boot\n  CATEGORY:=Boot Loaders\n  TITLE:=U-Boot for SL3000\n  DEPENDS:=@TARGET_mediatek\nendef\n' >> "$UB_MK"
-printf 'define Build/Prepare\n\t$(Build/Prepare/Default)\n' >> "$UB_MK"
-printf '\techo "#define CFG_SYS_INIT_RAM_ADDR 0x40000000" >> $(PKG_BUILD_DIR)/include/configs/mt7981.h\n' >> "$UB_MK"
-printf '\techo "#define CFG_SYS_INIT_RAM_SIZE 0x00040000" >> $(PKG_BUILD_DIR)/include/configs/mt7981.h\n' >> "$UB_MK"
-printf '\techo "#define CFG_SYS_INIT_SP_ADDR (CFG_SYS_INIT_RAM_ADDR + CFG_SYS_INIT_RAM_SIZE - 0x10)" >> $(PKG_BUILD_DIR)/include/configs/mt7981.h\n' >> "$UB_MK"
-printf '\tcp $(PKG_BUILD_DIR)/arch/arm/dts/mt7981-emmc-rfb.dts $(PKG_BUILD_DIR)/arch/arm/dts/mt7981-sl3000-emmc.dts\n' >> "$UB_MK"
-printf '\tsed -i "s/mt7981-rfb.dtb/mt7981-rfb.dtb mt7981-sl3000-emmc.dtb/" $(PKG_BUILD_DIR)/arch/arm/dts/Makefile\n' >> "$UB_MK"
-printf '\tcp $(PKG_BUILD_DIR)/configs/mt7981_emmc_rfb_defconfig $(PKG_BUILD_DIR)/configs/mt7981_sl3000_emmc_defconfig\n' >> "$UB_MK"
-printf '\tsed -i "s/DEFAULT_DEVICE_TREE=.*/DEFAULT_DEVICE_TREE=\\"mt7981-sl3000-emmc\\"/" $(PKG_BUILD_DIR)/configs/mt7981_sl3000_emmc_defconfig\n' >> "$UB_MK"
-printf 'endef\n' >> "$UB_MK"
-printf 'define Build/Compile\n\t$(MAKE) -C $(PKG_BUILD_DIR) mt7981_sl3000_emmc_defconfig\n\t$(MAKE) -C $(PKG_BUILD_DIR) olddefconfig\n\t$(MAKE) -C $(PKG_BUILD_DIR) CROSS_COMPILE=$(TARGET_CROSS) DEVICE_DTS=mt7981-sl3000-emmc\nendef\n' >> "$UB_MK"
-printf 'define Package/uboot-mediatek-mt7981-sl3000-emmc/install\n\t$(INSTALL_DIR) $(1)\n\t$(CP) $(PKG_BUILD_DIR)/u-boot.bin $(1)/u-boot-sl3000.bin\nendef\n' >> "$UB_MK"
-printf '$(eval $(call BuildPackage,uboot-mediatek-mt7981-sl3000-emmc))\n' >> "$UB_MK"
+cat > "$UB_MK" <<EOF
+include \$(TOPDIR)/rules.mk
+include \$(INCLUDE_DIR)/kernel.mk
 
-# 6. [内核 DTS 物理注入]
+PKG_NAME:=uboot-mediatek
+PKG_VERSION:=2024.10
+PKG_RELEASE:=1
+
+PKG_SOURCE:=u-boot-\$(PKG_VERSION).tar.bz2
+PKG_HASH:=f7869ef42674681617260f8f1723467f9345095e26915152865d18d4076e03f0
+PKG_BUILD_DIR:=\$(BUILD_DIR)/u-boot-\$(PKG_VERSION)
+
+include \$(INCLUDE_DIR)/package.mk
+
+define Package/uboot-mediatek-mt7981-sl3000-emmc
+  SECTION:=boot
+  CATEGORY:=Boot Loaders
+  TITLE:=U-Boot for SL3000
+  DEPENDS:=@TARGET_mediatek
+endef
+
+define Build/Prepare
+	\$(Build/Prepare/Default)
+	echo "#define CFG_SYS_INIT_RAM_ADDR 0x40000000" >> \$(PKG_BUILD_DIR)/include/configs/mt7981.h
+	echo "#define CFG_SYS_INIT_RAM_SIZE 0x00040000" >> \$(PKG_BUILD_DIR)/include/configs/mt7981.h
+	echo "#define CFG_SYS_INIT_SP_ADDR (CFG_SYS_INIT_RAM_ADDR + CFG_SYS_INIT_RAM_SIZE - 0x10)" >> \$(PKG_BUILD_DIR)/include/configs/mt7981.h
+	cp \$(PKG_BUILD_DIR)/arch/arm/dts/mt7981-emmc-rfb.dts \$(PKG_BUILD_DIR)/arch/arm/dts/mt7981-sl3000-emmc.dts
+	sed -i "s/mt7981-rfb.dtb/mt7981-rfb.dtb mt7981-sl3000-emmc.dtb/" \$(PKG_BUILD_DIR)/arch/arm/dts/Makefile
+	cp \$(PKG_BUILD_DIR)/configs/mt7981_emmc_rfb_defconfig \$(PKG_BUILD_DIR)/configs/mt7981_sl3000_emmc_defconfig
+	sed -i 's/DEFAULT_DEVICE_TREE=.*/DEFAULT_DEVICE_TREE="mt7981-sl3000-emmc"/' \$(PKG_BUILD_DIR)/configs/mt7981_sl3000_emmc_defconfig
+endef
+
+define Build/Compile
+	\$(MAKE) -C \$(PKG_BUILD_DIR) mt7981_sl3000_emmc_defconfig
+	\$(MAKE) -C \$(PKG_BUILD_DIR) olddefconfig
+	\$(MAKE) -C \$(PKG_BUILD_DIR) CROSS_COMPILE=\$(TARGET_CROSS) DEVICE_DTS=mt7981-sl3000-emmc
+endef
+
+define Package/uboot-mediatek-mt7981-sl3000-emmc/install
+	\$(INSTALL_DIR) \$(1)
+	\$(CP) \$(PKG_BUILD_DIR)/u-boot.bin \$(1)/u-boot-sl3000.bin
+endef
+
+\$(eval \$(call BuildPackage,uboot-mediatek-mt7981-sl3000-emmc))
+EOF
+
+# 6. [内核 DTS 物理注入 - 目标根目录文件]
 find target/linux/mediatek/ -name "files-*" -type d | while read -r dir; do
     DTS_PATH="$dir/arch/arm64/boot/dts/mediatek"
     mkdir -p "$DTS_PATH"
-    [ -f "${SRC_DIR}/custom-config/mt7981b-3000-emmc.dts" ] && cp -v "${SRC_DIR}/custom-config/mt7981b-3000-emmc.dts" "$DTS_PATH/"
+    if [ -f "${SRC_DIR}/mt7981b-3000-emmc.dts" ]; then
+        cp -v "${SRC_DIR}/mt7981b-3000-emmc.dts" "$DTS_PATH/"
+    fi
 done
 
-# 7. [物理配置锁定]
-printf 'CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_TARGET_mediatek_filogic_DEVICE_mt7981-sl3000-emmc=y\n' > .config
-printf 'CONFIG_TARGET_KERNEL_PARTSIZE=131072\nCONFIG_TARGET_ROOTFS_PARTSIZE=1048576\nCONFIG_TARGET_ROOTFS_PARTNAME="rootfs"\n' >> .config
-printf 'CONFIG_PACKAGE_arm-trusted-firmware-mediatek=y\nCONFIG_ARM_TRUSTED_FIRMWARE_MEDIATEK_mt7981-emmc-ddr3=y\nCONFIG_PACKAGE_uboot-mediatek-mt7981-sl3000-emmc=y\n' >> .config
-printf 'CONFIG_PACKAGE_kmod-mmc=y\nCONFIG_PACKAGE_kmod-sdhci-mtk=y\nCONFIG_PACKAGE_kmod-fs-f2fs=y\nCONFIG_PACKAGE_f2fs-tools=y\nCONFIG_PACKAGE_f2fsck=y\nCONFIG_PACKAGE_parted=y\nCONFIG_PACKAGE_lsblk=y\nCONFIG_PACKAGE_blkid=y\nCONFIG_PACKAGE_block-mount=y\nCONFIG_PACKAGE_kmod-zram=y\nCONFIG_PACKAGE_zram-swap=y\nCONFIG_PACKAGE_luci=y\nCONFIG_PACKAGE_luci-theme-bootstrap=y\nCONFIG_PACKAGE_curl=y\nCONFIG_PACKAGE_wget-ssl=y\nCONFIG_PACKAGE_htop=y\nCONFIG_PACKAGE_nano=y\n' >> .config
+# 7. [物理配置应用 - 从根目录 sl3000.config 提取]
+if [ -f "${SRC_DIR}/sl3000.config" ]; then
+    printf "正在应用根目录物理配置文件...\n"
+    cp -f "${SRC_DIR}/sl3000.config" .config
+    # 物理锁定关键分区数值
+    sed -i 's/CONFIG_TARGET_KERNEL_PARTSIZE=.*/CONFIG_TARGET_KERNEL_PARTSIZE=131072/' .config
+    sed -i 's/CONFIG_TARGET_ROOTFS_PARTSIZE=.*/CONFIG_TARGET_ROOTFS_PARTSIZE=1048576/' .config
+else
+    printf "警告：未找到 sl3000.config，执行物理保底配置...\n"
+    printf 'CONFIG_TARGET_mediatek=y\nCONFIG_TARGET_mediatek_filogic=y\nCONFIG_TARGET_mediatek_filogic_DEVICE_mt7981-sl3000-emmc=y\n' > .config
+    printf 'CONFIG_TARGET_KERNEL_PARTSIZE=131072\nCONFIG_TARGET_ROOTFS_PARTSIZE=1048576\n' >> .config
+fi
